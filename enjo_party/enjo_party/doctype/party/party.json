@@ -1,0 +1,190 @@
+{
+ "actions": [],
+ "allow_rename": 1,
+ "autoname": "field:party_name",
+ "creation": "2025-05-06 10:01:42.053026",
+ "doctype": "DocType",
+ "engine": "InnoDB",
+ "field_order": [
+  "section_break_xbgb",
+  "party_name",
+  "party_date",
+  "partnerin",
+  "gastgeberin",
+  "gesamtumsatz",
+  "gastgeber_gutschein_wert",
+  "status",
+  "kunden",
+  "amended_from",
+  "produktauswahl_f\u00fcr_gast_1_section",
+  "produktauswahl_f\u00fcr_gast_1",
+  "versand_gast_1",
+  "produktauswahl_f\u00fcr_gast_2_section",
+  "produktauswahl_f\u00fcr_gast_2",
+  "versand_gast_2",
+  "produktauswahl_f\u00fcr_gast_3_section",
+  "produktauswahl_f\u00fcr_gast_3",
+  "versand_gast_3",
+  "produktauswahl_f\u00fcr_gast_4_section",
+  "produktauswahl_f\u00fcr_gast_4",
+  "versand_gast_4"
+ ],
+ "fields": [
+  {
+   "fieldname": "section_break_xbgb",
+   "fieldtype": "Section Break",
+   "label": "Teilnehmer"
+  },
+  {
+   "fieldname": "amended_from",
+   "fieldtype": "Link",
+   "label": "Amended From",
+   "no_copy": 1,
+   "options": "Party",
+   "print_hide": 1,
+   "read_only": 1,
+   "search_index": 1
+  },
+  {
+   "fieldname": "party_name",
+   "fieldtype": "Data",
+   "in_list_view": 1,
+   "label": "Party Name",
+   "reqd": 1,
+   "unique": 1
+  },
+  {
+   "fieldname": "party_date",
+   "fieldtype": "Date",
+   "label": "Datum"
+  },
+  {
+   "fieldname": "partnerin",
+   "fieldtype": "Link",
+   "label": "Partnerin",
+   "options": "Sales Partner",
+   "reqd": 1
+  },
+  {
+   "fieldname": "gastgeberin",
+   "fieldtype": "Link",
+   "label": "Gastgeberin",
+   "options": "Customer",
+   "reqd": 1
+  },
+  {
+   "fieldname": "gesamtumsatz",
+   "fieldtype": "Currency",
+   "label": "Gesamtumsatz",
+   "read_only": 1
+  },
+  {
+   "fieldname": "gastgeber_gutschein_wert",
+   "fieldtype": "Currency",
+   "label": "Gutscheinwert f\u00fcr Gastgeber",
+   "read_only": 1
+  },
+  {
+   "default": "Geplant",
+   "fieldname": "status",
+   "fieldtype": "Select",
+   "label": "Status",
+   "options": "Geplant\nAktiv\nAbgeschlossen"
+  },
+  {
+   "fieldname": "kunden",
+   "fieldtype": "Table",
+   "label": "G\u00e4ste (min. 3)",
+   "options": "Party Kunde"
+  },
+  {
+   "fieldname": "produktauswahl_f\u00fcr_gast_2",
+   "fieldtype": "Table",
+   "options": "Sales Invoice Item"
+  },
+  {
+   "fieldname": "produktauswahl_f\u00fcr_gast_3",
+   "fieldtype": "Table",
+   "options": "Sales Invoice Item"
+  },
+  {
+   "fieldname": "produktauswahl_f\u00fcr_gast_1",
+   "fieldtype": "Table",
+   "options": "Sales Invoice Item"
+  },
+  {
+   "fieldname": "versand_gast_1",
+   "fieldtype": "Select",
+   "label": "Versand Gast 1"
+  },
+  {
+   "fieldname": "produktauswahl_f\u00fcr_gast_1_section",
+   "fieldtype": "Section Break",
+   "label": "Produktauswahl f\u00fcr Gast 1"
+  },
+  {
+   "fieldname": "produktauswahl_f\u00fcr_gast_2_section",
+   "fieldtype": "Section Break",
+   "label": "Produktauswahl f\u00fcr Gast 2"
+  },
+  {
+   "fieldname": "versand_gast_2",
+   "fieldtype": "Select",
+   "label": "Versand Gast 2"
+  },
+  {
+   "fieldname": "produktauswahl_f\u00fcr_gast_3_section",
+   "fieldtype": "Section Break",
+   "label": "Produktauswahl f\u00fcr Gast 3"
+  },
+  {
+   "fieldname": "versand_gast_3",
+   "fieldtype": "Select",
+   "label": "Versand Gast 3"
+  },
+  {
+   "fieldname": "produktauswahl_f\u00fcr_gast_4_section",
+   "fieldtype": "Section Break",
+   "label": "Produktauswahl f\u00fcr Gast 4"
+  },
+  {
+   "fieldname": "produktauswahl_f\u00fcr_gast_4",
+   "fieldtype": "Table",
+   "options": "Sales Invoice Item"
+  },
+  {
+   "fieldname": "versand_gast_4",
+   "fieldtype": "Select",
+   "label": "Versand Gast 4"
+  }
+ ],
+ "grid_page_length": 50,
+ "index_web_pages_for_search": 1,
+ "is_submittable": 1,
+ "links": [],
+ "modified": "2025-05-08 17:16:02.598127",
+ "modified_by": "Administrator",
+ "module": "Enjo Party",
+ "name": "Party",
+ "naming_rule": "By fieldname",
+ "owner": "Administrator",
+ "permissions": [
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "System Manager",
+   "share": 1,
+   "submit": 1,
+   "write": 1
+  }
+ ],
+ "row_format": "Dynamic",
+ "sort_field": "creation",
+ "sort_order": "DESC",
+ "states": []
+}

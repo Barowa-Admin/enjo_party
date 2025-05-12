@@ -1,0 +1,89 @@
+{
+ "actions": [],
+ "allow_rename": 1,
+ "autoname": "field:item_code",
+ "creation": "2025-05-06 12:15:45.590225",
+ "doctype": "DocType",
+ "engine": "InnoDB",
+ "field_order": [
+  "produkt_section",
+  "item_code",
+  "item_name",
+  "description",
+  "price",
+  "image",
+  "custom_considered_for_action"
+ ],
+ "fields": [
+  {
+   "fieldname": "produkt_section",
+   "fieldtype": "Section Break",
+   "label": "Produkt"
+  },
+  {
+   "fieldname": "item_code",
+   "fieldtype": "Data",
+   "in_list_view": 1,
+   "label": "Artikelnummer",
+   "reqd": 1,
+   "unique": 1
+  },
+  {
+   "fieldname": "item_name",
+   "fieldtype": "Data",
+   "in_list_view": 1,
+   "label": "Artikelname",
+   "reqd": 1
+  },
+  {
+   "fieldname": "description",
+   "fieldtype": "Text Editor",
+   "label": "Beschreibung"
+  },
+  {
+   "fieldname": "price",
+   "fieldtype": "Currency",
+   "in_list_view": 1,
+   "label": "Preis",
+   "reqd": 1
+  },
+  {
+   "fieldname": "image",
+   "fieldtype": "Image",
+   "label": "Bild"
+  },
+  {
+   "default": "0",
+   "fieldname": "custom_considered_for_action",
+   "fieldtype": "Check",
+   "label": "F\u00fcr Gastgeber-Gutschein verwendbar"
+  }
+ ],
+ "grid_page_length": 50,
+ "index_web_pages_for_search": 1,
+ "links": [],
+ "modified": "2025-05-06 12:18:58.936928",
+ "modified_by": "Administrator",
+ "module": "Enjo Party",
+ "name": "Produkt",
+ "naming_rule": "By fieldname",
+ "owner": "Administrator",
+ "permissions": [
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "System Manager",
+   "share": 1,
+   "write": 1
+  }
+ ],
+ "row_format": "Dynamic",
+ "sort_field": "creation",
+ "sort_order": "DESC",
+ "states": []
+}

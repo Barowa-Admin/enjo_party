@@ -1,0 +1,63 @@
+{
+ "actions": [],
+ "allow_rename": 1,
+ "creation": "2025-05-06 12:28:15.915858",
+ "doctype": "DocType",
+ "editable_grid": 1,
+ "engine": "InnoDB",
+ "field_order": [
+  "produkt",
+  "menge",
+  "preis",
+  "zwischensumme",
+  "versandziel"
+ ],
+ "fields": [
+  {
+   "fieldname": "versandziel",
+   "fieldtype": "Link",
+   "label": "Versandziel",
+   "options": "Party Kunde"
+  },
+  {
+   "fieldname": "produkt",
+   "fieldtype": "Link",
+   "in_list_view": 1,
+   "label": "Produkt",
+   "options": "Produkt",
+   "reqd": 1
+  },
+  {
+   "default": "1",
+   "fieldname": "menge",
+   "fieldtype": "Int",
+   "label": "Menge"
+  },
+  {
+   "fieldname": "preis",
+   "fieldtype": "Currency",
+   "label": "Preis",
+   "read_only": 1
+  },
+  {
+   "fieldname": "zwischensumme",
+   "fieldtype": "Currency",
+   "label": "Zwischensumme",
+   "read_only": 1
+  }
+ ],
+ "grid_page_length": 50,
+ "index_web_pages_for_search": 1,
+ "istable": 1,
+ "links": [],
+ "modified": "2025-05-08 14:58:30.934351",
+ "modified_by": "Administrator",
+ "module": "Enjo Party",
+ "name": "Produkt Position",
+ "owner": "Administrator",
+ "permissions": [],
+ "row_format": "Dynamic",
+ "sort_field": "creation",
+ "sort_order": "DESC",
+ "states": []
+}

@@ -1,0 +1,80 @@
+{
+ "actions": [],
+ "allow_rename": 1,
+ "autoname": "field:full_name",
+ "creation": "2025-05-06 12:07:43.750407",
+ "doctype": "DocType",
+ "engine": "InnoDB",
+ "field_order": [
+  "kunde_section",
+  "full_name",
+  "email",
+  "telefon",
+  "adresse",
+  "ist_gastgeberin"
+ ],
+ "fields": [
+  {
+   "fieldname": "kunde_section",
+   "fieldtype": "Section Break",
+   "label": "Kunde"
+  },
+  {
+   "fieldname": "full_name",
+   "fieldtype": "Data",
+   "in_list_view": 1,
+   "label": "Vollst\u00e4ndiger Name",
+   "reqd": 1,
+   "unique": 1
+  },
+  {
+   "fieldname": "email",
+   "fieldtype": "Data",
+   "label": "E-Mail"
+  },
+  {
+   "fieldname": "telefon",
+   "fieldtype": "Data",
+   "label": "Telefon"
+  },
+  {
+   "fieldname": "adresse",
+   "fieldtype": "Small Text",
+   "label": "Adresse",
+   "reqd": 1
+  },
+  {
+   "default": "0",
+   "fieldname": "ist_gastgeberin",
+   "fieldtype": "Check",
+   "label": "Ist Gastgeberin"
+  }
+ ],
+ "grid_page_length": 50,
+ "index_web_pages_for_search": 1,
+ "links": [],
+ "modified": "2025-05-06 12:15:22.987911",
+ "modified_by": "Administrator",
+ "module": "Enjo Party",
+ "name": "Kunde",
+ "naming_rule": "By fieldname",
+ "owner": "Administrator",
+ "permissions": [
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "System Manager",
+   "share": 1,
+   "write": 1
+  }
+ ],
+ "row_format": "Dynamic",
+ "sort_field": "creation",
+ "sort_order": "DESC",
+ "states": []
+}
