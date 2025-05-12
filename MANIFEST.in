@@ -1,0 +1,18 @@
+include MANIFEST.in
+include requirements.txt
+include *.json
+include *.md
+include *.py
+include *.txt
+recursive-include enjo_party *.css
+recursive-include enjo_party *.csv
+recursive-include enjo_party *.html
+recursive-include enjo_party *.ico
+recursive-include enjo_party *.js
+recursive-include enjo_party *.json
+recursive-include enjo_party *.md
+recursive-include enjo_party *.png
+recursive-include enjo_party *.py
+recursive-include enjo_party *.svg
+recursive-include enjo_party *.txt
+recursive-exclude enjo_party *.pyc 

@@ -1,12 +1,6 @@
 // Copyright (c) 2025, Elia and contributors
 // For license information, please see license.txt
 
-// frappe.ui.form.on("Party", {
-// 	refresh(frm) {
-
-// 	},
-// });
-
 frappe.ui.form.on('Party', {
 	refresh(frm) {
 		// Zeige die Produktauswahl-Tabellen für die Gäste erst nach dem Speichern
@@ -42,6 +36,41 @@ frappe.ui.form.on('Party', {
 		for (let i = 1; i <= 9; i++) {
 			frm.set_df_property(`versand_gast_${i}`, 'options', optionen.join('\n'));
 		}
+		
+		// Füge Button für die Rechnungserstellung hinzu, nur wenn das Dokument gespeichert und noch nicht abgeschlossen ist
+		if (!frm.is_new() && frm.doc.status !== 'Abgeschlossen') {
+			frm.add_custom_button(__('Rechnungen erstellen'), function() {
+				// Bestätigungsdialog anzeigen
+				frappe.confirm(
+					'Möchtest Du Rechnungen für alle Gäste mit Bestellungen erstellen?',
+					function() {
+						// Führe die Rechnungserstellung aus wenn bestätigt
+						frappe.call({
+							method: 'enjo_party.enjo_party.doctype.party.party.create_invoices',
+							args: {
+								party: frm.doc.name
+							},
+							freeze: true,
+							freeze_message: 'Erstelle Rechnungen...',
+							callback: function(r) {
+								if (r.message) {
+									frappe.msgprint({
+										title: __('Rechnungen erstellt'),
+										indicator: 'green',
+										message: __('Es wurden {0} Rechnungen erstellt.', [r.message.length])
+									});
+									// Formular neu laden
+									frm.reload_doc();
+								}
+							}
+						});
+					},
+					function() {
+						// Wenn der Benutzer abbricht, nichts tun
+					}
+				);
+			}, __('Aktionen'));
+		}
 	},
 	
 	onload(frm) {
@@ -60,4 +89,4 @@ frappe.ui.form.on('Party', {
 			frm.refresh_field('kunden');
 		}
 	}
-});
+}); 
