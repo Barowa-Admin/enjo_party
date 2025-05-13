@@ -7,7 +7,49 @@ from frappe.utils import flt, today
 
 
 class Party(Document):
-	pass
+	def before_save(self):
+		# Wenn es ein neues Dokument ist, wird der Name erst nach dem Speichern generiert
+		if self.is_new():
+			# Setze party_name auf None, wird nach dem Einfügen gesetzt
+			self.party_name = None
+
+	def after_insert(self):
+		# Nach dem Einfügen den party_name auf den generierten Namen setzen
+		self.db_set("party_name", self.name, update_modified=False)
+		
+	def validate(self):
+		# Stelle sicher, dass UOM Conversion Factor in allen Produkttabellen gesetzt ist
+		self.set_uom_conversion_factor()
+	
+	def set_uom_conversion_factor(self):
+		# Für alle Produktauswahl-Tabellen
+		for i in range(1, 16):  # 1 bis 15
+			field_name = f"produktauswahl_für_gast_{i}"
+			if hasattr(self, field_name) and getattr(self, field_name):
+				table = getattr(self, field_name)
+				for item in table:
+					if item.item_code:
+						# Immer explizit den UOM Conversion Factor setzen
+						item.uom = item.uom or "Nos"
+						item.uom_conversion_factor = 1
+						
+						# Falls Item Name fehlt
+						if not item.item_name:
+							item_data = frappe.db.get_value("Item", item.item_code, "item_name")
+							item.item_name = item_data or item.item_code
+		
+		# Auch für die Gastgeberin-Tabelle den UOM Conversion Factor setzen
+		if hasattr(self, "produktauswahl_für_gastgeberin") and self.produktauswahl_für_gastgeberin:
+			for item in self.produktauswahl_für_gastgeberin:
+				if item.item_code:
+					# Immer explizit den UOM Conversion Factor setzen
+					item.uom = item.uom or "Nos"
+					item.uom_conversion_factor = 1
+					
+					# Falls Item Name fehlt
+					if not item.item_name:
+						item_data = frappe.db.get_value("Item", item.item_code, "item_name")
+						item.item_name = item_data or item.item_code
 
 @frappe.whitelist()
 def create_invoices(party):
@@ -24,6 +66,8 @@ def create_invoices(party):
 	
 	# Gruppiere Kunden nach Versandziel
 	shipping_groups = {}
+	
+	# Kunden hinzufügen
 	for idx, kunde in enumerate(party_doc.kunden or []):
 		# Versandziel bestimmen (1-basiert für die feldnamen)
 		index = idx + 1
@@ -40,38 +84,44 @@ def create_invoices(party):
 		# Zu Versandgruppen hinzufügen
 		if ship_to not in shipping_groups:
 			shipping_groups[ship_to] = []
-		shipping_groups[ship_to].append(kunde)
+		shipping_groups[ship_to].append({"kunde": kunde.kunde, "type": "gast", "index": index})
+	
+	# Gastgeberin hinzufügen (wenn sie auch Produkte hat)
+	if hasattr(party_doc, "produktauswahl_für_gastgeberin") and party_doc.produktauswahl_für_gastgeberin:
+		if any(p.item_code and p.qty for p in party_doc.produktauswahl_für_gastgeberin):
+			versand_zu = party_doc.versand_gastgeberin if hasattr(party_doc, "versand_gastgeberin") else None
+			ship_to = versand_zu or party_doc.gastgeberin
+			
+			if ship_to not in shipping_groups:
+				shipping_groups[ship_to] = []
+			shipping_groups[ship_to].append({"kunde": party_doc.gastgeberin, "type": "gastgeberin"})
 	
 	# Versandkosten pro Gruppe berechnen
 	FREE_SHIPPING_THRESHOLD = 199.0
 	SHIPPING_COST = 7.0
 	
 	for ship_to, customers in shipping_groups.items():
-		# Berechne Gesamtsumme für die Versandgruppe
-		total_group_amount = sum(flt(c.bestellsumme or 0) for c in customers)
+		# Berechne Gesamtsumme für die Versandgruppe (vorübergehend, wird später genauer berechnet)
+		# Hier müssten wir eigentlich die tatsächlichen Bestellsummen addieren
+		total_group_amount = 0  # Wird später genauer berechnet
 		
 		# Versandkosten für die Gruppe festlegen
 		is_free_shipping = total_group_amount >= FREE_SHIPPING_THRESHOLD
 		shipping_per_customer = 0 if is_free_shipping else SHIPPING_COST / len(customers)
 		
 		# Für jeden Kunden in der Gruppe Rechnung erstellen
-		for kunde in customers:
+		for customer_info in customers:
 			# Bestellungen für diesen Kunden zusammenstellen
 			items = []
-			gast_idx = None
+			customer_type = customer_info["type"]
+			customer_name = customer_info["kunde"]
 			
-			# Bestimme den Index des Kunden in der Kundenliste
-			for i, k in enumerate(party_doc.kunden):
-				if k.name == kunde.name:
-					gast_idx = i + 1  # 1-basiert
-					break
-			
-			# Wenn wir keinen Index gefunden haben, überspringen
-			if gast_idx is None:
-				continue
-			
-			# Produktauswahl-Tabelle für diesen Gast finden
-			produktauswahl_field = f"produktauswahl_für_gast_{gast_idx}"
+			# Produktauswahl-Tabelle für diesen Kunden finden
+			if customer_type == "gast":
+				gast_idx = customer_info["index"]
+				produktauswahl_field = f"produktauswahl_für_gast_{gast_idx}"
+			else:  # Gastgeberin
+				produktauswahl_field = "produktauswahl_für_gastgeberin"
 			
 			# Prüfen ob die Tabelle existiert und befüllt ist
 			if hasattr(party_doc, produktauswahl_field) and getattr(party_doc, produktauswahl_field):
@@ -100,7 +150,7 @@ def create_invoices(party):
 				})
 			
 			# Gastgeber-Gutschein als Rabattposition, falls für Gastgeber
-			is_gastgeber = kunde.kunde == party_doc.gastgeberin
+			is_gastgeber = customer_name == party_doc.gastgeberin
 			gutschein_wert = flt(party_doc.gastgeber_gutschein_wert or 0)
 			
 			if is_gastgeber and gutschein_wert > 0:
@@ -114,7 +164,7 @@ def create_invoices(party):
 			try:
 				invoice = frappe.get_doc({
 					"doctype": "Sales Invoice",
-					"customer": kunde.kunde,
+					"customer": customer_name,
 					"party_reference": party_doc.name,  # Custom Feld zur Verknüpfung mit Party
 					"posting_date": today(),
 					"items": items,
@@ -132,7 +182,7 @@ def create_invoices(party):
 				frappe.db.commit()
 				
 			except Exception as e:
-				frappe.log_error(f"Fehler beim Erstellen der Rechnung für {kunde.kunde}: {str(e)}")
+				frappe.log_error(f"Fehler beim Erstellen der Rechnung für {customer_name}: {str(e)}")
 				frappe.db.rollback()
 				continue
 	

@@ -1,7 +1,7 @@
 {
  "actions": [],
  "allow_rename": 1,
- "autoname": "field:party_name",
+ "autoname": "format:P{YY}{####}",
  "creation": "2025-05-06 10:01:42.053026",
  "doctype": "DocType",
  "engine": "InnoDB",
@@ -16,18 +16,54 @@
   "status",
   "kunden",
   "amended_from",
-  "produktauswahl_f\u00fcr_gast_1_section",
-  "produktauswahl_f\u00fcr_gast_1",
+  "produktauswahl_für_gast_1_section",
+  "produktauswahl_für_gast_1",
   "versand_gast_1",
-  "produktauswahl_f\u00fcr_gast_2_section",
-  "produktauswahl_f\u00fcr_gast_2",
+  "produktauswahl_für_gast_2_section",
+  "produktauswahl_für_gast_2",
   "versand_gast_2",
-  "produktauswahl_f\u00fcr_gast_3_section",
-  "produktauswahl_f\u00fcr_gast_3",
+  "produktauswahl_für_gast_3_section",
+  "produktauswahl_für_gast_3",
   "versand_gast_3",
-  "produktauswahl_f\u00fcr_gast_4_section",
-  "produktauswahl_f\u00fcr_gast_4",
-  "versand_gast_4"
+  "produktauswahl_für_gast_4_section",
+  "produktauswahl_für_gast_4",
+  "versand_gast_4",
+  "produktauswahl_für_gast_5_section",
+  "produktauswahl_für_gast_5",
+  "versand_gast_5",
+  "produktauswahl_für_gast_6_section",
+  "produktauswahl_für_gast_6",
+  "versand_gast_6",
+  "produktauswahl_für_gast_7_section",
+  "produktauswahl_für_gast_7",
+  "versand_gast_7",
+  "produktauswahl_für_gast_8_section",
+  "produktauswahl_für_gast_8",
+  "versand_gast_8",
+  "produktauswahl_für_gast_9_section",
+  "produktauswahl_für_gast_9",
+  "versand_gast_9",
+  "produktauswahl_für_gast_10_section",
+  "produktauswahl_für_gast_10",
+  "versand_gast_10",
+  "produktauswahl_für_gast_11_section",
+  "produktauswahl_für_gast_11",
+  "versand_gast_11",
+  "produktauswahl_für_gast_12_section",
+  "produktauswahl_für_gast_12",
+  "versand_gast_12",
+  "produktauswahl_für_gast_13_section",
+  "produktauswahl_für_gast_13",
+  "versand_gast_13",
+  "produktauswahl_für_gast_14_section",
+  "produktauswahl_für_gast_14",
+  "versand_gast_14",
+  "produktauswahl_für_gast_15_section",
+  "produktauswahl_für_gast_15",
+  "versand_gast_15",
+  "produktauswahl_für_gastgeberin_section",
+  "produktauswahl_für_gastgeberin",
+  "versand_gastgeberin"
  ],
  "fields": [
   {
@@ -50,8 +86,7 @@
    "fieldtype": "Data",
    "in_list_view": 1,
    "label": "Party Name",
-   "reqd": 1,
-   "unique": 1
+   "read_only": 1
   },
   {
    "fieldname": "party_date",
@@ -81,7 +116,7 @@
   {
    "fieldname": "gastgeber_gutschein_wert",
    "fieldtype": "Currency",
-   "label": "Gutscheinwert f\u00fcr Gastgeber",
+   "label": "Gutscheinwert für Gastgeber",
    "read_only": 1
   },
   {
@@ -94,79 +129,275 @@
   {
    "fieldname": "kunden",
    "fieldtype": "Table",
-   "label": "G\u00e4ste (min. 3)",
+   "label": "Gäste (min. 3)",
    "options": "Party Kunde"
   },
   {
-   "fieldname": "produktauswahl_f\u00fcr_gast_2",
+   "fieldname": "produktauswahl_für_gast_2",
    "fieldtype": "Table",
-   "options": "Sales Invoice Item"
+   "options": "Sales Order Item"
   },
   {
-   "fieldname": "produktauswahl_f\u00fcr_gast_3",
+   "fieldname": "produktauswahl_für_gast_3",
    "fieldtype": "Table",
-   "options": "Sales Invoice Item"
+   "options": "Sales Order Item"
   },
   {
-   "fieldname": "produktauswahl_f\u00fcr_gast_1",
+   "fieldname": "produktauswahl_für_gast_1",
    "fieldtype": "Table",
-   "options": "Sales Invoice Item"
+   "options": "Sales Order Item"
   },
   {
    "fieldname": "versand_gast_1",
    "fieldtype": "Select",
-   "label": "Versand Gast 1"
+   "label": "Versand Gast 1",
+   "reqd": 1
   },
   {
-   "fieldname": "produktauswahl_f\u00fcr_gast_1_section",
+   "fieldname": "produktauswahl_für_gast_1_section",
    "fieldtype": "Section Break",
-   "label": "Produktauswahl f\u00fcr Gast 1"
+   "label": "Produktauswahl für Gast 1"
   },
   {
-   "fieldname": "produktauswahl_f\u00fcr_gast_2_section",
+   "fieldname": "produktauswahl_für_gast_2_section",
    "fieldtype": "Section Break",
-   "label": "Produktauswahl f\u00fcr Gast 2"
+   "label": "Produktauswahl für Gast 2"
   },
   {
    "fieldname": "versand_gast_2",
    "fieldtype": "Select",
-   "label": "Versand Gast 2"
+   "label": "Versand Gast 2",
+   "reqd": 1
   },
   {
-   "fieldname": "produktauswahl_f\u00fcr_gast_3_section",
+   "fieldname": "produktauswahl_für_gast_3_section",
    "fieldtype": "Section Break",
-   "label": "Produktauswahl f\u00fcr Gast 3"
+   "label": "Produktauswahl für Gast 3"
   },
   {
    "fieldname": "versand_gast_3",
    "fieldtype": "Select",
-   "label": "Versand Gast 3"
+   "label": "Versand Gast 3",
+   "reqd": 1
   },
   {
-   "fieldname": "produktauswahl_f\u00fcr_gast_4_section",
+   "fieldname": "produktauswahl_für_gast_4_section",
    "fieldtype": "Section Break",
-   "label": "Produktauswahl f\u00fcr Gast 4"
+   "label": "Produktauswahl für Gast 4"
   },
   {
-   "fieldname": "produktauswahl_f\u00fcr_gast_4",
+   "fieldname": "produktauswahl_für_gast_4",
    "fieldtype": "Table",
-   "options": "Sales Invoice Item"
+   "options": "Sales Order Item"
   },
   {
    "fieldname": "versand_gast_4",
    "fieldtype": "Select",
-   "label": "Versand Gast 4"
+   "label": "Versand Gast 4",
+   "reqd": 1
+  },
+  {
+   "fieldname": "produktauswahl_für_gast_5_section",
+   "fieldtype": "Section Break",
+   "label": "Produktauswahl für Gast 5"
+  },
+  {
+   "fieldname": "produktauswahl_für_gast_5",
+   "fieldtype": "Table",
+   "options": "Sales Order Item"
+  },
+  {
+   "fieldname": "versand_gast_5",
+   "fieldtype": "Select",
+   "label": "Versand Gast 5",
+   "reqd": 1
+  },
+  {
+   "fieldname": "produktauswahl_für_gast_6_section",
+   "fieldtype": "Section Break",
+   "label": "Produktauswahl für Gast 6"
+  },
+  {
+   "fieldname": "produktauswahl_für_gast_6",
+   "fieldtype": "Table",
+   "options": "Sales Order Item"
+  },
+  {
+   "fieldname": "versand_gast_6",
+   "fieldtype": "Select",
+   "label": "Versand Gast 6",
+   "reqd": 1
+  },
+  {
+   "fieldname": "produktauswahl_für_gast_7_section",
+   "fieldtype": "Section Break",
+   "label": "Produktauswahl für Gast 7"
+  },
+  {
+   "fieldname": "produktauswahl_für_gast_7",
+   "fieldtype": "Table",
+   "options": "Sales Order Item"
+  },
+  {
+   "fieldname": "versand_gast_7",
+   "fieldtype": "Select",
+   "label": "Versand Gast 7",
+   "reqd": 1
+  },
+  {
+   "fieldname": "produktauswahl_für_gast_8_section",
+   "fieldtype": "Section Break",
+   "label": "Produktauswahl für Gast 8"
+  },
+  {
+   "fieldname": "produktauswahl_für_gast_8",
+   "fieldtype": "Table",
+   "options": "Sales Order Item"
+  },
+  {
+   "fieldname": "versand_gast_8",
+   "fieldtype": "Select",
+   "label": "Versand Gast 8",
+   "reqd": 1
+  },
+  {
+   "fieldname": "produktauswahl_für_gast_9_section",
+   "fieldtype": "Section Break",
+   "label": "Produktauswahl für Gast 9"
+  },
+  {
+   "fieldname": "produktauswahl_für_gast_9",
+   "fieldtype": "Table",
+   "options": "Sales Order Item"
+  },
+  {
+   "fieldname": "versand_gast_9",
+   "fieldtype": "Select",
+   "label": "Versand Gast 9",
+   "reqd": 1
+  },
+  {
+   "fieldname": "produktauswahl_für_gast_10_section",
+   "fieldtype": "Section Break",
+   "label": "Produktauswahl für Gast 10"
+  },
+  {
+   "fieldname": "produktauswahl_für_gast_10",
+   "fieldtype": "Table",
+   "options": "Sales Order Item"
+  },
+  {
+   "fieldname": "versand_gast_10",
+   "fieldtype": "Select",
+   "label": "Versand Gast 10",
+   "reqd": 1
+  },
+  {
+   "fieldname": "produktauswahl_für_gast_11_section",
+   "fieldtype": "Section Break",
+   "label": "Produktauswahl für Gast 11"
+  },
+  {
+   "fieldname": "produktauswahl_für_gast_11",
+   "fieldtype": "Table",
+   "options": "Sales Order Item"
+  },
+  {
+   "fieldname": "versand_gast_11",
+   "fieldtype": "Select",
+   "label": "Versand Gast 11",
+   "reqd": 1
+  },
+  {
+   "fieldname": "produktauswahl_für_gast_12_section",
+   "fieldtype": "Section Break",
+   "label": "Produktauswahl für Gast 12"
+  },
+  {
+   "fieldname": "produktauswahl_für_gast_12",
+   "fieldtype": "Table",
+   "options": "Sales Order Item"
+  },
+  {
+   "fieldname": "versand_gast_12",
+   "fieldtype": "Select",
+   "label": "Versand Gast 12",
+   "reqd": 1
+  },
+  {
+   "fieldname": "produktauswahl_für_gast_13_section",
+   "fieldtype": "Section Break",
+   "label": "Produktauswahl für Gast 13"
+  },
+  {
+   "fieldname": "produktauswahl_für_gast_13",
+   "fieldtype": "Table",
+   "options": "Sales Order Item"
+  },
+  {
+   "fieldname": "versand_gast_13",
+   "fieldtype": "Select",
+   "label": "Versand Gast 13",
+   "reqd": 1
+  },
+  {
+   "fieldname": "produktauswahl_für_gast_14_section",
+   "fieldtype": "Section Break",
+   "label": "Produktauswahl für Gast 14"
+  },
+  {
+   "fieldname": "produktauswahl_für_gast_14",
+   "fieldtype": "Table",
+   "options": "Sales Order Item"
+  },
+  {
+   "fieldname": "versand_gast_14",
+   "fieldtype": "Select",
+   "label": "Versand Gast 14",
+   "reqd": 1
+  },
+  {
+   "fieldname": "produktauswahl_für_gast_15_section",
+   "fieldtype": "Section Break",
+   "label": "Produktauswahl für Gast 15"
+  },
+  {
+   "fieldname": "produktauswahl_für_gast_15",
+   "fieldtype": "Table",
+   "options": "Sales Order Item"
+  },
+  {
+   "fieldname": "versand_gast_15",
+   "fieldtype": "Select",
+   "label": "Versand Gast 15",
+   "reqd": 1
+  },
+  {
+   "fieldname": "produktauswahl_für_gastgeberin_section",
+   "fieldtype": "Section Break",
+   "label": "Produktauswahl für Gastgeberin"
+  },
+  {
+   "fieldname": "produktauswahl_für_gastgeberin",
+   "fieldtype": "Table",
+   "options": "Sales Order Item"
+  },
+  {
+   "fieldname": "versand_gastgeberin",
+   "fieldtype": "Select",
+   "label": "Versand Gastgeberin",
+   "reqd": 1
   }
  ],
  "grid_page_length": 50,
  "index_web_pages_for_search": 1,
  "is_submittable": 1,
  "links": [],
- "modified": "2025-05-08 17:16:02.598127",
+ "modified": "2025-06-30 21:37:19.275744",
  "modified_by": "Administrator",
  "module": "Enjo Party",
  "name": "Party",
- "naming_rule": "By fieldname",
+ "naming_rule": "Expression",
  "owner": "Administrator",
  "permissions": [
   {
@@ -184,7 +415,8 @@
   }
  ],
  "row_format": "Dynamic",
- "sort_field": "creation",
+ "sort_field": "modified",
  "sort_order": "DESC",
- "states": []
+ "states": [],
+ "track_changes": 1
 }
