@@ -48,25 +48,24 @@ function updateCustomHeaders(frm) {
 		let sectionHeader = document.querySelector(`[data-fieldname="${sectionId}"] .section-head`);
 		
 		if (sectionHeader) {
-			// Erzeuge einen benutzerdefinierten Header mit dem Kundennamen
-			let kundenName = kundeRow.kunde;
-			
-			// Wende den Stil direkt auf das Kopfelement an, anstatt den innerHTML zu ersetzen
-			sectionHeader.style.fontWeight = "500";
-			sectionHeader.style.fontSize = "1em";
-			sectionHeader.style.color = "#6C7680";
-			
-			// Prüfe, ob wir bereits einen angepassten Header haben
-			if (!sectionHeader.querySelector('.custom-header')) {
-				// Erstelle einen neuen Inhalt mit einem benutzerdefinierten span
-				sectionHeader.innerHTML = `Produktauswahl für <span class="custom-header" style="font-weight: 600; color: #1F272E;">${kundenName}</span>`;
-			} else {
-				// Aktualisiere nur den Text des benutzerdefinierten Spans
-				sectionHeader.querySelector('.custom-header').textContent = kundenName;
-			}
-			
-			// Auch das Label für das Versand-Dropdown anpassen
-			frm.set_df_property(`versand_gast_${i}`, 'label', `Versand zu ${kundenName}`);
+			// Hole den echten Kundennamen asynchron
+			frappe.db.get_doc('Customer', kundeRow.kunde).then(customer_doc => {
+				let kundenName = customer_doc.customer_name || kundeRow.kunde;
+				// Wende den Stil direkt auf das Kopfelement an, anstatt den innerHTML zu ersetzen
+				sectionHeader.style.fontWeight = "500";
+				sectionHeader.style.fontSize = "1em";
+				sectionHeader.style.color = "#6C7680";
+				// Prüfe, ob wir bereits einen angepassten Header haben
+				if (!sectionHeader.querySelector('.custom-header')) {
+					// Erstelle einen neuen Inhalt mit einem benutzerdefinierten span
+					sectionHeader.innerHTML = `Produktauswahl für <span class="custom-header" style="font-weight: 600; color: #1F272E;">${kundenName}</span>`;
+				} else {
+					// Aktualisiere nur den Text des benutzerdefinierten Spans
+					sectionHeader.querySelector('.custom-header').textContent = kundenName;
+				}
+				// Auch das Label für das Versand-Dropdown anpassen
+				frm.set_df_property(`versand_gast_${i}`, 'label', `Versand zu ${kundenName}`);
+			});
 		}
 	}
 }
@@ -140,6 +139,68 @@ frappe.ui.form.on('Party', {
 				frm.fields_dict[fieldName].grid.update_docfield_property('delivery_date', 'reqd', 0);
 			}
 		}
+		
+		// Custom Buttons basierend auf dem Status anzeigen
+		if (frm.doc.docstatus === 0) { // Nicht eingereicht
+			if (frm.is_new()) {
+				// Im Neu-Modus: Zeige nur einen Speichern-Button
+				// Dies ist der Standard-Button, muss nicht hinzugefügt werden
+			} else if (frm.doc.status === "Gäste") {
+				// Status "Gäste": Speichern und "Zu Produkten"-Button
+				frm.add_custom_button(__("Zu Produkten"), function() {
+					frm.save();
+				}).addClass("btn-primary");
+				
+				// Auch einen Speichern-Button anzeigen (ohne Primärfarbe)
+				frm.add_custom_button(__("Speichern"), function() {
+					frm.save();
+				});
+			} else if (frm.doc.status === "Produkte") {
+				// Status "Produkte": Speichern und "Rechnungen erstellen"-Button
+				frm.add_custom_button(__("Rechnungen erstellen"), function() {
+					// Bestätigungsdialog anzeigen
+					frappe.confirm(
+						__("Bist Du sicher, dass alle Produkte richtig ausgewählt wurden und Du die Bestellung abschicken möchtest? Dieser Vorgang kann nicht rückgängig gemacht werden!"),
+						function() {
+							// Wenn bestätigt, Rechnungen erstellen
+							frappe.call({
+								method: "enjo_party.enjo_party.doctype.party.party.create_invoices",
+								args: {
+									party: frm.doc.name
+								},
+								freeze: true,
+								freeze_message: __("Erstelle Rechnungen..."),
+								callback: function(r) {
+									if (r.message && r.message.length > 0) {
+										frappe.msgprint({
+											title: __("Erfolg"),
+											message: __("Es wurden {0} Rechnungen erstellt!", [r.message.length]),
+											indicator: "green"
+										});
+										frm.reload_doc();
+									} else {
+										frappe.msgprint({
+											title: __("Hinweis"),
+											message: __("Es wurden keine Rechnungen erstellt. Bitte überprüfen Sie, ob Produkte ausgewählt wurden."),
+											indicator: "orange"
+										});
+									}
+								}
+							});
+						}
+					);
+				}).addClass("btn-primary");
+				
+				// Auch einen Speichern-Button anzeigen (ohne Primärfarbe)
+				frm.add_custom_button(__("Speichern"), function() {
+					frm.save();
+				});
+			}
+		} else if (frm.doc.docstatus === 1) {
+			// Dokument ist eingereicht/abgeschlossen
+			// Keine Änderungen mehr möglich
+			frm.disable_save();
+		}
 	},
 	
 	// Füge einen Event-Handler für die Gastgeberin hinzu
@@ -181,6 +242,17 @@ frappe.ui.form.on('Party', {
 		
 		// Auch für die Gastgeberin aktualisieren
 		frm.set_df_property('versand_gastgeberin', 'options', optionen.join('\n'));
+		
+		// Aktualisiere die Kunden-Tabelle, um Gastgeberin aus den Optionen zu entfernen
+		if (frm.doc.gastgeberin && frm.fields_dict["kunden"]) {
+			frm.set_query("kunde", "kunden", function() {
+				return {
+					filters: {
+						"name": ["!=", frm.doc.gastgeberin]
+					}
+				};
+			});
+		}
 	},
 	
 	onload: function(frm) {
@@ -197,6 +269,17 @@ frappe.ui.form.on('Party', {
 			
 			// Aktualisiere die Tabelle im Formular
 			frm.refresh_field('kunden');
+		}
+		
+		// Filtere Gastgeberin aus Kunden-Dropdown
+		if (frm.doc.gastgeberin && frm.fields_dict["kunden"]) {
+			frm.set_query("kunde", "kunden", function() {
+				return {
+					filters: {
+						"name": ["!=", frm.doc.gastgeberin]
+					}
+				};
+			});
 		}
 	},
 	
@@ -237,6 +320,27 @@ frappe.ui.form.on('Sales Order Item', {
 		let row = locals[cdt][cdn];
 		if (row.item_code && !row.qty) {
 			frappe.model.set_value(cdt, cdn, 'qty', 1);
+			
+			// Holen der Item-Details und Setzen der UOM-Felder
+			frappe.db.get_doc("Item", row.item_code)
+				.then(item_doc => {
+					// UOM Felder setzen
+					frappe.model.set_value(cdt, cdn, 'uom', item_doc.stock_uom);
+					frappe.model.set_value(cdt, cdn, 'stock_uom', item_doc.stock_uom);
+					frappe.model.set_value(cdt, cdn, 'conversion_factor', 1.0);
+					frappe.model.set_value(cdt, cdn, 'uom_conversion_factor', 1.0);
+					
+					// Item Name setzen
+					if (!row.item_name) {
+						frappe.model.set_value(cdt, cdn, 'item_name', item_doc.item_name);
+					}
+					
+					// Weitere erforderliche Felder
+					if (!row.stock_qty) {
+						let stock_qty = parseFloat(row.qty || 0) * 1.0;
+						frappe.model.set_value(cdt, cdn, 'stock_qty', stock_qty);
+					}
+				});
 		}
 	}
 });

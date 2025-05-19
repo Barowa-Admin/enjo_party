@@ -120,11 +120,12 @@
    "read_only": 1
   },
   {
-   "default": "Geplant",
+   "default": "Gäste",
    "fieldname": "status",
    "fieldtype": "Select",
    "label": "Status",
-   "options": "Geplant\nAktiv\nAbgeschlossen"
+   "options": "Gäste\nProdukte\nAbgeschlossen",
+   "read_only": 1
   },
   {
    "fieldname": "kunden",
