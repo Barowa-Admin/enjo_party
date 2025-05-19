@@ -101,34 +101,38 @@ frappe.ui.form.on('Party', {
 		
 		// Sammle alle Namen: Gastgeberin, Partnerin, Gäste
 		let optionen = [];
-		if (frm.doc.gastgeberin) optionen.push(frm.doc.gastgeberin);
-		if (frm.doc.partnerin) optionen.push(frm.doc.partnerin);
+		let promises = [];
+		if (frm.doc.gastgeberin) {
+			promises.push(
+				frappe.db.get_doc('Customer', frm.doc.gastgeberin).then(doc => {
+					optionen.push({ value: frm.doc.gastgeberin, label: doc.customer_name });
+				})
+			);
+		}
+		if (frm.doc.partnerin) {
+			promises.push(
+				frappe.db.get_doc('Customer', frm.doc.partnerin).then(doc => {
+					optionen.push({ value: frm.doc.partnerin, label: doc.customer_name });
+				})
+			);
+		}
 		if (frm.doc.kunden && frm.doc.kunden.length > 0) {
 			frm.doc.kunden.forEach(function(kunde) {
-				if (kunde.kunde && !optionen.includes(kunde.kunde)) {
-					optionen.push(kunde.kunde);
+				if (kunde.kunde) {
+					promises.push(
+						frappe.db.get_doc('Customer', kunde.kunde).then(doc => {
+							optionen.push({ value: kunde.kunde, label: doc.customer_name });
+						})
+					);
 				}
 			});
 		}
-		
-		// Setze die Optionen für alle Versand-Select-Felder
-		for (let i = 1; i <= 15; i++) {
-			frm.set_df_property(`versand_gast_${i}`, 'options', optionen.join('\n'));
-			
-			// Setze die Gastgeberin als Standardwert für den Versand, falls vorhanden und kein Wert gesetzt ist
-			// Setze immer die Gastgeberin als Standardwert
-			if (frm.doc.gastgeberin && (!frm.doc[`versand_gast_${i}`])) {
-				frm.set_value(`versand_gast_${i}`, frm.doc.gastgeberin);
+		Promise.all(promises).then(() => {
+			for (let i = 1; i <= 15; i++) {
+				frm.set_df_property(`versand_gast_${i}`, 'options', optionen);
 			}
-		}
-		
-		// Setze auch die Versandoptionen für die Gastgeberin
-		frm.set_df_property('versand_gastgeberin', 'options', optionen.join('\n'));
-		
-		// Setze die Gastgeberin als Standardversand für sich selbst
-		if (frm.doc.gastgeberin && !frm.doc.versand_gastgeberin) {
-			frm.set_value('versand_gastgeberin', frm.doc.gastgeberin);
-		}
+			frm.set_df_property('versand_gastgeberin', 'options', optionen);
+		});
 		
 		// Verstecke das Datum-Feld in allen Produktauswahl-Tabellen
 		for (let i = 1; i <= 15; i++) {
@@ -146,12 +150,7 @@ frappe.ui.form.on('Party', {
 				// Im Neu-Modus: Zeige nur einen Speichern-Button
 				// Dies ist der Standard-Button, muss nicht hinzugefügt werden
 			} else if (frm.doc.status === "Gäste") {
-				// Status "Gäste": Speichern und "Zu Produkten"-Button
-				frm.add_custom_button(__("Zu Produkten"), function() {
-					frm.save();
-				}).addClass("btn-primary");
-				
-				// Auch einen Speichern-Button anzeigen (ohne Primärfarbe)
+				// Status "Gäste": Nur Speichern-Button anzeigen (ohne 'Zu Produkten'-Button)
 				frm.add_custom_button(__("Speichern"), function() {
 					frm.save();
 				});
