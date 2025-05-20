@@ -27,6 +27,28 @@ class Party(Document):
 		# Prüfe, dass die Gastgeberin nicht auch als Gast in der Kundenliste steht
 		self.validate_gastgeberin_not_in_kunden()
 	
+	def before_submit(self):
+		"""
+		Vor dem Einreichen der Party automatisch Rechnungen erstellen,
+		falls noch keine existieren
+		"""
+		# Prüfen, ob bereits Rechnungen zu dieser Party existieren
+		# Da das Custom Field 'party_reference' nicht existiert, verwenden wir zunächst keine Filterung
+		# und lassen die Rechnungserstellung immer zu
+		# existing_invoices = frappe.get_all(
+		# 	"Sales Invoice",
+		# 	filters={"party_reference": self.name, "docstatus": ["!=", 2]},  # nicht stornierte
+		# 	limit=1
+		# )
+		
+		# Immer Rechnungen erstellen beim Submit
+		invoices = create_invoices(self.name)
+		if not invoices:
+			frappe.throw(
+				"Es konnten keine Rechnungen erstellt werden. "
+				"Bitte prüfe, ob Produkte ausgewählt wurden und versuche es erneut."
+			)
+	
 	def validate_gastgeberin_not_in_kunden(self):
 		if not self.gastgeberin or not self.kunden:
 			return
@@ -319,13 +341,10 @@ def create_invoices(party):
 				invoice_data = {
 					"doctype": "Sales Invoice",
 					"customer": customer_name,
-					"party_reference": party_doc.name,  # Custom Feld zur Verknüpfung mit Party
 					"posting_date": today(),
 					"items": items,
 					"customer_address": billing_address,  # Rechnungsadresse
 					"shipping_address_name": shipping_address,  # Versandziel für die Rechnung
-					"party_gastgeberin": party_doc.gastgeberin,
-					"party_partnerin": party_doc.partnerin
 				}
 				
 				# Versandhinweis als Notiz hinzufügen, wenn vorhanden
@@ -352,7 +371,9 @@ def create_invoices(party):
 		party_doc.status = "Abgeschlossen"
 		party_doc.save()
 		
-		# Party-Dokument abschließen/einreichen (submit)
-		party_doc.submit()
+		# Party-Dokument abschließen/einreichen (submit), aber nur wenn 
+		# die Funktion nicht aus before_submit aufgerufen wurde
+		if party_doc.docstatus == 0:
+			party_doc.submit()
 	
 	return created_invoices

@@ -109,13 +109,8 @@ frappe.ui.form.on('Party', {
 				})
 			);
 		}
-		if (frm.doc.partnerin) {
-			promises.push(
-				frappe.db.get_doc('Customer', frm.doc.partnerin).then(doc => {
-					optionen.push({ value: frm.doc.partnerin, label: doc.customer_name });
-				})
-			);
-		}
+		// Partnerin wird NICHT als Customer abgefragt!
+		// Die Partnerin kann als Versandziel nicht ausgewählt werden
 		if (frm.doc.kunden && frm.doc.kunden.length > 0) {
 			frm.doc.kunden.forEach(function(kunde) {
 				if (kunde.kunde) {
@@ -144,16 +139,38 @@ frappe.ui.form.on('Party', {
 			}
 		}
 		
+		// Standard-Submit-Button ausblenden - aber nur wenn nicht im Neu-Modus
+		if (!frm.is_new()) {
+			frm.page.btn_primary.hide();
+		}
+		
+		// Komplett das Aktionen-Dropdown ausblenden
+		setTimeout(() => {
+			// Aktionen-Button komplett ausblenden
+			$('.actions-btn-group').hide();
+			// Alternative Methode, falls die erste nicht funktioniert
+			$('.dropdown-btn[data-label="Aktionen"]').hide();
+		}, 300);
+		
+		// Im Neu-Modus: Speichern-Button schwarz machen
+		if (frm.is_new()) {
+			// Mache den Speichern-Button (Save-Button) zum primären Button
+			setTimeout(() => {
+				$('.btn-primary').removeClass('btn-primary');
+				$('.btn-save').addClass('btn-primary');
+			}, 100);
+		}
+		
 		// Custom Buttons basierend auf dem Status anzeigen
 		if (frm.doc.docstatus === 0) { // Nicht eingereicht
 			if (frm.is_new()) {
-				// Im Neu-Modus: Zeige nur einen Speichern-Button
-				// Dies ist der Standard-Button, muss nicht hinzugefügt werden
+				// Im Neu-Modus: Standard-Buttons verwenden
+				// Nichts tun, die Standard-Buttons werden automatisch angezeigt
 			} else if (frm.doc.status === "Gäste") {
 				// Status "Gäste": Nur Speichern-Button anzeigen (ohne 'Zu Produkten'-Button)
 				frm.add_custom_button(__("Speichern"), function() {
 					frm.save();
-				});
+				}).addClass("btn-primary");
 			} else if (frm.doc.status === "Produkte") {
 				// Status "Produkte": Speichern und "Rechnungen erstellen"-Button
 				frm.add_custom_button(__("Rechnungen erstellen"), function() {
@@ -225,22 +242,33 @@ frappe.ui.form.on('Party', {
 		
 		// Aktualisiere die Optionen für die Versandfelder
 		let optionen = [];
-		if (frm.doc.gastgeberin) optionen.push(frm.doc.gastgeberin);
-		if (frm.doc.partnerin) optionen.push(frm.doc.partnerin);
+		let promises = [];
+		if (frm.doc.gastgeberin) {
+			promises.push(
+				frappe.db.get_doc('Customer', frm.doc.gastgeberin).then(doc => {
+					optionen.push({ value: frm.doc.gastgeberin, label: doc.customer_name });
+				})
+			);
+		}
+		// Partnerin wird NICHT als Versandoption hinzugefügt, da sie kein Kunde ist
 		if (frm.doc.kunden && frm.doc.kunden.length > 0) {
 			frm.doc.kunden.forEach(function(kunde) {
-				if (kunde.kunde && !optionen.includes(kunde.kunde)) {
-					optionen.push(kunde.kunde);
+				if (kunde.kunde && !optionen.some(opt => opt.value === kunde.kunde)) {
+					promises.push(
+						frappe.db.get_doc('Customer', kunde.kunde).then(doc => {
+							optionen.push({ value: kunde.kunde, label: doc.customer_name });
+						})
+					);
 				}
 			});
 		}
 		
-		for (let i = 1; i <= 15; i++) {
-			frm.set_df_property(`versand_gast_${i}`, 'options', optionen.join('\n'));
-		}
-		
-		// Auch für die Gastgeberin aktualisieren
-		frm.set_df_property('versand_gastgeberin', 'options', optionen.join('\n'));
+		Promise.all(promises).then(() => {
+			for (let i = 1; i <= 15; i++) {
+				frm.set_df_property(`versand_gast_${i}`, 'options', optionen);
+			}
+			frm.set_df_property('versand_gastgeberin', 'options', optionen);
+		});
 		
 		// Aktualisiere die Kunden-Tabelle, um Gastgeberin aus den Optionen zu entfernen
 		if (frm.doc.gastgeberin && frm.fields_dict["kunden"]) {
@@ -280,6 +308,9 @@ frappe.ui.form.on('Party', {
 				};
 			});
 		}
+		
+		// Überschreibe den Standard-Bestätigungstext für den Submit-Dialog
+		frm.confirm_on_submit = __("Bist Du sicher, dass alle Produkte richtig ausgewählt wurden und Du die Bestellung abschicken möchtest? Dieser Vorgang kann nicht rückgängig gemacht werden!");
 	},
 	
 	// Aktualisiere auch wenn Kunden hinzugefügt oder entfernt werden
