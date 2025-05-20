@@ -144,62 +144,85 @@ frappe.ui.form.on('Party', {
 			frm.page.btn_primary.hide();
 		}
 		
-		// Komplett das Aktionen-Dropdown ausblenden
+		// Komplett das Aktionen-Dropdown ausblenden, aber NUR für Party-Formulare
 		setTimeout(() => {
-			// Aktionen-Button komplett ausblenden
-			$('.actions-btn-group').hide();
+			// Aktionen-Button nur im aktuellen Formular ausblenden
+			$(frm.wrapper).find('.actions-btn-group').hide();
 			// Alternative Methode, falls die erste nicht funktioniert
-			$('.dropdown-btn[data-label="Aktionen"]').hide();
+			$(frm.wrapper).find('.dropdown-btn[data-label="Aktionen"]').hide();
 		}, 300);
 		
-		// Im Neu-Modus: Speichern-Button schwarz machen
+		// Im Neu-Modus: Speichern-Button anpassen
 		if (frm.is_new()) {
-			// Mache den Speichern-Button (Save-Button) zum primären Button
+			// Stelle sicher, dass der Standard-Save-Button sichtbar ist
+			frm.page.btn_primary.show();
+			
+			// Fallback: Wenn der primäre Button nicht sichtbar ist,
+			// füge einen benutzerdefinierten Speichern-Button hinzu
 			setTimeout(() => {
-				$('.btn-primary').removeClass('btn-primary');
-				$('.btn-save').addClass('btn-primary');
+				if (!$(frm.wrapper).find('.btn-primary').is(':visible')) {
+					frm.add_custom_button(__("Speichern"), function() {
+						frm.save();
+					}).addClass("btn-primary");
+				} else {
+					// Text direkt auf Deutsch setzen
+					$(frm.wrapper).find('.btn-primary').text("Speichern");
+				}
 			}, 100);
 		}
 		
 		// Custom Buttons basierend auf dem Status anzeigen
 		if (frm.doc.docstatus === 0) { // Nicht eingereicht
 			if (frm.is_new()) {
-				// Im Neu-Modus: Standard-Buttons verwenden
-				// Nichts tun, die Standard-Buttons werden automatisch angezeigt
+				// Im Neu-Modus: Standard-Buttons verwenden und nichts tun
+				// Der Speichern-Button wird oben bereits konfiguriert
 			} else if (frm.doc.status === "Gäste") {
 				// Status "Gäste": Nur Speichern-Button anzeigen (ohne 'Zu Produkten'-Button)
 				frm.add_custom_button(__("Speichern"), function() {
 					frm.save();
 				}).addClass("btn-primary");
 			} else if (frm.doc.status === "Produkte") {
-				// Status "Produkte": Speichern und "Rechnungen erstellen"-Button
-				frm.add_custom_button(__("Rechnungen erstellen"), function() {
+				// Status "Produkte": Speichern und "Aufträge erstellen"-Button
+				frm.add_custom_button(__("Aufträge erstellen"), function() {
 					// Bestätigungsdialog anzeigen
 					frappe.confirm(
 						__("Bist Du sicher, dass alle Produkte richtig ausgewählt wurden und Du die Bestellung abschicken möchtest? Dieser Vorgang kann nicht rückgängig gemacht werden!"),
 						function() {
-							// Wenn bestätigt, Rechnungen erstellen
+							// Sofort Button deaktivieren, um Doppelklicks zu verhindern
+							frm.page.clear_primary_action();
+							frm.page.clear_secondary_action();
+							
+							// Lösche alle benutzerdefinierten Buttons
+							frm.page.clear_custom_actions();
+							
+							// Wenn bestätigt, Aufträge erstellen
 							frappe.call({
 								method: "enjo_party.enjo_party.doctype.party.party.create_invoices",
 								args: {
-									party: frm.doc.name
+									party: frm.doc.name,
+									from_button: true  // Flag, um zu zeigen, dass der Aufruf vom Button kommt
 								},
 								freeze: true,
-								freeze_message: __("Erstelle Rechnungen..."),
+								freeze_message: __("Erstelle Aufträge..."),
 								callback: function(r) {
 									if (r.message && r.message.length > 0) {
 										frappe.msgprint({
 											title: __("Erfolg"),
-											message: __("Es wurden {0} Rechnungen erstellt!", [r.message.length]),
+											message: __("Es wurden {0} Aufträge erstellt und eingereicht!", [r.message.length]),
 											indicator: "green"
 										});
-										frm.reload_doc();
+										// Vollständiges Neuladen der Seite, um den Status zu aktualisieren
+										setTimeout(function() {
+											location.reload();
+										}, 2000);
 									} else {
 										frappe.msgprint({
 											title: __("Hinweis"),
-											message: __("Es wurden keine Rechnungen erstellt. Bitte überprüfen Sie, ob Produkte ausgewählt wurden."),
+											message: __("Es wurden keine Aufträge erstellt. Bitte überprüfen Sie, ob Produkte ausgewählt wurden."),
 											indicator: "orange"
 										});
+										// Formular neu laden, damit Buttons wieder erscheinen
+										frm.reload_doc();
 									}
 								}
 							});
