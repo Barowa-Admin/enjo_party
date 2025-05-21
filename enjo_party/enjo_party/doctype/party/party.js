@@ -140,33 +140,48 @@ frappe.ui.form.on('Party', {
 		}
 		
 		// Standard-Submit-Button ausblenden - aber nur wenn nicht im Neu-Modus
-		if (!frm.is_new()) {
+		if (!frm.is_new() && frm.page && frm.page.btn_primary) {
 			frm.page.btn_primary.hide();
 		}
 		
 		// Komplett das Aktionen-Dropdown ausblenden, aber NUR für Party-Formulare
 		setTimeout(() => {
-			// Aktionen-Button nur im aktuellen Formular ausblenden
-			$(frm.wrapper).find('.actions-btn-group').hide();
-			// Alternative Methode, falls die erste nicht funktioniert
-			$(frm.wrapper).find('.dropdown-btn[data-label="Aktionen"]').hide();
+			try {
+				// Aktionen-Button nur im aktuellen Formular ausblenden
+				$(frm.wrapper).find('.actions-btn-group').hide();
+				// Alternative Methode, falls die erste nicht funktioniert
+				$(frm.wrapper).find('.dropdown-btn[data-label="Aktionen"]').hide();
+			} catch (e) {
+				console.error("Fehler beim Ausblenden der Aktionsbuttons:", e);
+			}
 		}, 300);
 		
 		// Im Neu-Modus: Speichern-Button anpassen
 		if (frm.is_new()) {
 			// Stelle sicher, dass der Standard-Save-Button sichtbar ist
-			frm.page.btn_primary.show();
+			if (frm.page && frm.page.btn_primary) {
+				frm.page.btn_primary.show();
+			}
 			
 			// Fallback: Wenn der primäre Button nicht sichtbar ist,
 			// füge einen benutzerdefinierten Speichern-Button hinzu
 			setTimeout(() => {
-				if (!$(frm.wrapper).find('.btn-primary').is(':visible')) {
+				try {
+					const primaryBtn = $(frm.wrapper).find('.btn-primary');
+					if (primaryBtn.length === 0 || !primaryBtn.is(':visible')) {
+						frm.add_custom_button(__("Speichern"), function() {
+							frm.save();
+						}).addClass("btn-primary");
+					} else {
+						// Text direkt auf Deutsch setzen
+						primaryBtn.text("Speichern");
+					}
+				} catch (e) {
+					console.error("Fehler beim Anpassen des Speichern-Buttons:", e);
+					// Notfall-Fallback: Auf jeden Fall einen Button hinzufügen
 					frm.add_custom_button(__("Speichern"), function() {
 						frm.save();
 					}).addClass("btn-primary");
-				} else {
-					// Text direkt auf Deutsch setzen
-					$(frm.wrapper).find('.btn-primary').text("Speichern");
 				}
 			}, 100);
 		}
@@ -189,11 +204,16 @@ frappe.ui.form.on('Party', {
 						__("Bist Du sicher, dass alle Produkte richtig ausgewählt wurden und Du die Bestellung abschicken möchtest? Dieser Vorgang kann nicht rückgängig gemacht werden!"),
 						function() {
 							// Sofort Button deaktivieren, um Doppelklicks zu verhindern
-							frm.page.clear_primary_action();
-							frm.page.clear_secondary_action();
-							
-							// Lösche alle benutzerdefinierten Buttons
-							frm.page.clear_custom_actions();
+							try {
+								if (frm && frm.page) {
+									if (frm.page.btn_primary) frm.page.btn_primary.hide();
+									if (frm.page.clear_primary_action) frm.page.clear_primary_action();
+									if (frm.page.clear_secondary_action) frm.page.clear_secondary_action();
+									if (frm.page.clear_custom_actions) frm.page.clear_custom_actions();
+								}
+							} catch (e) {
+								console.error("Fehler beim Deaktivieren der Buttons:", e);
+							}
 							
 							// Wenn bestätigt, Aufträge erstellen
 							frappe.call({

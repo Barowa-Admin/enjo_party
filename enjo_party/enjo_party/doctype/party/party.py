@@ -476,3 +476,51 @@ def create_invoices(party, from_submit=False, from_button=False):
         else:
             # Nur bei direktem Aufruf über die API eine Fehlermeldung anzeigen
             frappe.throw(f"Fehler beim Erstellen der Aufträge: {str(e)}")
+
+@frappe.whitelist()
+def cancel_multiple_parties(parties):
+    """
+    Bricht mehrere Parties gleichzeitig ab
+    Args:
+        parties: Eine kommagetrennte Liste von Party-Namen
+    """
+    if not parties:
+        return
+        
+    # String in Liste umwandeln
+    if isinstance(parties, str):
+        party_list = parties.split(",")
+    else:
+        party_list = parties
+    
+    cancelled_count = 0
+    failed_count = 0
+    for party_name in party_list:
+        try:
+            # Party-Dokument laden
+            party_doc = frappe.get_doc("Party", party_name)
+            
+            # Nur Dokumente im Status "Gäste" oder "Produkte" können abgebrochen werden
+            if party_doc.docstatus == 0 and party_doc.status in ["Gäste", "Produkte"]:
+                party_doc.status = "Cancelled"
+                party_doc.save()
+                cancelled_count += 1
+            elif party_doc.docstatus == 1:
+                # Wenn das Dokument bereits eingereicht wurde, führe ein Cancel durch
+                party_doc.cancel()
+                cancelled_count += 1
+            else:
+                failed_count += 1
+                
+        except Exception as e:
+            frappe.log_error(f"Fehler beim Abbrechen der Party {party_name}: {str(e)}\n{frappe.get_traceback()}", "ERROR: cancel_party")
+            failed_count += 1
+            
+    frappe.db.commit()
+    
+    # Rückgabe
+    return {
+        "cancelled": cancelled_count,
+        "failed": failed_count,
+        "total": len(party_list)
+    }
