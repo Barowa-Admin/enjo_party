@@ -165,37 +165,117 @@ class Party(Document):
 
 # Funktion zum Erstellen oder Finden einer Adresse für einen Kunden
 def get_or_create_address(customer_name, address_type="Billing"):
+	"""
+	Funktion zum Erstellen oder Finden einer Adresse für einen Kunden.
+	Wenn address_type="Shipping" bevorzugt sie eine Lieferadresse, verwendet aber notfalls jede verfügbare Adresse.
+	"""
 	# Prüfen, ob bereits eine Adresse für diesen Kunden existiert
+	# Zuerst nach exakter Übereinstimmung suchen
 	address_links = frappe.get_all(
 		"Dynamic Link",
 		filters={"link_doctype": "Customer", "link_name": customer_name},
 		fields=["parent"]
 	)
 	
-	existing_addresses = []
+	# Wenn keine exakte Übereinstimmung gefunden wurde, nach Namen suchen, die mit customer_name beginnen
+	if not address_links:
+		# Verwende LIKE-Abfrage, um auch Kundennamen zu finden, die mit dem gesuchten Namen beginnen
+		address_links = frappe.get_all(
+			"Dynamic Link",
+			filters={
+				"link_doctype": "Customer",
+				"link_name": ["like", f"{customer_name}%"]
+			},
+			fields=["parent", "link_name"]
+		)
+		
+		if address_links:
+			frappe.log_error(f"Adresse mit Wildcard-Suche gefunden für '{customer_name}': {address_links[0].link_name}", "INFO: get_or_create_address")
+	
+	# Wenn keine Adressen gefunden wurden, erstelle eine neue
+	if not address_links:
+		return create_new_address(customer_name, address_type)
+	
+	# Adressen nach Typen sammeln
+	shipping_addresses = []
+	billing_addresses = []
+	other_addresses = []
+	
+	# Alle gefundenen Adressen durchgehen und nach Typ sortieren
 	for link in address_links:
-		addr = frappe.get_doc("Address", link.parent)
-		if addr.address_type == address_type:
-			return addr.name
-		existing_addresses.append(addr.name)
+		try:
+			addr = frappe.get_doc("Address", link.parent)
+			if addr.address_type == "Shipping":
+				shipping_addresses.append(addr.name)
+			elif addr.address_type == "Billing":
+				billing_addresses.append(addr.name)
+			else:
+				other_addresses.append(addr.name)
+		except Exception as e:
+			frappe.log_error(f"Fehler beim Laden der Adresse {link.parent}: {str(e)}", "ERROR: get_or_create_address")
+			continue
 	
-	# Wenn keine Adresse gefunden wurde, erstelle eine neue
-	if not existing_addresses:
-		# Erstelle eine neue Adresse für den Kunden
-		new_address = frappe.get_doc({
-			"doctype": "Address",
-			"address_title": f"{customer_name}-{address_type}",
-			"address_type": address_type,
-			"address_line1": customer_name,  # Als Platzhalter den Kundennamen verwenden
-			"city": "Stadt",  # Platzhalter
-			"country": "Deutschland",  # Standardwert
-			"links": [{"link_doctype": "Customer", "link_name": customer_name}]
-		})
+	# Entscheidungslogik basierend auf dem gesuchten Adresstyp
+	if address_type == "Shipping":
+		# Wenn wir eine Lieferadresse suchen, bevorzugen wir diese
+		if shipping_addresses:
+			return shipping_addresses[0]
+		# Falls keine Lieferadresse existiert, nehmen wir eine Rechnungsadresse
+		elif billing_addresses:
+			return billing_addresses[0]
+		# Sonst nehmen wir irgendeine andere Adresse
+		elif other_addresses:
+			return other_addresses[0]
+	elif address_type == "Billing":
+		# Wenn wir eine Rechnungsadresse suchen, bevorzugen wir diese
+		if billing_addresses:
+			return billing_addresses[0]
+		# Falls keine Rechnungsadresse existiert, nehmen wir eine Lieferadresse
+		elif shipping_addresses:
+			return shipping_addresses[0]
+		# Sonst nehmen wir irgendeine andere Adresse
+		elif other_addresses:
+			return other_addresses[0]
+	else:
+		# Bei anderen Adresstypen suchen wir exakt nach diesem Typ
+		# Oder erstellen eine neue, wenn keine gefunden wurde
+		for link in address_links:
+			try:
+				addr = frappe.get_doc("Address", link.parent)
+				if addr.address_type == address_type:
+					return addr.name
+			except Exception:
+				continue
+		
+		# Wenn keine Adresse vom gesuchten Typ gefunden wurde, 
+		# nehmen wir irgendeine vorhandene Adresse
+		all_addresses = shipping_addresses + billing_addresses + other_addresses
+		if all_addresses:
+			return all_addresses[0]
+	
+	# Wenn keine passende Adresse gefunden wurde, erstelle eine neue
+	return create_new_address(customer_name, address_type)
+
+def create_new_address(customer_name, address_type):
+	"""Erstellt eine neue Adresse für einen Kunden"""
+	new_address = frappe.get_doc({
+		"doctype": "Address",
+		"address_title": f"{customer_name}-{address_type}",
+		"address_type": address_type,
+		"address_line1": customer_name,  # Als Platzhalter den Kundennamen verwenden
+		"city": "Stadt",  # Platzhalter
+		"country": "Deutschland",  # Standardwert
+		"links": [{"link_doctype": "Customer", "link_name": customer_name}]
+	})
+	
+	try:
 		new_address.insert(ignore_permissions=True)
+		frappe.log_error(f"Neue Adresse für '{customer_name}' erstellt: {new_address.name}", "INFO: create_new_address")
 		return new_address.name
-	
-	# Falls es Adressen gibt, aber keine vom gesuchten Typ, verwende die erste
-	return existing_addresses[0]
+	except Exception as e:
+		frappe.log_error(f"Fehler beim Erstellen einer neuen Adresse für '{customer_name}': {str(e)}", "ERROR: create_new_address")
+		# Im Fehlerfall versuchen wir, eine universelle Standardadresse zurückzugeben
+		return "Hauptsitz"  # Fallback, falls vorhanden
 
 # Neue Funktion für das Verknüpfen einer Adresse mit einem Kunden
 def link_address_to_customer(address_name, customer_name):
