@@ -33,7 +33,7 @@ function updateCustomHeaders(frm) {
 		}
 		
 		// Auch das Label für das Versand-Dropdown anpassen
-		frm.set_df_property('versand_gastgeberin', 'label', `Versand zu ${frm.doc.gastgeberin}`);
+		frm.set_df_property('versand_gastgeberin', 'label', `Versand für ${frm.doc.gastgeberin} an:`);
 	}
 	
 	// Dann für jeden Kunden
@@ -64,10 +64,34 @@ function updateCustomHeaders(frm) {
 					sectionHeader.querySelector('.custom-header').textContent = kundenName;
 				}
 				// Auch das Label für das Versand-Dropdown anpassen
-				frm.set_df_property(`versand_gast_${i}`, 'label', `Versand zu ${kundenName}`);
+				frm.set_df_property(`versand_gast_${i}`, 'label', `Versand für ${kundenName} an:`);
 			});
 		}
 	}
+}
+
+// Funktion zum Aktualisieren der Kunden-Filter
+function updateKundenFilter(frm) {
+	if (!frm.fields_dict["kunden"]) return;
+	
+	// Sammle alle bereits ausgewählten Kunden
+	let selected_customers = [];
+	if (frm.doc.kunden) {
+		frm.doc.kunden.forEach(function(k) {
+			if (k.kunde) {
+				selected_customers.push(k.kunde);
+			}
+		});
+	}
+	
+	// Setze den Filter für die Kunden-Tabelle
+	frm.set_query("kunde", "kunden", function() {
+		let filters = [["name", "!=", frm.doc.gastgeberin]];
+		if (selected_customers.length > 0) {
+			filters.push(["name", "not in", selected_customers]);
+		}
+		return { filters: filters };
+	});
 }
 
 frappe.ui.form.on('Party', {
@@ -267,7 +291,7 @@ frappe.ui.form.on('Party', {
 		// Wenn die Gastgeberin geändert wird, setze sie als Standard für den Versand
 		if (frm.doc.gastgeberin) {
 			// Aktualisiere das Label für die Gastgeberin
-			frm.set_df_property('versand_gastgeberin', 'label', `Versand zu ${frm.doc.gastgeberin}`);
+			frm.set_df_property('versand_gastgeberin', 'label', `Versand für ${frm.doc.gastgeberin} an:`);
 			
 			for (let i = 1; i <= 15; i++) {
 				// Immer die Gastgeberin als Versandziel setzen
@@ -354,17 +378,22 @@ frappe.ui.form.on('Party', {
 		
 		// Überschreibe den Standard-Bestätigungstext für den Submit-Dialog
 		frm.confirm_on_submit = __("Bist Du sicher, dass alle Produkte richtig ausgewählt wurden und Du die Bestellung abschicken möchtest? Dieser Vorgang kann nicht rückgängig gemacht werden!");
+		
+		// Initiale Filterung
+		updateKundenFilter(frm);
 	},
 	
 	// Aktualisiere auch wenn Kunden hinzugefügt oder entfernt werden
 	kunden_add: function(frm) {
 		setTimeout(() => {
 			updateCustomHeaders(frm);
+			updateKundenFilter(frm);
 		}, 500);
 	},
 	kunden_remove: function(frm) {
 		setTimeout(() => {
 			updateCustomHeaders(frm);
+			updateKundenFilter(frm);
 		}, 500);
 	}
 });
@@ -377,12 +406,13 @@ frappe.ui.form.on('Party Kunde', {
 		
 		// Sofort das Versand-Label aktualisieren
 		if (row.kunde) {
-			frm.set_df_property(`versand_gast_${idx}`, 'label', `Versand zu ${row.kunde}`);
+			frm.set_df_property(`versand_gast_${idx}`, 'label', `Versand für ${row.kunde} an:`);
 		}
 		
-		// Aktualisiere die benutzerdefinierten Header
+		// Aktualisiere die benutzerdefinierten Header und Filter
 		setTimeout(() => {
 			updateCustomHeaders(frm);
+			updateKundenFilter(frm);
 		}, 500);
 	}
 });

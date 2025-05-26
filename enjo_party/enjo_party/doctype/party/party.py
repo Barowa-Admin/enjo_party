@@ -68,24 +68,35 @@ class Party(Document):
 	def validate_gastgeberin_not_in_kunden(self):
 		if not self.gastgeberin or not self.kunden:
 			return
-			
+		
 		# Entferne Gastgeberin aus der Kundenliste, falls sie dort vorkommt
 		kunden_to_remove = []
 		for i, kunde in enumerate(self.kunden):
 			if kunde.kunde == self.gastgeberin:
 				kunden_to_remove.append(i)
 		
+		# Prüfe auf doppelte Gäste (gleicher Kunde mehrfach)
+		gesehene_kunden = set()
+		duplicate_indexes = []
+		for i, kunde in enumerate(self.kunden):
+			if kunde.kunde:
+				if kunde.kunde in gesehene_kunden:
+					duplicate_indexes.append(i)
+				else:
+					gesehene_kunden.add(kunde.kunde)
+		
 		# Lösche von hinten nach vorne, um Indexproblem zu vermeiden
-		for index in sorted(kunden_to_remove, reverse=True):
+		for index in sorted(set(kunden_to_remove + duplicate_indexes), reverse=True):
 			self.kunden.pop(index)
 		
 		# Wenn Elemente entfernt wurden, eine Benachrichtigung anzeigen
-		if kunden_to_remove:
-			frappe.msgprint(
-				f"Die Gastgeberin '{self.gastgeberin}' wurde automatisch aus der Gästeliste entfernt, "
-				"da sie nicht gleichzeitig Gastgeberin und Gast sein kann.",
-				alert=True
-			)
+		if kunden_to_remove or duplicate_indexes:
+			msg = []
+			if kunden_to_remove:
+				msg.append(f"Die Gastgeberin '{self.gastgeberin}' wurde automatisch aus der Gästeliste entfernt, da sie nicht gleichzeitig Gastgeberin und Gast sein kann.")
+			if duplicate_indexes:
+				msg.append("Doppelte Gäste wurden automatisch entfernt. Jeder Gast darf nur einmal ausgewählt werden.")
+			frappe.msgprint("\n".join(msg), alert=True)
 	
 	def set_status(self):
 		# Wenn wir bereits abgeschlossen sind, nicht mehr ändern
