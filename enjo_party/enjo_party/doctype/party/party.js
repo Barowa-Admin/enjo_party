@@ -281,8 +281,9 @@ function applyGutscheinSystem(frm, callback) {
 		console.log("Aktionsfähige Gastgeber-Produkte:", aktionsfaehigeGastgeberProdukte.length);
 		
 		if (aktionsfaehigeGastgeberProdukte.length === 0) {
-			console.log("Gastgeber hat keine aktionsfähigen Produkte - überspringe Gutschein-System");
-			callback();
+			console.log("Gastgeber hat keine aktionsfähigen Produkte - zeige Vollbetrag-Dialog");
+			// WICHTIG: Auch bei 0 aktionsfähigen Produkten den Dialog zeigen!
+			zeigeRestbetragDialog(gutscheinWert, frm, callback);
 			return;
 		}
 		
@@ -417,41 +418,45 @@ function wendeGutscheinAn(aktionsfaehigeGastgeberProdukte, verfuegbarerGutschein
 	}
 }
 
-// Dialog für Restbetrag-Behandlung
+// Dialog für Restbetrag-Behandlung (auch bei Vollbetrag)
 function zeigeRestbetragDialog(restbetrag, frm, callback) {
+	// Prüfe, ob es ein Vollbetrag (keine aktionsfähigen Produkte) oder Restbetrag ist
+	let istVollbetrag = restbetrag === (frm.doc.gastgeber_gutschein_wert || 0);
+	
+	let titel = istVollbetrag ? 'Gutschein kann nicht angewendet werden' : 'Gutschein-Restbetrag';
+	let nachricht = istVollbetrag 
+		? `Du hast ${restbetrag.toFixed(2)}€ Gutschrift, aber keine aktionsfähigen Produkte ausgewählt.`
+		: `Du hast noch ${restbetrag.toFixed(2)}€ Gutschrift übrig! Der Gutschein konnte nicht vollständig auf die aktionsfähigen Produkte angewendet werden.`;
+	
 	let dialog = new frappe.ui.Dialog({
-		title: 'Gutschein-Restbetrag',
+		title: titel,
 		fields: [
 			{
 				fieldtype: 'HTML',
 				options: `
 					<div style="margin-bottom: 15px;">
-						<h4>Du hast noch ${restbetrag.toFixed(2)}€ Gutschrift übrig!</h4>
-						<p>Der Gutschein konnte nicht vollständig auf die aktionsfähigen Produkte angewendet werden.</p>
+						<h4>${nachricht}</h4>
 						<p><strong>Was möchtest Du tun?</strong></p>
 					</div>
 				`
 			}
 		],
-		primary_action_label: 'Zurück zur Bearbeitung',
+		primary_action_label: istVollbetrag ? 'Aktionsfähige Produkte hinzufügen' : 'Zurück zur Bearbeitung',
 		primary_action: function() {
 			dialog.hide();
 			// WICHTIG: Original-Preise wiederherstellen!
 			stelleOriginalPreiseWieder(frm);
 			
-			// Zurück zur Party-Bearbeitung - kompletter Neustart
-			frappe.msgprint({
-				title: "Zurück zur Bearbeitung",
-				message: "Die Original-Preise wurden wiederhergestellt. Du kannst jetzt weitere aktionsfähige Produkte hinzufügen und dann erneut 'Aufträge erstellen' klicken.",
-				indicator: "blue"
-			});
-			// Buttons wieder herstellen
+			// Buttons wieder herstellen (ohne zusätzliches Pop-up)
 			refreshButtons(frm);
 		},
-		secondary_action_label: 'Restbetrag verfallen lassen',
+		secondary_action_label: istVollbetrag ? 'Gutschein verfallen lassen' : 'Restbetrag verfallen lassen',
 		secondary_action: function() {
 			dialog.hide();
-			frappe.show_alert(`Restbetrag von ${restbetrag.toFixed(2)}€ verfällt`, 3);
+			let nachricht = istVollbetrag 
+				? `Gutschein von ${restbetrag.toFixed(2)}€ verfällt`
+				: `Restbetrag von ${restbetrag.toFixed(2)}€ verfällt`;
+			frappe.show_alert(nachricht, 3);
 			// Weiter zum nächsten Schritt
 			callback();
 		}
