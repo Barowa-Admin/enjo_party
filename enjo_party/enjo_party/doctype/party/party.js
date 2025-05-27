@@ -7,6 +7,587 @@
 // 	},
 // });
 
+// Hilfsfunktion zum Wiederherstellen der Buttons basierend auf dem aktuellen Status
+function refreshButtons(frm) {
+	console.log("refreshButtons aufgerufen - Status:", frm.doc.status, "docstatus:", frm.doc.docstatus, "is_new:", frm.is_new());
+	
+	// Erst alle benutzerdefinierten Buttons löschen
+	try {
+		if (frm && frm.page) {
+			if (frm.page.clear_custom_actions) frm.page.clear_custom_actions();
+		}
+	} catch (e) {
+		console.error("Fehler beim Löschen der Buttons:", e);
+	}
+	
+	// Dann die richtigen Buttons basierend auf dem Status hinzufügen
+	if (frm.doc.docstatus === 0) { // Nicht eingereicht
+		// Prüfe ob es ein neues Dokument ist (auch wenn is_new() undefined ist)
+		let isNewDoc = frm.is_new() || !frm.doc.name || frm.doc.name.startsWith('new-');
+		
+		if (isNewDoc) {
+			console.log("Neu-Modus: Standard-Buttons verwenden");
+			// Im Neu-Modus: Standard-Buttons verwenden und Speichern-Button hinzufügen
+			if (frm.page && frm.page.btn_primary) {
+				frm.page.btn_primary.show();
+				// Text auf Deutsch setzen
+				setTimeout(() => {
+					$(frm.wrapper).find('.btn-primary').text("Speichern");
+				}, 50);
+			} else {
+				// Fallback: Eigenen Speichern-Button hinzufügen
+				frm.add_custom_button(__("Speichern"), function() {
+					frm.save();
+				}).addClass("btn-primary");
+			}
+		} else if (frm.doc.status === "Gäste") {
+			console.log("Status Gäste: Speichern-Button hinzufügen");
+			// Status "Gäste": Nur Speichern-Button anzeigen
+			frm.add_custom_button(__("Speichern"), function() {
+				frm.save();
+			}).addClass("btn-primary");
+		} else if (frm.doc.status === "Produkte") {
+			console.log("Status Produkte: Aufträge erstellen + Speichern Buttons hinzufügen");
+			// Status "Produkte": Speichern und "Aufträge erstellen"-Button
+			frm.add_custom_button(__("Aufträge erstellen"), function() {
+				// Die komplette Aufträge-Erstellungslogik hier einfügen
+				startAuftraegeErstellung(frm);
+			}).addClass("btn-primary");
+			
+			// Auch einen Speichern-Button anzeigen (ohne Primärfarbe)
+			frm.add_custom_button(__("Speichern"), function() {
+				frm.save();
+			});
+		} else {
+			console.log("Unbekannter Status:", frm.doc.status);
+		}
+	} else {
+		console.log("Dokument ist eingereicht (docstatus !== 0)");
+	}
+}
+
+// Hilfsfunktion zum Starten der Aufträge-Erstellung (ohne Button-Manipulation)
+function startAuftraegeErstellung(frm) {
+	console.log("startAuftraegeErstellung aufgerufen");
+	// Erst prüfen, ob alle Teilnehmer Produkte haben
+	let teilnehmer_ohne_produkte = [];
+	
+	// Prüfe Gastgeberin
+	if (frm.doc.gastgeberin) {
+		let hat_gastgeberin_produkte = false;
+		if (frm.doc.produktauswahl_für_gastgeberin && frm.doc.produktauswahl_für_gastgeberin.length > 0) {
+			for (let produkt of frm.doc.produktauswahl_für_gastgeberin) {
+				if (produkt.item_code && produkt.qty && produkt.qty > 0) {
+					hat_gastgeberin_produkte = true;
+					break;
+				}
+			}
+		}
+		
+		if (!hat_gastgeberin_produkte) {
+			teilnehmer_ohne_produkte.push(`${frm.doc.gastgeberin} (Gastgeberin)`);
+		}
+	}
+	
+	// Prüfe alle Gäste
+	for (let i = 0; i < frm.doc.kunden.length; i++) {
+		let kunde = frm.doc.kunden[i];
+		if (!kunde.kunde) continue;
+		
+		let field_name = `produktauswahl_für_gast_${i+1}`;
+		let hat_produkte = false;
+		
+		if (frm.doc[field_name] && frm.doc[field_name].length > 0) {
+			for (let produkt of frm.doc[field_name]) {
+				if (produkt.item_code && produkt.qty && produkt.qty > 0) {
+					hat_produkte = true;
+					break;
+				}
+			}
+		}
+		
+		if (!hat_produkte) {
+			teilnehmer_ohne_produkte.push(kunde.kunde);
+		}
+	}
+	
+	console.log("Teilnehmer ohne Produkte:", teilnehmer_ohne_produkte);
+	
+	// Wenn alle Teilnehmer Produkte haben, prüfe Aktionen vor der Bestätigung
+	if (teilnehmer_ohne_produkte.length === 0) {
+		console.log("Alle Teilnehmer haben Produkte - zeige Bestätigungsdialog");
+		frappe.confirm(
+			__("Bist Du sicher, dass alle Produkte richtig ausgewählt wurden und Du die Bestellung abschicken möchtest? Dieser Vorgang kann nicht rückgängig gemacht werden!"),
+			function() {
+				console.log("Benutzer hat bestätigt - prüfe Aktionssystem");
+				// Erst Gutschein-System anwenden, dann Aktions-System, dann Aufträge erstellen
+				console.log("Starte Gutschein-System");
+				applyGutscheinSystem(frm, function() {
+					console.log("Gutschein-System abgeschlossen - starte Aktions-System");
+					// Prüfe, ob Aktionssystem verfügbar ist (über Client Script "discount_window_party")
+					if (typeof discount_window_party === 'function') {
+						console.log("Aktionssystem verfügbar - rufe discount_window_party auf");
+						// Aktionssystem ist verfügbar - prüfe Aktionen als letzten Schritt
+						discount_window_party(frm, function() {
+							console.log("Aktionssystem abgeschlossen - erstelle Aufträge");
+							// Nach Aktionsprüfung Aufträge erstellen
+							erstelleAuftraege(frm);
+						});
+					} else {
+						console.log("Kein Aktionssystem - erstelle direkt Aufträge");
+						// Kein Aktionssystem verfügbar - direkt Aufträge erstellen
+						erstelleAuftraege(frm);
+					}
+				});
+			}
+		);
+		return;
+	}
+	
+	// Wenn Teilnehmer ohne Produkte gefunden wurden, Dialog mit Optionen anzeigen
+	let gaeste_ohne_produkte_anzahl = teilnehmer_ohne_produkte.filter(t => !t.includes('(Gastgeberin)')).length;
+	let verbleibende_gaeste = frm.doc.kunden.length - gaeste_ohne_produkte_anzahl;
+	let kann_entfernen = verbleibende_gaeste >= 3;
+	
+	let message = `Die folgenden Teilnehmer haben noch keine Produkte ausgewählt:\n\n${teilnehmer_ohne_produkte.join('\n')}\n\n`;
+	
+	if (kann_entfernen) {
+		message += "Was möchten Sie tun?";
+	} else {
+		message += "Es können nicht alle Gäste ohne Produkte entfernt werden, da dann weniger als 3 Gäste übrig bleiben würden.\nBitte wählen Sie Produkte für die fehlenden Teilnehmer aus.";
+	}
+	
+	let dialog = new frappe.ui.Dialog({
+		title: 'Teilnehmer ohne Produktauswahl',
+		fields: [
+			{
+				fieldtype: 'HTML',
+				options: `<p style="margin-bottom: 15px;">${message.replace(/\n/g, '<br>')}</p>`
+			}
+		],
+		primary_action_label: kann_entfernen ? __('Teilnehmer entfernen') : __('OK'),
+		primary_action: function() {
+			if (kann_entfernen) {
+				// Entferne Gäste ohne Produkte (nicht die Gastgeberin)
+				let gaeste_ohne_produkte = [];
+				for (let i = 0; i < frm.doc.kunden.length; i++) {
+					let kunde = frm.doc.kunden[i];
+					if (!kunde.kunde) continue;
+					
+					let field_name = `produktauswahl_für_gast_${i+1}`;
+					let hat_produkte = false;
+					
+					if (frm.doc[field_name] && frm.doc[field_name].length > 0) {
+						for (let produkt of frm.doc[field_name]) {
+							if (produkt.item_code && produkt.qty && produkt.qty > 0) {
+								hat_produkte = true;
+								break;
+							}
+						}
+					}
+					
+					if (!hat_produkte) {
+						gaeste_ohne_produkte.push({
+							index: i,
+							name: kunde.kunde
+						});
+					}
+				}
+				
+				// Entferne von hinten nach vorne
+				gaeste_ohne_produkte.sort((a, b) => b.index - a.index);
+				for (let gast of gaeste_ohne_produkte) {
+					frm.get_field("kunden").grid.grid_rows[gast.index].remove();
+				}
+				
+				frm.refresh_field("kunden");
+				frappe.msgprint(`${gaeste_ohne_produkte.length} Gäste wurden entfernt.`, "Erfolgreich entfernt");
+				
+				// Prüfe, ob Aktionssystem verfügbar ist (über Client Script "discount_window_party")
+				if (typeof discount_window_party === 'function') {
+					// Aktionssystem ist verfügbar - prüfe Aktionen als letzten Schritt
+					discount_window_party(frm, function() {
+						// Aufträge erstellen (das Speichern wird in erstelleAuftraege() gemacht)
+						erstelleAuftraege(frm);
+					});
+				} else {
+					// Kein Aktionssystem verfügbar - direkt Aufträge erstellen
+					erstelleAuftraege(frm);
+				}
+			}
+			dialog.hide();
+		}
+	});
+	
+	if (kann_entfernen) {
+		dialog.set_secondary_action_label(__('Bearbeiten'));
+		dialog.set_secondary_action(function() {
+			dialog.hide();
+			// Dialog schließen, User kann Produkte hinzufügen
+		});
+	}
+	
+	dialog.show();
+}
+
+// Gutschein-System: Wendet Gastgeber-Gutschein auf aktionsfähige Produkte an
+function applyGutscheinSystem(frm, callback) {
+	console.log("applyGutscheinSystem gestartet");
+	
+	// Hole den Gutscheinwert des Gastgebers
+	let gutscheinWert = frm.doc.gastgeber_gutschein_wert || 0;
+	console.log("Verfügbarer Gutscheinwert:", gutscheinWert);
+	
+	if (gutscheinWert <= 0) {
+		console.log("Kein Gutscheinwert verfügbar - überspringe Gutschein-System");
+		callback();
+		return;
+	}
+	
+	// Sammle nur aktionsfähige Produkte vom GASTGEBER (nicht von den Gästen!)
+	let gastgeberProdukte = [];
+	
+	// Funktion zum Sammeln der Produkte aus der Gastgeberin-Tabelle
+	function sammleGastgeberProdukte() {
+		if (frm.doc.gastgeberin && frm.doc.produktauswahl_für_gastgeberin && frm.doc.produktauswahl_für_gastgeberin.length > 0) {
+			frm.doc.produktauswahl_für_gastgeberin.forEach((item, index) => {
+				if (item.item_code && item.qty && item.qty > 0 && item.rate && item.rate > 0) {
+					gastgeberProdukte.push({
+						item: item,
+						produktfeld: "produktauswahl_für_gastgeberin",
+						tabellenName: "Gastgeberin",
+						index: index,
+						originalRate: item.rate,
+						originalAmount: item.amount
+					});
+				}
+			});
+		}
+	}
+	
+	// Sammle nur Produkte von der Gastgeberin (Gastgeber-Benefit!)
+	sammleGastgeberProdukte();
+	
+	console.log("Gefundene Gastgeber-Produkte (vor Aktionsfähigkeits-Prüfung):", gastgeberProdukte.length);
+	
+	if (gastgeberProdukte.length === 0) {
+		console.log("Gastgeber hat keine Produkte - überspringe Gutschein-System");
+		callback();
+		return;
+	}
+	
+	// Prüfe jedes Gastgeber-Produkt auf Aktionsfähigkeit
+	pruefeAktionsfaehigkeitAllerProdukte(gastgeberProdukte, 0, [], function(aktionsfaehigeGastgeberProdukte) {
+		console.log("Aktionsfähige Gastgeber-Produkte:", aktionsfaehigeGastgeberProdukte.length);
+		
+		if (aktionsfaehigeGastgeberProdukte.length === 0) {
+			console.log("Gastgeber hat keine aktionsfähigen Produkte - überspringe Gutschein-System");
+			callback();
+			return;
+		}
+		
+		// Wende Gutschein nur auf Gastgeber-Produkte an (Gastgeber-Benefit!)
+		wendeGutscheinAn(aktionsfaehigeGastgeberProdukte, gutscheinWert, frm, callback);
+	});
+}
+
+// Prüft alle Produkte auf Aktionsfähigkeit (custom_considered_for_action = 1)
+function pruefeAktionsfaehigkeitAllerProdukte(alleProdukte, index, aktionsfaehigeProdukte, callback) {
+	if (index >= alleProdukte.length) {
+		callback(aktionsfaehigeProdukte);
+		return;
+	}
+	
+	let produkt = alleProdukte[index];
+	
+	frappe.call({
+		method: "frappe.client.get_value",
+		args: {
+			doctype: "Item",
+			filters: {
+				item_code: produkt.item.item_code
+			},
+			fieldname: "custom_considered_for_action"
+		},
+		callback: function(r) {
+					if (r.message && r.message.custom_considered_for_action) {
+			console.log(`Gastgeber-Produkt ${produkt.item.item_code} ist aktionsfähig für Gutschein`);
+			aktionsfaehigeProdukte.push(produkt);
+		}
+			
+			// Nächstes Produkt prüfen
+			pruefeAktionsfaehigkeitAllerProdukte(alleProdukte, index + 1, aktionsfaehigeProdukte, callback);
+		}
+	});
+}
+
+// Wendet den Gutschein von oben nach unten auf die Gastgeber-Produkte an
+function wendeGutscheinAn(aktionsfaehigeGastgeberProdukte, verfuegbarerGutschein, frm, callback) {
+	console.log("Wende Gutschein auf Gastgeber-Produkte an - Verfügbar:", verfuegbarerGutschein);
+	
+	let verbrauchterGutschein = 0;
+	let angewendeteRabatte = [];
+	
+	// WICHTIG: Speichere die Original-Preise für mögliche Wiederherstellung
+	if (!frm.originalPricesBackup) {
+		frm.originalPricesBackup = {};
+	}
+	
+	// Gehe von oben nach unten durch die Gastgeber-Produkte
+	for (let i = 0; i < aktionsfaehigeGastgeberProdukte.length && verfuegbarerGutschein > verbrauchterGutschein; i++) {
+		let produkt = aktionsfaehigeGastgeberProdukte[i];
+		let produktWert = produkt.originalAmount;
+		let restGutschein = verfuegbarerGutschein - verbrauchterGutschein;
+		
+		// Speichere Original-Preis für Wiederherstellung
+		let backupKey = `${produkt.produktfeld}_${produkt.index}`;
+		if (!frm.originalPricesBackup[backupKey]) {
+			frm.originalPricesBackup[backupKey] = {
+				originalRate: produkt.originalRate,
+				originalAmount: produkt.originalAmount,
+				item: produkt.item
+			};
+			console.log(`Original-Preis gespeichert für ${produkt.item.item_code}: ${produkt.originalRate}€`);
+		}
+		
+		if (produktWert <= restGutschein) {
+			// Komplette Reduktion auf 0
+			let rabatt = produktWert;
+			verbrauchterGutschein += rabatt;
+			
+			// Setze Preis auf 0
+			produkt.item.rate = 0;
+			produkt.item.amount = 0;
+			
+			angewendeteRabatte.push({
+				produkt: produkt,
+				rabatt: rabatt,
+				neuerPreis: 0
+			});
+			
+			console.log(`Gastgeber-Produkt ${produkt.item.item_code}: Vollständige Reduktion um ${rabatt}€ (auf 0€)`);
+		} else {
+			// Teilweise Reduktion
+			let rabatt = restGutschein;
+			verbrauchterGutschein += rabatt;
+			
+			let neuerPreis = (produktWert - rabatt) / produkt.item.qty;
+			let neuerBetrag = produktWert - rabatt;
+			
+			// Setze neuen Preis
+			produkt.item.rate = neuerPreis;
+			produkt.item.amount = neuerBetrag;
+			
+			angewendeteRabatte.push({
+				produkt: produkt,
+				rabatt: rabatt,
+				neuerPreis: neuerPreis
+			});
+			
+			console.log(`Gastgeber-Produkt ${produkt.item.item_code}: Teilweise Reduktion um ${rabatt}€ (neuer Preis: ${neuerPreis}€)`);
+			break; // Gutschein ist aufgebraucht
+		}
+	}
+	
+	// Aktualisiere alle betroffenen Tabellen
+	let betroffeneTabellen = new Set();
+	angewendeteRabatte.forEach(rabatt => {
+		betroffeneTabellen.add(rabatt.produkt.produktfeld);
+	});
+	
+	betroffeneTabellen.forEach(tabelle => {
+		frm.refresh_field(tabelle);
+	});
+	
+	// Berechne Gesamtsummen neu
+	calculate_party_totals(frm);
+	
+	let restbetrag = verfuegbarerGutschein - verbrauchterGutschein;
+	console.log("Gutschein angewendet - Verbraucht:", verbrauchterGutschein, "Restbetrag:", restbetrag);
+	
+	if (restbetrag > 0.01) { // Kleine Rundungsfehler ignorieren
+		// Zeige Restbetrag-Dialog
+		zeigeRestbetragDialog(restbetrag, frm, callback);
+	} else {
+		// Kein Restbetrag - weiter zum nächsten Schritt
+		frappe.show_alert(`Gutschein vollständig angewendet: ${verbrauchterGutschein.toFixed(2)}€`, 3);
+		// Original-Preise können gelöscht werden, da der Gutschein erfolgreich angewendet wurde
+		frm.originalPricesBackup = {};
+		callback();
+	}
+}
+
+// Dialog für Restbetrag-Behandlung
+function zeigeRestbetragDialog(restbetrag, frm, callback) {
+	let dialog = new frappe.ui.Dialog({
+		title: 'Gutschein-Restbetrag',
+		fields: [
+			{
+				fieldtype: 'HTML',
+				options: `
+					<div style="margin-bottom: 15px;">
+						<h4>Du hast noch ${restbetrag.toFixed(2)}€ Gutschrift übrig!</h4>
+						<p>Der Gutschein konnte nicht vollständig auf die aktionsfähigen Produkte angewendet werden.</p>
+						<p><strong>Was möchtest Du tun?</strong></p>
+					</div>
+				`
+			}
+		],
+		primary_action_label: 'Zurück zur Bearbeitung',
+		primary_action: function() {
+			dialog.hide();
+			// WICHTIG: Original-Preise wiederherstellen!
+			stelleOriginalPreiseWieder(frm);
+			
+			// Zurück zur Party-Bearbeitung - kompletter Neustart
+			frappe.msgprint({
+				title: "Zurück zur Bearbeitung",
+				message: "Die Original-Preise wurden wiederhergestellt. Du kannst jetzt weitere aktionsfähige Produkte hinzufügen und dann erneut 'Aufträge erstellen' klicken.",
+				indicator: "blue"
+			});
+			// Buttons wieder herstellen
+			refreshButtons(frm);
+		},
+		secondary_action_label: 'Restbetrag verfallen lassen',
+		secondary_action: function() {
+			dialog.hide();
+			frappe.show_alert(`Restbetrag von ${restbetrag.toFixed(2)}€ verfällt`, 3);
+			// Weiter zum nächsten Schritt
+			callback();
+		}
+	});
+	
+	dialog.show();
+}
+
+// Stellt die Original-Preise aller Produkte wieder her
+function stelleOriginalPreiseWieder(frm) {
+	console.log("Stelle Original-Preise wieder her...");
+	
+	if (!frm.originalPricesBackup) {
+		console.log("Keine Original-Preise zum Wiederherstellen gefunden");
+		return;
+	}
+	
+	let wiederhergestellteProdukte = 0;
+	
+	// Gehe durch alle gespeicherten Original-Preise
+	for (let backupKey in frm.originalPricesBackup) {
+		let backup = frm.originalPricesBackup[backupKey];
+		let item = backup.item;
+		
+		// Stelle Original-Preis und -Betrag wieder her
+		item.rate = backup.originalRate;
+		item.amount = backup.originalAmount;
+		
+		console.log(`Original-Preis wiederhergestellt für ${item.item_code}: ${backup.originalRate}€`);
+		wiederhergestellteProdukte++;
+	}
+	
+	// Lösche das Backup, da es nicht mehr benötigt wird
+	frm.originalPricesBackup = {};
+	
+	// Aktualisiere alle betroffenen Tabellen
+	frm.refresh_field("produktauswahl_für_gastgeberin");
+	
+	// Berechne Gesamtsummen neu
+	calculate_party_totals(frm);
+	
+	console.log(`${wiederhergestellteProdukte} Produkte auf Original-Preise zurückgesetzt`);
+	frappe.show_alert(`${wiederhergestellteProdukte} Produkte auf Original-Preise zurückgesetzt`, 3);
+}
+
+// Hilfsfunktion zum Erstellen der Aufträge
+function erstelleAuftraege(frm) {
+	console.log("erstelleAuftraege aufgerufen");
+	// Sofort Button deaktivieren, um Doppelklicks zu verhindern
+	try {
+		if (frm && frm.page) {
+			if (frm.page.btn_primary) frm.page.btn_primary.hide();
+			if (frm.page.clear_primary_action) frm.page.clear_primary_action();
+			if (frm.page.clear_secondary_action) frm.page.clear_secondary_action();
+			if (frm.page.clear_custom_actions) frm.page.clear_custom_actions();
+		}
+	} catch (e) {
+		console.error("Fehler beim Deaktivieren der Buttons:", e);
+	}
+	
+	// Erst speichern, dann Aufträge erstellen
+	frappe.show_alert({
+		message: __("Speichere aktuelle Änderungen..."),
+		indicator: "blue"
+	});
+	
+	console.log("Versuche Dokument zu speichern...");
+	frm.save().then(() => {
+		console.log("Dokument gespeichert - rufe create_invoices API auf");
+		// Nach erfolgreichem Speichern die Aufträge erstellen
+		frappe.call({
+			method: "enjo_party.enjo_party.doctype.party.party.create_invoices",
+			args: {
+				party: frm.doc.name,
+				from_button: true  // Flag, um zu zeigen, dass der Aufruf vom Button kommt
+			},
+			freeze: true,
+			freeze_message: __("Erstelle Aufträge..."),
+			callback: function(r) {
+				console.log("API-Antwort erhalten:", r);
+				if (r.message && r.message.length > 0) {
+					frappe.msgprint({
+						title: __("Erfolg"),
+						message: __("Es wurden {0} Aufträge erstellt und eingereicht!", [r.message.length]),
+						indicator: "green"
+					});
+					// Vollständiges Neuladen der Seite, um den Status zu aktualisieren
+					setTimeout(function() {
+						location.reload();
+					}, 2000);
+				} else {
+					console.log("Keine Aufträge erstellt - refreshButtons wird aufgerufen");
+					frappe.msgprint({
+						title: __("Hinweis"),
+						message: __("Es wurden keine Aufträge erstellt. Bitte überprüfen Sie, ob Produkte ausgewählt wurden."),
+						indicator: "orange"
+					});
+					// Buttons wieder herstellen statt reload
+					console.log("Keine Aufträge erstellt - refreshButtons wird aufgerufen");
+					refreshButtons(frm);
+				}
+			},
+			error: function(r) {
+				console.log("API-Fehler aufgetreten - refreshButtons wird aufgerufen");
+				// WICHTIG: Bei Fehlern Original-Preise wiederherstellen
+				stelleOriginalPreiseWieder(frm);
+				
+				// Bei API-Fehlern
+				frappe.msgprint({
+					title: __("Fehler"),
+					message: __("Es ist ein Fehler beim Erstellen der Aufträge aufgetreten. Die Original-Preise wurden wiederhergestellt. Bitte versuchen Sie es erneut."),
+					indicator: "red"
+				});
+				// Buttons wieder herstellen
+				console.log("API-Fehler - refreshButtons wird aufgerufen");
+				refreshButtons(frm);
+			}
+		});
+	}).catch((error) => {
+		console.log("Speicherfehler aufgetreten:", error);
+		console.log("Speicherfehler aufgetreten - refreshButtons wird aufgerufen");
+		// WICHTIG: Bei Speicherfehlern Original-Preise wiederherstellen
+		stelleOriginalPreiseWieder(frm);
+		
+		// Falls das Speichern fehlschlägt, Fehlermeldung anzeigen und Buttons wieder aktivieren
+		frappe.msgprint({
+			title: __("Fehler beim Speichern"),
+			message: __("Das Dokument konnte nicht gespeichert werden. Die Original-Preise wurden wiederhergestellt. Bitte beheben Sie die Fehler und versuchen Sie es erneut."),
+			indicator: "red"
+		});
+		// Buttons wieder herstellen statt reload
+		console.log("Speicherfehler - refreshButtons wird aufgerufen");
+		refreshButtons(frm);
+	});
+}
+
 // Funktion zum Aktualisieren der benutzerdefinierten Überschriften
 function updateCustomHeaders(frm) {
 	if (!frm.doc.kunden) return;
@@ -17,23 +598,41 @@ function updateCustomHeaders(frm) {
 		let sectionHeader = document.querySelector(`[data-fieldname="${sectionId}"] .section-head`);
 		
 		if (sectionHeader) {
-			// Wende den Stil direkt auf das Kopfelement an
-			sectionHeader.style.fontWeight = "500";
-			sectionHeader.style.fontSize = "1em";
-			sectionHeader.style.color = "#6C7680";
-			
-			// Prüfe, ob wir bereits einen angepassten Header haben
-			if (!sectionHeader.querySelector('.custom-header')) {
-				// Erstelle einen neuen Inhalt mit einem benutzerdefinierten span
-				sectionHeader.innerHTML = `Produktauswahl für <span class="custom-header" style="font-weight: 600; color: #1F272E;">${frm.doc.gastgeberin}</span>`;
-			} else {
-				// Aktualisiere nur den Text des benutzerdefinierten Spans
-				sectionHeader.querySelector('.custom-header').textContent = frm.doc.gastgeberin;
-			}
+			// Hole den echten Kundennamen asynchron (wie bei den Gästen)
+			frappe.db.get_doc('Customer', frm.doc.gastgeberin).then(customer_doc => {
+				let kundenName = customer_doc.customer_name || frm.doc.gastgeberin;
+				
+				// Wende den Stil direkt auf das Kopfelement an
+				sectionHeader.style.fontWeight = "500";
+				sectionHeader.style.fontSize = "1em";
+				sectionHeader.style.color = "#6C7680";
+				
+				// Prüfe, ob wir bereits einen angepassten Header haben
+				if (!sectionHeader.querySelector('.custom-header')) {
+					// Erstelle einen neuen Inhalt mit einem benutzerdefinierten span
+					sectionHeader.innerHTML = `Produktauswahl für <span class="custom-header" style="font-weight: 600; color: #1F272E;">${kundenName}</span>`;
+				} else {
+					// Aktualisiere nur den Text des benutzerdefinierten Spans
+					sectionHeader.querySelector('.custom-header').textContent = kundenName;
+				}
+				
+				// Auch das Label für das Versand-Dropdown anpassen
+				frm.set_df_property('versand_gastgeberin', 'label', `Versand für ${kundenName} an:`);
+			}).catch(error => {
+				// Falls der Customer nicht gefunden wird, verwende die ID als Fallback
+				console.log("Konnte Customer für Gastgeberin nicht laden:", error);
+				sectionHeader.style.fontWeight = "500";
+				sectionHeader.style.fontSize = "1em";
+				sectionHeader.style.color = "#6C7680";
+				
+				if (!sectionHeader.querySelector('.custom-header')) {
+					sectionHeader.innerHTML = `Produktauswahl für <span class="custom-header" style="font-weight: 600; color: #1F272E;">${frm.doc.gastgeberin}</span>`;
+				} else {
+					sectionHeader.querySelector('.custom-header').textContent = frm.doc.gastgeberin;
+				}
+				frm.set_df_property('versand_gastgeberin', 'label', `Versand für ${frm.doc.gastgeberin} an:`);
+			});
 		}
-		
-		// Auch das Label für das Versand-Dropdown anpassen
-		frm.set_df_property('versand_gastgeberin', 'label', `Versand für ${frm.doc.gastgeberin} an:`);
 	}
 	
 	// Dann für jeden Kunden
@@ -112,6 +711,28 @@ frappe.ui.form.on('Party', {
 			!frm.is_new() && frm.doc.gastgeberin
 		);
 
+		// Automatisch leere Zeilen zu sichtbaren, leeren Produkttabellen hinzufügen
+		setTimeout(() => {
+			// Für Gastgeberin-Tabelle
+			if (!frm.is_new() && frm.doc.gastgeberin) {
+				if (!frm.doc.produktauswahl_für_gastgeberin || frm.doc.produktauswahl_für_gastgeberin.length === 0) {
+					let row = frm.add_child('produktauswahl_für_gastgeberin');
+					frm.refresh_field('produktauswahl_für_gastgeberin');
+				}
+			}
+			
+			// Für Gäste-Tabellen
+			for (let i = 1; i <= 15; i++) {
+				if (!frm.is_new() && frm.doc.kunden && frm.doc.kunden.length >= i) {
+					let field_name = `produktauswahl_für_gast_${i}`;
+					if (!frm.doc[field_name] || frm.doc[field_name].length === 0) {
+						let row = frm.add_child(field_name);
+						frm.refresh_field(field_name);
+					}
+				}
+			}
+		}, 100);
+
 		// Kundennamen in Überschriften einfügen (nach DOM-Rendering)
 		setTimeout(() => {
 			updateCustomHeaders(frm);
@@ -153,13 +774,43 @@ frappe.ui.form.on('Party', {
 			frm.set_df_property('versand_gastgeberin', 'options', optionen);
 		});
 		
-		// Verstecke das Datum-Feld in allen Produktauswahl-Tabellen
+		// Verstecke das Datum-Feld in allen Produktauswahl-Tabellen und setze Item-Filter
 		for (let i = 1; i <= 15; i++) {
 			const fieldName = `produktauswahl_für_gast_${i}`;
 			if (frm.fields_dict[fieldName]) {
 				// Verstecke das Datum-Feld in der Tabelle (damit kein Kalender erscheint)
 				frm.fields_dict[fieldName].grid.update_docfield_property('delivery_date', 'hidden', 1);
 				frm.fields_dict[fieldName].grid.update_docfield_property('delivery_date', 'reqd', 0);
+				
+				// Setze Filter für Item-Auswahl (nur Sales Items, nicht disabled)
+				if (frm.fields_dict[fieldName].grid.get_field('item_code')) {
+					frm.fields_dict[fieldName].grid.get_field('item_code').get_query = function() {
+						return {
+							filters: {
+								'is_sales_item': 1,
+								'disabled': 0
+							}
+						};
+					};
+				}
+			}
+		}
+		
+		// Auch für die Gastgeberin-Tabelle
+		if (frm.fields_dict["produktauswahl_für_gastgeberin"]) {
+			frm.fields_dict["produktauswahl_für_gastgeberin"].grid.update_docfield_property('delivery_date', 'hidden', 1);
+			frm.fields_dict["produktauswahl_für_gastgeberin"].grid.update_docfield_property('delivery_date', 'reqd', 0);
+			
+			// Setze Filter für Item-Auswahl
+			if (frm.fields_dict["produktauswahl_für_gastgeberin"].grid.get_field('item_code')) {
+				frm.fields_dict["produktauswahl_für_gastgeberin"].grid.get_field('item_code').get_query = function() {
+					return {
+						filters: {
+							'is_sales_item': 1,
+							'disabled': 0
+						}
+					};
+				};
 			}
 		}
 		
@@ -180,106 +831,13 @@ frappe.ui.form.on('Party', {
 			}
 		}, 300);
 		
-		// Im Neu-Modus: Speichern-Button anpassen
-		if (frm.is_new()) {
-			// Stelle sicher, dass der Standard-Save-Button sichtbar ist
-			if (frm.page && frm.page.btn_primary) {
-				frm.page.btn_primary.show();
-			}
-			
-			// Fallback: Wenn der primäre Button nicht sichtbar ist,
-			// füge einen benutzerdefinierten Speichern-Button hinzu
-			setTimeout(() => {
-				try {
-					const primaryBtn = $(frm.wrapper).find('.btn-primary');
-					if (primaryBtn.length === 0 || !primaryBtn.is(':visible')) {
-						frm.add_custom_button(__("Speichern"), function() {
-							frm.save();
-						}).addClass("btn-primary");
-					} else {
-						// Text direkt auf Deutsch setzen
-						primaryBtn.text("Speichern");
-					}
-				} catch (e) {
-					console.error("Fehler beim Anpassen des Speichern-Buttons:", e);
-					// Notfall-Fallback: Auf jeden Fall einen Button hinzufügen
-					frm.add_custom_button(__("Speichern"), function() {
-						frm.save();
-					}).addClass("btn-primary");
-				}
-			}, 100);
-		}
+		// Custom Buttons basierend auf dem Status anzeigen - verwende die zentrale Funktion
+		// Verzögere den Aufruf, damit alle anderen Initialisierungen abgeschlossen sind
+		setTimeout(() => {
+			refreshButtons(frm);
+		}, 200);
 		
-		// Custom Buttons basierend auf dem Status anzeigen
-		if (frm.doc.docstatus === 0) { // Nicht eingereicht
-			if (frm.is_new()) {
-				// Im Neu-Modus: Standard-Buttons verwenden und nichts tun
-				// Der Speichern-Button wird oben bereits konfiguriert
-			} else if (frm.doc.status === "Gäste") {
-				// Status "Gäste": Nur Speichern-Button anzeigen (ohne 'Zu Produkten'-Button)
-				frm.add_custom_button(__("Speichern"), function() {
-					frm.save();
-				}).addClass("btn-primary");
-			} else if (frm.doc.status === "Produkte") {
-				// Status "Produkte": Speichern und "Aufträge erstellen"-Button
-				frm.add_custom_button(__("Aufträge erstellen"), function() {
-					// Bestätigungsdialog anzeigen
-					frappe.confirm(
-						__("Bist Du sicher, dass alle Produkte richtig ausgewählt wurden und Du die Bestellung abschicken möchtest? Dieser Vorgang kann nicht rückgängig gemacht werden!"),
-						function() {
-							// Sofort Button deaktivieren, um Doppelklicks zu verhindern
-							try {
-								if (frm && frm.page) {
-									if (frm.page.btn_primary) frm.page.btn_primary.hide();
-									if (frm.page.clear_primary_action) frm.page.clear_primary_action();
-									if (frm.page.clear_secondary_action) frm.page.clear_secondary_action();
-									if (frm.page.clear_custom_actions) frm.page.clear_custom_actions();
-								}
-							} catch (e) {
-								console.error("Fehler beim Deaktivieren der Buttons:", e);
-							}
-							
-							// Wenn bestätigt, Aufträge erstellen
-							frappe.call({
-								method: "enjo_party.enjo_party.doctype.party.party.create_invoices",
-								args: {
-									party: frm.doc.name,
-									from_button: true  // Flag, um zu zeigen, dass der Aufruf vom Button kommt
-								},
-								freeze: true,
-								freeze_message: __("Erstelle Aufträge..."),
-								callback: function(r) {
-									if (r.message && r.message.length > 0) {
-										frappe.msgprint({
-											title: __("Erfolg"),
-											message: __("Es wurden {0} Aufträge erstellt und eingereicht!", [r.message.length]),
-											indicator: "green"
-										});
-										// Vollständiges Neuladen der Seite, um den Status zu aktualisieren
-										setTimeout(function() {
-											location.reload();
-										}, 2000);
-									} else {
-										frappe.msgprint({
-											title: __("Hinweis"),
-											message: __("Es wurden keine Aufträge erstellt. Bitte überprüfen Sie, ob Produkte ausgewählt wurden."),
-											indicator: "orange"
-										});
-										// Formular neu laden, damit Buttons wieder erscheinen
-										frm.reload_doc();
-									}
-								}
-							});
-						}
-					);
-				}).addClass("btn-primary");
-				
-				// Auch einen Speichern-Button anzeigen (ohne Primärfarbe)
-				frm.add_custom_button(__("Speichern"), function() {
-					frm.save();
-				});
-			}
-		} else if (frm.doc.docstatus === 1) {
+		if (frm.doc.docstatus === 1) {
 			// Dokument ist eingereicht/abgeschlossen
 			// Keine Änderungen mehr möglich
 			frm.disable_save();
@@ -350,6 +908,34 @@ frappe.ui.form.on('Party', {
 	},
 	
 	onload: function(frm) {
+		// Automatisch Datum auf heute setzen
+		if (frm.is_new() && !frm.doc.party_date) {
+			frm.set_value('party_date', frappe.datetime.get_today());
+		}
+		
+		// Automatisch Partnerin setzen, wenn der aktuelle Benutzer als Sales Partner existiert
+		if (frm.is_new() && !frm.doc.partnerin) {
+			// Hole den aktuellen Benutzernamen
+			let current_user = frappe.session.user_fullname || frappe.session.user;
+			
+			// Prüfe, ob ein Sales Partner mit diesem Namen existiert
+			frappe.db.get_list('Sales Partner', {
+				filters: {
+					'partner_name': current_user
+				},
+				fields: ['name', 'partner_name'],
+				limit: 1
+			}).then(partners => {
+				if (partners && partners.length > 0) {
+					// Setze den gefundenen Sales Partner als Partnerin (ohne Benachrichtigung)
+					frm.set_value('partnerin', partners[0].name);
+				}
+			}).catch(error => {
+				// Fehler beim Suchen ignorieren (z.B. wenn keine Berechtigung)
+				console.log("Konnte nicht nach Sales Partner suchen:", error);
+			});
+		}
+		
 		// Stelle sicher, dass mindestens 3 Zeilen in der Kunden-Tabelle sind
 		if (frm.is_new() && (!frm.doc.kunden || frm.doc.kunden.length < 3)) {
 			// Berechnen, wie viele Zeilen fehlen
@@ -381,6 +967,15 @@ frappe.ui.form.on('Party', {
 		
 		// Initiale Filterung
 		updateKundenFilter(frm);
+	},
+	
+	// Nach dem Speichern automatisch die Preise für alle leeren Produkte laden
+	after_save(frm) {
+		if (frm.doc.docstatus === 0) {
+			refresh_item_prices(frm);
+			// Berechne auch die Gesamtsummen neu
+			calculate_party_totals(frm);
+		}
 	},
 	
 	// Aktualisiere auch wenn Kunden hinzugefügt oder entfernt werden
@@ -445,6 +1040,174 @@ frappe.ui.form.on('Sales Order Item', {
 					}
 				});
 		}
+		
+		// Automatisch Preis laden (immer, auch wenn schon einer vorhanden ist)
+		if (row.item_code) {
+			get_item_price(frm, row);
+		}
+	},
+	qty: function(frm, cdt, cdn) {
+		let row = locals[cdt][cdn];
+		// Berechne den Betrag neu, wenn sich die Menge ändert
+		if (row.qty && row.rate) {
+			row.amount = flt(row.qty) * flt(row.rate);
+			row.base_amount = row.amount;
+			frm.refresh_field(row.parentfield);
+			// Berechne auch die Gesamtsummen neu
+			calculate_party_totals(frm);
+		}
+	},
+	rate: function(frm, cdt, cdn) {
+		let row = locals[cdt][cdn];
+		// Berechne den Betrag neu, wenn sich der Preis ändert
+		if (row.qty && row.rate) {
+			row.amount = flt(row.qty) * flt(row.rate);
+			row.base_amount = row.amount;
+			frm.refresh_field(row.parentfield);
+			// Berechne auch die Gesamtsummen neu
+			calculate_party_totals(frm);
+		}
 	}
 });
+
+
+
+// Funktion, um alle Tabellen mit Preisen zu aktualisieren
+function refresh_item_prices(frm) {
+	// Finde alle Produkte mit fehlenden Preisen und aktualisiere sie
+	update_all_empty_prices(frm);
+}
+
+// Funktion, um den Preis eines Artikels abzurufen
+function get_item_price(frm, row) {
+	if (!row.item_code) return;
+	
+	frappe.call({
+		method: 'erpnext.stock.get_item_details.get_item_details',
+		args: {
+			args: {
+				item_code: row.item_code,
+				customer: frm.doc.gastgeberin,
+				company: frappe.defaults.get_user_default('Company'),
+				conversion_rate: 1.0,
+				price_list: frappe.defaults.get_global_default('selling_price_list'),
+				plc_conversion_rate: 1.0,
+				doctype: 'Sales Order',
+				currency: frappe.defaults.get_global_default('currency'),
+				update_stock: 0,
+				conversion_factor: row.conversion_factor || 1.0,
+				qty: row.qty || 1.0,
+				price_list_uom_dependant: 1
+			}
+		},
+		callback: function(r) {
+			if (r.message) {
+				row.rate = r.message.price_list_rate || 0;
+				row.price_list_rate = r.message.price_list_rate || 0;
+				row.base_price_list_rate = r.message.price_list_rate || 0;
+				row.base_rate = r.message.price_list_rate || 0;
+				row.item_name = r.message.item_name || row.item_code;
+				row.price_list = r.message.price_list;
+				row.uom = r.message.uom;
+				row.conversion_factor = r.message.conversion_factor || 1.0;
+
+				if (r.message.stock_uom) {
+					row.stock_uom = r.message.stock_uom;
+				}
+
+				// Berechne den Betrag (amount = qty * rate)
+				if (row.qty && row.rate) {
+					row.amount = flt(row.qty) * flt(row.rate);
+					row.base_amount = row.amount;
+				}
+
+				frm.refresh_field(row.parentfield);
+				console.log(`Preis für ${row.item_code} auf ${row.rate} gesetzt, Betrag: ${row.amount}`);
+			}
+		}
+	});
+}
+
+// Aktualisiere alle leeren Preise in allen Produkttabellen
+function update_all_empty_prices(frm) {
+	// Für jede Produkttabelle durchgehen
+	for (let i = 1; i <= 15; i++) {
+		const field_name = `produktauswahl_für_gast_${i}`;
+		if (frm.doc[field_name] && frm.doc[field_name].length > 0) {
+			frm.doc[field_name].forEach(function(item) {
+				if (item.item_code && (!item.rate || item.rate == 0)) {
+					get_item_price(frm, item);
+				}
+			});
+		}
+	}
+	
+	// Auch für die Gastgeberin-Tabelle
+	if (frm.doc.produktauswahl_für_gastgeberin && frm.doc.produktauswahl_für_gastgeberin.length > 0) {
+		frm.doc.produktauswahl_für_gastgeberin.forEach(function(item) {
+			if (item.item_code && (!item.rate || item.rate == 0)) {
+				get_item_price(frm, item);
+			}
+		});
+	}
+}
+
+// Funktion zur Berechnung der Party-Gesamtsummen
+function calculate_party_totals(frm) {
+	let total_amount = 0.0;
+	
+	// Berechne Gesamtumsatz aus allen Produkttabellen
+	for (let i = 1; i <= 15; i++) {
+		const field_name = `produktauswahl_für_gast_${i}`;
+		if (frm.doc[field_name] && frm.doc[field_name].length > 0) {
+			frm.doc[field_name].forEach(function(item) {
+				if (item.qty && item.rate) {
+					total_amount += flt(item.qty) * flt(item.rate);
+				}
+			});
+		}
+	}
+	
+	// Auch Gastgeberin-Tabelle berücksichtigen
+	if (frm.doc.produktauswahl_für_gastgeberin && frm.doc.produktauswahl_für_gastgeberin.length > 0) {
+		frm.doc.produktauswahl_für_gastgeberin.forEach(function(item) {
+			if (item.qty && item.rate) {
+				total_amount += flt(item.qty) * flt(item.rate);
+			}
+		});
+	}
+	
+	// Setze Gesamtumsatz
+	frm.set_value('gesamtumsatz', total_amount);
+	
+	// Berechne Gutscheinwert basierend auf Präsentationsumsatz-Stufen
+	const gutschein_wert = calculate_gutschein_value(total_amount);
+	frm.set_value('gastgeber_gutschein_wert', gutschein_wert);
+}
+
+// Funktion zur Berechnung des Gutscheinwerts basierend auf Präsentationsumsatz-Stufen
+function calculate_gutschein_value(total_amount) {
+	// Präsentationsumsatz-Stufen für Gratisprodukte
+	// Format: [Mindest-Umsatz, Gutschein-Betrag]
+	const gutschein_stufen = [
+		[0, 0],      // Unter 350€: 0€ Gutschein
+		[350, 30],   // Ab 350€: 30€ Gutschein
+		[600, 60],   // Ab 600€: 60€ Gutschein
+		[850, 95],   // Ab 850€: 95€ Gutschein
+		[1100, 130], // Ab 1100€: 130€ Gutschein
+	];
+	
+	// Finde die passende Stufe
+	let gutschein_wert = 0;
+	for (let i = 0; i < gutschein_stufen.length; i++) {
+		const [mindest_umsatz, gutschein_betrag] = gutschein_stufen[i];
+		if (total_amount >= mindest_umsatz) {
+			gutschein_wert = gutschein_betrag;
+		} else {
+			break;
+		}
+	}
+	
+	return gutschein_wert;
+}
 

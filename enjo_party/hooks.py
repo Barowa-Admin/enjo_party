@@ -11,15 +11,15 @@ app_license = "mit"
 required_apps = ["frappe", "erpnext"]
 
 # Each item in the list will be shown as an app in the apps page
-# add_to_apps_screen = [
-# 	{
-# 		"name": "enjo_party",
-# 		"logo": "/assets/enjo_party/logo.png",
-# 		"title": "Enjo Party",
-# 		"route": "/enjo_party",
-# 		"has_permission": "enjo_party.api.permission.has_app_permission"
-# 	}
-# ]
+add_to_apps_screen = [
+	{
+		"name": "enjo_party",
+		"logo": "/assets/enjo_party/logo.png",
+		"title": "Enjo Präsentation",
+		"route": "/enjo_party",
+		"has_permission": "enjo_party.enjo_party.api.has_app_permission"
+	}
+]
 
 # Includes in <head>
 # ------------------
@@ -82,11 +82,16 @@ doctype_list_js = {"Party" : "enjo_party/doctype/party/party_list.js"}
 # 	"filters": "enjo_party.utils.jinja_filters"
 # }
 
+# Fixtures
+# --------
+
+fixtures = ["Custom Field"]
+
 # Installation
 # ------------
 
 # before_install = "enjo_party.install.before_install"
-# after_install = "enjo_party.install.after_install"
+# after_install = "enjo_party.utils.fix_erpnext_compatibility"
 
 # Uninstallation
 # ------------
@@ -132,13 +137,13 @@ doctype_list_js = {"Party" : "enjo_party/doctype/party/party_list.js"}
 # ---------------
 # Hook on document methods and events
 
-# doc_events = {
-# 	"*": {
-# 		"on_update": "method",
-# 		"on_cancel": "method",
-# 		"on_trash": "method"
-# 	}
-# }
+doc_events = {
+	"Sales Invoice": {
+		"before_validate": "enjo_party.enjo_party.utils.sales_invoice_hooks.before_validate_sales_invoice",
+		"before_save": "enjo_party.enjo_party.utils.sales_invoice_hooks.add_shipping_to_sales_invoice",
+		"after_save": "enjo_party.enjo_party.utils.sales_invoice_hooks.after_save_sales_invoice"
+	}
+}
 
 # Scheduled Tasks
 # ---------------
@@ -191,7 +196,7 @@ doctype_list_js = {"Party" : "enjo_party/doctype/party/party_list.js"}
 
 # Request Events
 # ----------------
-# before_request = ["enjo_party.utils.before_request"]
+# before_request = ["enjo_party.utils.fix_erpnext_compatibility"]
 # after_request = ["enjo_party.utils.after_request"]
 
 # Job Events

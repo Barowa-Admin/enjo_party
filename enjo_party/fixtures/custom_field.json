@@ -1,0 +1,44 @@
+[
+ {
+  "doctype": "Custom Field",
+  "name": "Sales Order-custom_party_reference",
+  "dt": "Sales Order",
+  "fieldname": "custom_party_reference",
+  "fieldtype": "Link",
+  "label": "Party Referenz",
+  "options": "Party",
+  "read_only": 1,
+  "insert_after": "po_no"
+ },
+ {
+  "doctype": "Custom Field",
+  "name": "Sales Order-custom_shipping_target",
+  "dt": "Sales Order",
+  "fieldname": "custom_shipping_target",
+  "fieldtype": "Link",
+  "label": "Versandziel",
+  "options": "Customer",
+  "read_only": 1,
+  "insert_after": "custom_party_reference"
+ },
+ {
+  "doctype": "Custom Field",
+  "name": "Sales Order-custom_calculated_shipping_cost",
+  "dt": "Sales Order",
+  "fieldname": "custom_calculated_shipping_cost",
+  "fieldtype": "Currency",
+  "label": "Berechnete Versandkosten",
+  "read_only": 1,
+  "insert_after": "custom_shipping_target"
+ },
+ {
+  "doctype": "Custom Field",
+  "name": "Sales Order-custom_shipping_note",
+  "dt": "Sales Order",
+  "fieldname": "custom_shipping_note",
+  "fieldtype": "Small Text",
+  "label": "Versandkosten Berechnung",
+  "read_only": 1,
+  "insert_after": "custom_calculated_shipping_cost"
+ }
+] 

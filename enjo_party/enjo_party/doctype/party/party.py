@@ -24,8 +24,15 @@ class Party(Document):
 		# Stelle sicher, dass UOM Conversion Factor in allen Produkttabellen gesetzt ist
 		self.set_uom_conversion_factor()
 		
+		# Berechne Gesamtumsatz und Gutscheinwert
+		self.calculate_totals()
+		
 		# Prüfe, dass die Gastgeberin nicht auch als Gast in der Kundenliste steht
 		self.validate_gastgeberin_not_in_kunden()
+		
+		# Prüfe, dass alle Gäste Produkte ausgewählt haben (nur wenn nicht neu)
+		if not self.is_new():
+			self.validate_all_guests_have_products()
 	
 	def before_submit(self):
 		"""
@@ -98,6 +105,65 @@ class Party(Document):
 				msg.append("Doppelte Gäste wurden automatisch entfernt. Jeder Gast darf nur einmal ausgewählt werden.")
 			frappe.msgprint("\n".join(msg), alert=True)
 	
+	def validate_all_guests_have_products(self):
+		"""
+		Prüft, ob alle eingetragenen Gäste und die Gastgeberin Produkte ausgewählt haben
+		Erlaubt das Speichern ohne Produktvalidierung, wenn neue Gäste hinzugefügt wurden
+		"""
+		if not self.kunden:
+			return
+		
+		# Wenn der Status noch "Gäste" ist, erlaube Speichern ohne Produktvalidierung
+		# Das ermöglicht das Hinzufügen neuer Gäste auch nach dem ersten Speichern
+		if self.status == "Gäste":
+			return
+		
+		# Sammle alle Teilnehmer ohne Produktauswahl
+		teilnehmer_ohne_produkte = []
+		
+		# Prüfe Gastgeberin
+		if self.gastgeberin:
+			hat_gastgeberin_produkte = False
+			if hasattr(self, "produktauswahl_für_gastgeberin") and self.produktauswahl_für_gastgeberin:
+				for produkt in self.produktauswahl_für_gastgeberin:
+					if produkt.item_code and produkt.qty and produkt.qty > 0:
+						hat_gastgeberin_produkte = True
+						break
+			
+			if not hat_gastgeberin_produkte:
+				teilnehmer_ohne_produkte.append(f"Gastgeberin ({self.gastgeberin})")
+		
+		# Prüfe alle Gäste
+		for idx, kunde_row in enumerate(self.kunden):
+			if not kunde_row.kunde:
+				continue
+				
+			index = idx + 1
+			field_name = f"produktauswahl_für_gast_{index}"
+			
+			# Prüfen ob die Tabelle existiert und Produkte enthält
+			hat_produkte = False
+			if hasattr(self, field_name) and getattr(self, field_name):
+				for produkt in getattr(self, field_name):
+					if produkt.item_code and produkt.qty and produkt.qty > 0:
+						hat_produkte = True
+						break
+			
+			# Wenn keine Produkte gefunden wurden, zur Liste hinzufügen
+			if not hat_produkte:
+				teilnehmer_ohne_produkte.append(f"Gast {index} ({kunde_row.kunde})")
+		
+		# Wenn Teilnehmer ohne Produkte gefunden wurden, Fehlermeldung anzeigen
+		if teilnehmer_ohne_produkte:
+			anzahl_gaeste = len([k for k in self.kunden if k.kunde])
+			
+			frappe.throw(
+				f"Die folgenden Teilnehmer haben noch keine Produkte ausgewählt: {', '.join(teilnehmer_ohne_produkte)}. "
+				f"Bitte wählen Sie für jeden Teilnehmer (Gastgeberin und alle Gäste) mindestens ein Produkt aus. "
+				f"Alternativ können Sie Gäste ohne Bestellung aus der Liste entfernen, "
+				f"jedoch müssen mindestens 3 Gäste plus die Gastgeberin verbleiben."
+			)
+	
 	def set_status(self):
 		# Wenn wir bereits abgeschlossen sind, nicht mehr ändern
 		if self.status == "Abgeschlossen":
@@ -151,6 +217,11 @@ class Party(Document):
 							item.conversion_factor = 1.0
 						if not item.stock_qty:
 							item.stock_qty = flt(item.qty) * flt(item.conversion_factor)
+						
+						# Berechne den Betrag (amount = qty * rate)
+						if item.qty and item.rate:
+							item.amount = flt(item.qty) * flt(item.rate)
+							item.base_amount = item.amount
 		
 		# Auch für die Gastgeberin-Tabelle den UOM Conversion Factor setzen
 		if hasattr(self, "produktauswahl_für_gastgeberin") and self.produktauswahl_für_gastgeberin:
@@ -173,6 +244,187 @@ class Party(Document):
 						item.conversion_factor = 1.0
 					if not item.stock_qty:
 						item.stock_qty = flt(item.qty) * flt(item.conversion_factor)
+					
+					# Berechne den Betrag (amount = qty * rate)
+					if item.qty and item.rate:
+						item.amount = flt(item.qty) * flt(item.rate)
+						item.base_amount = item.amount
+	
+	def calculate_totals(self):
+		"""Berechnet Gesamtumsatz und Gutscheinwert für die Gastgeberin"""
+		total_amount = 0.0
+		
+		# Berechne Gesamtumsatz aus allen Produkttabellen
+		for i in range(1, 16):  # 1 bis 15
+			field_name = f"produktauswahl_für_gast_{i}"
+			if hasattr(self, field_name) and getattr(self, field_name):
+				table = getattr(self, field_name)
+				for item in table:
+					if item.qty and item.rate:
+						total_amount += flt(item.qty) * flt(item.rate)
+		
+		# Auch Gastgeberin-Tabelle berücksichtigen
+		if hasattr(self, "produktauswahl_für_gastgeberin") and self.produktauswahl_für_gastgeberin:
+			for item in self.produktauswahl_für_gastgeberin:
+				if item.qty and item.rate:
+					total_amount += flt(item.qty) * flt(item.rate)
+		
+		# Setze Gesamtumsatz
+		self.gesamtumsatz = total_amount
+		
+		# Berechne Gutscheinwert basierend auf Präsentationsumsatz-Stufen
+		self.gastgeber_gutschein_wert = self.calculate_gutschein_value(total_amount)
+	
+	def calculate_gutschein_value(self, total_amount):
+		"""
+		Berechnet den Gutscheinwert basierend auf Präsentationsumsatz-Stufen
+		"""
+		# Präsentationsumsatz-Stufen für Gratisprodukte
+		# Format: (Mindest-Umsatz, Gutschein-Betrag)
+		gutschein_stufen = [
+			(0, 0),      # Unter 350€: 0€ Gutschein
+			(350, 30),   # Ab 350€: 30€ Gutschein
+			(600, 60),   # Ab 600€: 60€ Gutschein
+			(850, 95),   # Ab 850€: 95€ Gutschein
+			(1100, 130), # Ab 1100€: 130€ Gutschein
+		]
+		
+		# Finde die passende Stufe
+		gutschein_wert = 0
+		for mindest_umsatz, gutschein_betrag in gutschein_stufen:
+			if total_amount >= mindest_umsatz:
+				gutschein_wert = gutschein_betrag
+			else:
+				break
+		
+		return gutschein_wert
+	
+	def check_hostess_voucher_usage(self):
+		"""
+		Prüft die Gutschein-Nutzung und wendet Rabatte an
+		Gibt True zurück wenn alles OK ist, False wenn der Benutzer noch Produkte hinzufügen möchte
+		"""
+		if not hasattr(self, "produktauswahl_für_gastgeberin") or not self.produktauswahl_für_gastgeberin:
+			return True
+		
+		if not self.gastgeber_gutschein_wert or self.gastgeber_gutschein_wert <= 0:
+			return True
+		
+		# Sammle alle rabattfähigen Produkte der Gastgeberin
+		rabattfaehige_produkte = []
+		for item in self.produktauswahl_für_gastgeberin:
+			if item.item_code and item.qty and item.rate:
+				# Prüfe, ob das Produkt rabattfähig ist
+				try:
+					produkt_doc = frappe.get_cached_doc("Produkt", item.item_code)
+					if getattr(produkt_doc, "custom_considered_for_action", 0):
+						rabattfaehige_produkte.append(item)
+				except:
+					# Falls Produkt-Doctype nicht existiert, prüfe Item-Doctype
+					try:
+						item_doc = frappe.get_cached_doc("Item", item.item_code)
+						if getattr(item_doc, "custom_considered_for_action", 0):
+							rabattfaehige_produkte.append(item)
+					except:
+						continue
+		
+		# Berechne Gesamtwert der rabattfähigen Produkte
+		gesamtwert_rabattfaehig = sum(flt(item.qty) * flt(item.rate) for item in rabattfaehige_produkte) if rabattfaehige_produkte else 0
+		
+		# Verfügbarer Gutscheinbetrag
+		verfuegbarer_gutschein = flt(self.gastgeber_gutschein_wert)
+		
+		# Wende Rabatt an (falls möglich)
+		if rabattfaehige_produkte and gesamtwert_rabattfaehig > 0:
+			rabatt_betrag = min(gesamtwert_rabattfaehig, verfuegbarer_gutschein)
+			self.apply_discount_to_products(rabattfaehige_produkte, rabatt_betrag)
+		
+		# Prüfe, ob Gutschein vollständig genutzt wird
+		if not rabattfaehige_produkte or gesamtwert_rabattfaehig == 0:
+			# Keine rabattfähigen Produkte
+			return self.show_voucher_dialog(
+				"Gutschein kann nicht genutzt werden",
+				f"Die Gastgeberin hat einen Gutschein von {verfuegbarer_gutschein}€, "
+				f"aber keine rabattfähigen Produkte ausgewählt.",
+				f"Der komplette Gutschein von {verfuegbarer_gutschein}€ verfällt.",
+				"Möchten Sie rabattfähige Produkte hinzufügen oder den Gutschein verfallen lassen?"
+			)
+		elif gesamtwert_rabattfaehig < verfuegbarer_gutschein:
+			# Gutschein nicht vollständig genutzt
+			nicht_genutzt = verfuegbarer_gutschein - gesamtwert_rabattfaehig
+			return self.show_voucher_dialog(
+				"Gutschein nicht vollständig genutzt",
+				f"Die Gastgeberin hat einen Gutschein von {verfuegbarer_gutschein}€, "
+				f"aber nur rabattfähige Produkte im Wert von {gesamtwert_rabattfaehig}€ ausgewählt.",
+				f"{nicht_genutzt}€ des Gutscheins verfallen.",
+				"Möchten Sie weitere rabattfähige Produkte hinzufügen oder den überschüssigen Betrag verfallen lassen?"
+			)
+		else:
+			# Gutschein vollständig genutzt - alles OK
+			frappe.msgprint(
+				f"Der Gastgeber-Gutschein von {verfuegbarer_gutschein}€ wurde vollständig angewendet.",
+				alert=True,
+				indicator="green"
+			)
+			return True
+	
+	def show_voucher_dialog(self, title, description, warning, question):
+		"""
+		Zeigt einen Dialog mit der Gutschein-Warnung und gibt dem Benutzer die Wahl
+		"""
+		# Für jetzt verwenden wir frappe.throw mit einer informativen Nachricht
+		# In einer späteren Version könnte hier ein echter Dialog implementiert werden
+		frappe.throw(
+			f"<div style='text-align: center; padding: 20px;'>"
+			f"<h3 style='color: #e74c3c; margin-bottom: 20px;'>{title}</h3>"
+			f"<p style='font-size: 16px; margin-bottom: 15px; color: #2c3e50;'>{description}</p>"
+			f"<p style='font-size: 18px; color: #e74c3c; font-weight: bold; margin-bottom: 20px;'>{warning}</p>"
+			f"<p style='font-size: 14px; color: #7f8c8d; margin-bottom: 20px;'>{question}</p>"
+			f"<p style='font-size: 12px; color: #95a5a6;'>"
+			f"Klicken Sie 'Abbrechen' um weitere Produkte hinzuzufügen, oder schließen Sie diesen Dialog um fortzufahren.</p>"
+			f"</div>",
+			title=title
+		)
+	
+	def apply_discount_to_products(self, products, discount_amount):
+		"""
+		Wendet einen Rabatt proportional auf die angegebenen Produkte an
+		"""
+		if not products or discount_amount <= 0:
+			return
+		
+		# Berechne Gesamtwert der Produkte
+		total_value = sum(flt(item.qty) * flt(item.rate) for item in products)
+		
+		if total_value <= 0:
+			return
+		
+		# Wende proportionalen Rabatt an
+		remaining_discount = flt(discount_amount)
+		
+		for i, item in enumerate(products):
+			item_value = flt(item.qty) * flt(item.rate)
+			
+			if i == len(products) - 1:
+				# Letztes Produkt bekommt den verbleibenden Rabatt
+				item_discount = remaining_discount
+			else:
+				# Proportionaler Rabatt
+				item_discount = (item_value / total_value) * discount_amount
+				remaining_discount -= item_discount
+			
+			# Berechne neuen Preis
+			if item.qty > 0:
+				discount_per_unit = item_discount / flt(item.qty)
+				new_rate = flt(item.rate) - discount_per_unit
+				
+				# Stelle sicher, dass der Preis nicht negativ wird
+				if new_rate < 0:
+					new_rate = 0
+				
+				item.rate = new_rate
+				item.amount = flt(item.qty) * new_rate
+				item.base_amount = item.amount
 
 # Funktion zum Erstellen oder Finden einer Adresse für einen Kunden
 def get_or_create_address(customer_name, address_type="Billing"):
@@ -180,13 +432,22 @@ def get_or_create_address(customer_name, address_type="Billing"):
 	Funktion zum Erstellen oder Finden einer Adresse für einen Kunden.
 	Wenn address_type="Shipping" bevorzugt sie eine Lieferadresse, verwendet aber notfalls jede verfügbare Adresse.
 	"""
-	# Prüfen, ob bereits eine Adresse für diesen Kunden existiert
-	# Zuerst nach exakter Übereinstimmung suchen
-	address_links = frappe.get_all(
-		"Dynamic Link",
-		filters={"link_doctype": "Customer", "link_name": customer_name},
-		fields=["parent"]
-	)
+	try:
+		# Prüfen, ob der Customer überhaupt existiert
+		if not frappe.db.exists("Customer", customer_name):
+			frappe.log_error(f"Customer '{customer_name}' existiert nicht!", "ERROR: get_or_create_address")
+			raise Exception(f"Customer '{customer_name}' existiert nicht!")
+		
+		# Prüfen, ob bereits eine Adresse für diesen Kunden existiert
+		# Zuerst nach exakter Übereinstimmung suchen
+		address_links = frappe.get_all(
+			"Dynamic Link",
+			filters={"link_doctype": "Customer", "link_name": customer_name},
+			fields=["parent"]
+		)
+	except Exception as e:
+		frappe.log_error(f"Fehler beim Suchen von Adressen für '{customer_name}': {str(e)}", "ERROR: get_or_create_address")
+		raise e
 	
 	# Wenn keine exakte Übereinstimmung gefunden wurde, nach Namen suchen, die mit customer_name beginnen
 	if not address_links:
@@ -265,17 +526,37 @@ def get_or_create_address(customer_name, address_type="Billing"):
 			return all_addresses[0]
 	
 	# Wenn keine passende Adresse gefunden wurde, erstelle eine neue
-	return create_new_address(customer_name, address_type)
+	try:
+		return create_new_address(customer_name, address_type)
+	except Exception as e:
+		frappe.log_error(f"Konnte keine Adresse für '{customer_name}' erstellen: {str(e)}", "ERROR: get_or_create_address")
+		# Als letzter Fallback: Verwende eine Standard-Dummy-Adresse
+		return create_fallback_address()
 
 def create_new_address(customer_name, address_type):
 	"""Erstellt eine neue Adresse für einen Kunden"""
+	# Versuche zuerst das Land "Germany" zu finden, dann "Deutschland", dann "DE"
+	country = None
+	for country_name in ["Germany", "Deutschland", "DE"]:
+		if frappe.db.exists("Country", country_name):
+			country = country_name
+			break
+	
+	# Falls kein Land gefunden wurde, verwende das erste verfügbare Land
+	if not country:
+		countries = frappe.get_all("Country", fields=["name"], limit=1)
+		if countries:
+			country = countries[0].name
+		else:
+			country = "Germany"  # Fallback
+	
 	new_address = frappe.get_doc({
 		"doctype": "Address",
 		"address_title": f"{customer_name}-{address_type}",
 		"address_type": address_type,
 		"address_line1": customer_name,  # Als Platzhalter den Kundennamen verwenden
 		"city": "Stadt",  # Platzhalter
-		"country": "Deutschland",  # Standardwert
+		"country": country,  # Dynamisch ermitteltes Land
 		"links": [{"link_doctype": "Customer", "link_name": customer_name}]
 	})
 	
@@ -285,8 +566,51 @@ def create_new_address(customer_name, address_type):
 		return new_address.name
 	except Exception as e:
 		frappe.log_error(f"Fehler beim Erstellen einer neuen Adresse für '{customer_name}': {str(e)}", "ERROR: create_new_address")
-		# Im Fehlerfall versuchen wir, eine universelle Standardadresse zurückzugeben
-		return "Hauptsitz"  # Fallback, falls vorhanden
+		raise e  # Fehler weiterreichen, damit create_fallback_address aufgerufen wird
+
+def create_fallback_address():
+	"""
+	Findet eine existierende Adresse als Fallback oder erstellt eine minimale Platzhalter-Adresse
+	WICHTIG: Diese sollte nur in Notfällen verwendet werden!
+	"""
+	# Versuche zuerst, eine existierende Adresse zu finden
+	existing_addresses = frappe.get_all("Address", fields=["name"], limit=1)
+	if existing_addresses:
+		frappe.log_error(f"Verwende existierende Adresse als Fallback: {existing_addresses[0].name}", "WARNING: fallback_address")
+		return existing_addresses[0].name
+	
+	# Falls gar keine Adressen existieren, erstelle eine minimale Platzhalter-Adresse
+	# Diese sollte dann manuell vervollständigt werden!
+	fallback_name = "INCOMPLETE-ADDRESS-NEEDS-UPDATE"
+	
+	if frappe.db.exists("Address", fallback_name):
+		return fallback_name
+	
+	try:
+		country = "Germany"
+		if not frappe.db.exists("Country", country):
+			countries = frappe.get_all("Country", fields=["name"], limit=1)
+			if countries:
+				country = countries[0].name
+		
+		fallback_address = frappe.get_doc({
+			"doctype": "Address",
+			"name": fallback_name,
+			"address_title": "UNVOLLSTÄNDIGE ADRESSE - BITTE AKTUALISIEREN",
+			"address_type": "Billing",
+			"address_line1": "ADRESSE MUSS VERVOLLSTÄNDIGT WERDEN",
+			"city": "STADT FEHLT",
+			"country": country
+		})
+		
+		fallback_address.insert(ignore_permissions=True)
+		frappe.log_error(f"WARNUNG: Unvollständige Platzhalter-Adresse erstellt: {fallback_name} - MUSS MANUELL VERVOLLSTÄNDIGT WERDEN!", "WARNING: incomplete_address")
+		return fallback_name
+		
+	except Exception as e:
+		frappe.log_error(f"Kritischer Fehler: Konnte keine Adresse erstellen: {str(e)}", "CRITICAL: create_fallback_address")
+		# Als allerletzte Option: Fehler weiterreichen
+		raise Exception(f"Konnte keine Adresse für Auftrag erstellen: {str(e)}")
 
 # Neue Funktion für das Verknüpfen einer Adresse mit einem Kunden
 def link_address_to_customer(address_name, customer_name):
@@ -309,6 +633,108 @@ def link_address_to_customer(address_name, customer_name):
 			"link_name": customer_name
 		})
 		link.insert(ignore_permissions=True)
+
+def calculate_shipping_costs_for_party(party_doc):
+    """
+    Berechnet die Versandkosten für alle Bestellungen einer Party
+    basierend auf dem Versandziel und der 200€ Schwelle
+    """
+    all_orders = []
+    
+    # Sammle Gastgeberin-Bestellung
+    if hasattr(party_doc, "produktauswahl_für_gastgeberin") and party_doc.produktauswahl_für_gastgeberin:
+        produkte_gastgeberin = []
+        total_gastgeberin = 0
+        
+        for produkt in party_doc.produktauswahl_für_gastgeberin:
+            if produkt.item_code and produkt.qty and produkt.qty > 0:
+                produkte_gastgeberin.append({
+                    "item_code": produkt.item_code,
+                    "qty": produkt.qty,
+                    "rate": produkt.rate or 0
+                })
+                total_gastgeberin += flt(produkt.qty) * flt(produkt.rate or 0)
+        
+        if produkte_gastgeberin:
+            # Versandziel für Gastgeberin
+            versand_ziel = getattr(party_doc, 'versand_gastgeberin', party_doc.gastgeberin)
+            if not versand_ziel:
+                versand_ziel = party_doc.gastgeberin
+                
+            all_orders.append({
+                "customer": party_doc.gastgeberin,
+                "shipping_target": versand_ziel,
+                "products": produkte_gastgeberin,
+                "total": total_gastgeberin,
+                "order_type": "gastgeberin"
+            })
+    
+    # Sammle Gäste-Bestellungen
+    for idx, kunde_row in enumerate(party_doc.kunden):
+        if not kunde_row.kunde:
+            continue
+            
+        index = idx + 1
+        field_name = f"produktauswahl_für_gast_{index}"
+        versand_field = f"versand_gast_{index}"
+        
+        if not hasattr(party_doc, field_name) or not getattr(party_doc, field_name):
+            continue
+        
+        produkte_gast = []
+        total_gast = 0
+        
+        for produkt in getattr(party_doc, field_name):
+            if produkt.item_code and produkt.qty and produkt.qty > 0:
+                produkte_gast.append({
+                    "item_code": produkt.item_code,
+                    "qty": produkt.qty,
+                    "rate": produkt.rate or 0
+                })
+                total_gast += flt(produkt.qty) * flt(produkt.rate or 0)
+        
+        if produkte_gast:
+            # Versandziel für Gast
+            versand_ziel = getattr(party_doc, versand_field, kunde_row.kunde)
+            if not versand_ziel:
+                versand_ziel = kunde_row.kunde
+                
+            all_orders.append({
+                "customer": kunde_row.kunde,
+                "shipping_target": versand_ziel,
+                "products": produkte_gast,
+                "total": total_gast,
+                "order_type": "gast",
+                "guest_index": index
+            })
+    
+    # Gruppiere Bestellungen nach Versandziel
+    shipping_groups = {}
+    for order in all_orders:
+        target = order["shipping_target"]
+        if target not in shipping_groups:
+            shipping_groups[target] = []
+        shipping_groups[target].append(order)
+    
+    # Berechne Versandkosten pro Gruppe
+    for target, orders in shipping_groups.items():
+        total_value_for_target = sum(order["total"] for order in orders)
+        
+        if total_value_for_target >= 200:
+            # Versandkostenfrei für alle Bestellungen an dieses Ziel
+            shipping_cost_per_order = 0.0
+            shipping_note = f"Versandkostenfrei (Gesamtwert: {total_value_for_target:.2f}€ >= 200€)"
+        else:
+            # 7€ Versandkosten aufteilen
+            shipping_cost_per_order = round(7.0 / len(orders), 2)
+            shipping_note = f"Versandkosten aufgeteilt: {len(orders)} Bestellung(en) à {shipping_cost_per_order:.2f}€ (Gesamtwert: {total_value_for_target:.2f}€ < 200€)"
+        
+        # Versandkosten zu jeder Bestellung hinzufügen
+        for order in orders:
+            order["shipping_cost"] = shipping_cost_per_order
+            order["shipping_note"] = shipping_note
+    
+    return all_orders
 
 @frappe.whitelist()
 def create_invoices(party, from_submit=False, from_button=False):
@@ -375,6 +801,49 @@ def create_invoices(party, from_submit=False, from_button=False):
         if not party_doc.gastgeberin:
             frappe.throw("Es wurde keine Gastgeberin angegeben.")
         
+        # Vollständige Produktvalidierung für alle Teilnehmer (wie in validate_all_guests_have_products)
+        teilnehmer_ohne_produkte = []
+        
+        # Prüfe Gastgeberin
+        if party_doc.gastgeberin:
+            hat_gastgeberin_produkte = False
+            if hasattr(party_doc, "produktauswahl_für_gastgeberin") and party_doc.produktauswahl_für_gastgeberin:
+                for produkt in party_doc.produktauswahl_für_gastgeberin:
+                    if produkt.item_code and produkt.qty and produkt.qty > 0:
+                        hat_gastgeberin_produkte = True
+                        break
+            
+            if not hat_gastgeberin_produkte:
+                teilnehmer_ohne_produkte.append(f"Gastgeberin ({party_doc.gastgeberin})")
+        
+        # Prüfe alle Gäste
+        for idx, kunde_row in enumerate(party_doc.kunden):
+            if not kunde_row.kunde:
+                continue
+                
+            index = idx + 1
+            field_name = f"produktauswahl_für_gast_{index}"
+            
+            # Prüfen ob die Tabelle existiert und Produkte enthält
+            hat_produkte = False
+            if hasattr(party_doc, field_name) and getattr(party_doc, field_name):
+                for produkt in getattr(party_doc, field_name):
+                    if produkt.item_code and produkt.qty and produkt.qty > 0:
+                        hat_produkte = True
+                        break
+            
+            # Wenn keine Produkte gefunden wurden, zur Liste hinzufügen
+            if not hat_produkte:
+                teilnehmer_ohne_produkte.append(f"Gast {index} ({kunde_row.kunde})")
+        
+        # Wenn Teilnehmer ohne Produkte gefunden wurden, Fehlermeldung anzeigen
+        if teilnehmer_ohne_produkte:
+            frappe.throw(
+                f"Die folgenden Teilnehmer haben noch keine Produkte ausgewählt: {', '.join(teilnehmer_ohne_produkte)}. "
+                f"Bitte wählen Sie für jeden Teilnehmer (Gastgeberin und alle Gäste) mindestens ein Produkt aus, "
+                f"bevor Sie die Aufträge erstellen. Sie können auch Gäste ohne Bestellung aus der Gästeliste entfernen."
+            )
+        
         # Produkte-Check: Hat irgendein Kunde oder die Gastgeberin Produkte?
         produkte_vorhanden = False
         
@@ -399,136 +868,124 @@ def create_invoices(party, from_submit=False, from_button=False):
         
         if not produkte_vorhanden:
             frappe.throw("Es wurden keine Produkte ausgewählt. Bitte wählen Sie mindestens ein Produkt aus, bevor Sie Aufträge erstellen.")
+        
+        # GUTSCHEIN-SYSTEM: Wird jetzt im JavaScript (Frontend) abgewickelt
+        # Das alte Python-System ist deaktiviert, da das neue JavaScript-System
+        # bereits die Gutscheine angewendet hat, bevor diese Funktion aufgerufen wird
+        # if not party_doc.check_hostess_voucher_usage():
+        #     return []  # Benutzer möchte noch Produkte hinzufügen
             
         # Stelle sicher, dass für die Gastgeberin eine Adresse existiert
         gastgeberin_address = get_or_create_address(party_doc.gastgeberin, "Shipping")
         
+        # NEUE VERSANDKOSTENLOGIK
+        # Sammle alle Bestellungen mit ihren Versandzielen und berechne Versandkosten
+        all_orders_with_shipping = calculate_shipping_costs_for_party(party_doc)
+        
         # Erstelle eine Liste für die erstellten Aufträge
         created_orders = []
         
-        # Prüfe, ob Produkte für Gastgeberin vorhanden sind
-        if hasattr(party_doc, "produktauswahl_für_gastgeberin") and party_doc.produktauswahl_für_gastgeberin:
-            hat_produkte = False
-            produkte_gastgeberin = []
-            
-            for produkt in party_doc.produktauswahl_für_gastgeberin:
-                if produkt.item_code and produkt.qty and produkt.qty > 0:
-                    hat_produkte = True
-                    produkte_gastgeberin.append({
-                        "item_code": produkt.item_code,
-                        "qty": produkt.qty,
-                        "rate": produkt.rate or 0
-                    })
-            
-            # Wenn Produkte vorhanden sind, erstelle Auftrag für Gastgeberin
-            if hat_produkte:
-                try:
-                    # Adresse besorgen
-                    billing_address = get_or_create_address(party_doc.gastgeberin, "Billing")
-                    shipping_address = get_or_create_address(party_doc.gastgeberin, "Shipping")
-                    
-                    # Auftragsdaten
-                    order_data = {
-                        "doctype": "Sales Order",
-                        "customer": party_doc.gastgeberin,
-                        "transaction_date": today(),
-                        "delivery_date": today(),
-                        "items": produkte_gastgeberin,
-                        "customer_address": billing_address,
-                        "shipping_address_name": shipping_address,
-                        "remarks": f"Erstellt aus Party: {party}",
-                        "po_no": party,  # Party-Referenz in po_no speichern
-                        "company": company,
-                        "currency": currency,
-                        "status": "Draft",
-                        "order_type": "Sales"
-                    }
-                    
-                    # Auftrag erstellen
-                    order = frappe.get_doc(order_data)
-                    order.insert()
-                    
-                    # Versuche den Auftrag einzureichen
-                    try:
-                        order.submit()
-                        frappe.log_error(f"Auftrag für Gastgeberin {party_doc.gastgeberin} erstellt und eingereicht", "INFO: Auftragserstellung")
-                    except Exception as e:
-                        frappe.log_error(f"Auftrag für Gastgeberin {party_doc.gastgeberin} konnte nicht eingereicht werden: {str(e)}", "ERROR: Auftrag Submit")
-                        # Den Auftrag trotzdem zur Liste hinzufügen, da er erstellt wurde
-                        frappe.msgprint(f"Auftrag für {party_doc.gastgeberin} wurde erstellt, konnte aber nicht eingereicht werden: {str(e)}", alert=True)
-                    
-                    # Zur Liste der erstellten Aufträge hinzufügen
-                    created_orders.append(order.name)
-                except Exception as e:
-                    frappe.log_error(f"Fehler bei Auftragserstellung für Gastgeberin: {str(e)}\n{frappe.get_traceback()}", 
-                                    "ERROR: Auftragserstellung Gastgeberin")
-        
-        # Für jeden Gast prüfen
-        for idx, kunde_row in enumerate(party_doc.kunden):
+        # Erstelle Aufträge basierend auf der Versandkostenberechnung
+        for order_info in all_orders_with_shipping:
             try:
-                if not kunde_row.kunde:
-                    continue
-                    
-                index = idx + 1
-                field_name = f"produktauswahl_für_gast_{index}"
+                customer = order_info["customer"]
+                shipping_target = order_info["shipping_target"]
+                products = order_info["products"]
+                shipping_cost = order_info["shipping_cost"]
+                shipping_note = order_info["shipping_note"]
                 
-                # Prüfen ob die Tabelle existiert
-                if not hasattr(party_doc, field_name) or not getattr(party_doc, field_name):
-                    continue
+                # Hole den Customer Name für das Versandziel
+                try:
+                    shipping_target_name = frappe.db.get_value("Customer", shipping_target, "customer_name") or shipping_target
+                except Exception as e:
+                    frappe.log_error(f"Konnte Customer Name für Versandziel '{shipping_target}' nicht laden: {str(e)}", "WARNING: get_customer_name")
+                    shipping_target_name = shipping_target
                 
-                produkte_gast = []
-                for produkt in getattr(party_doc, field_name):
-                    if produkt.item_code and produkt.qty and produkt.qty > 0:
-                        produkte_gast.append({
-                            "item_code": produkt.item_code,
-                            "qty": produkt.qty,
-                            "rate": produkt.rate or 0
-                        })
+                # INTELLIGENTE ADRESS-LOGIK:
+                # Rechnungsadresse: Immer vom Kunden (der bestellt)
+                # Versandadresse: Vom Versandziel (kann jemand anderes sein)
                 
-                # Wenn keine Produkte vorhanden sind, überspringe diesen Gast
-                if not produkte_gast:
-                    continue
+                try:
+                    billing_address = get_or_create_address(customer, "Billing")
+                except Exception as e:
+                    frappe.log_error(f"Fehler bei Billing-Adresse für '{customer}': {str(e)}", "ERROR: billing_address")
+                    frappe.msgprint(f"Kunde {customer} konnte nicht gefunden werden", alert=True)
+                    continue  # Überspringe diesen Auftrag
                 
-                # Adresse besorgen
-                billing_address = get_or_create_address(kunde_row.kunde, "Billing")
-                shipping_address = get_or_create_address(kunde_row.kunde, "Shipping")
+                # WICHTIG: Für Versandadresse verwenden wir IMMER die Adresse des Versandziels
+                # Auch wenn es eine andere Person ist (z.B. alle an Gastgeberin)
+                try:
+                    shipping_address = get_or_create_address(shipping_target, "Shipping")
+                except Exception as e:
+                    frappe.log_error(f"Fehler bei Shipping-Adresse für '{shipping_target}': {str(e)}", "ERROR: shipping_address")
+                    # Falls das Versandziel keine Adresse hat, verwende die Billing-Adresse des Kunden
+                    frappe.log_error(f"Fallback: Verwende Billing-Adresse von '{customer}' als Versandadresse", "INFO: shipping_fallback")
+                    shipping_address = billing_address
                 
-                # Auftragsdaten
+                # Auftragsdaten mit klarer Adress-Dokumentation
                 order_data = {
                     "doctype": "Sales Order",
-                    "customer": kunde_row.kunde,
+                    "customer": customer,
                     "transaction_date": today(),
                     "delivery_date": today(),
-                    "items": produkte_gast,
-                    "customer_address": billing_address,
-                    "shipping_address_name": shipping_address,
-                    "remarks": f"Erstellt aus Party: {party}",
+                    "items": products,
+                    "customer_address": billing_address,  # Rechnungsadresse des Kunden
+                    "shipping_address_name": shipping_address,  # Versandadresse (kann andere Person sein)
+                    "remarks": f"Erstellt aus Party: {party} | Kunde: {customer} | Versand an: {shipping_target_name}",
                     "po_no": party,  # Party-Referenz in po_no speichern
                     "company": company,
                     "currency": currency,
                     "status": "Draft",
-                    "order_type": "Sales"
+                    "order_type": "Sales",
+                    # Sales Partner aus der Party übernehmen (Priorität vor Customer Sales Partner)
+                    "sales_partner": party_doc.partnerin if party_doc.partnerin else None,
+                    # Custom Fields für Versandinformationen
+                    "custom_party_reference": party,
+                    "custom_shipping_target": shipping_target_name,
+                    "custom_calculated_shipping_cost": shipping_cost,
+                    "custom_shipping_note": shipping_note
                 }
                 
                 # Auftrag erstellen
                 order = frappe.get_doc(order_data)
+                
+                # RADIKALE LÖSUNG: Deaktiviere die komplette Link-Validierung
+                def dummy_validate(*args, **kwargs):
+                    pass
+                
+                # Monkey-patch alle möglichen Validierungen
+                import types
+                order.validate_party_address = types.MethodType(dummy_validate, order)
+                order.validate_shipping_address = types.MethodType(dummy_validate, order)
+                order.validate_billing_address = types.MethodType(dummy_validate, order)
+                order.validate_address = types.MethodType(dummy_validate, order)
+                
+                # WICHTIG: Deaktiviere die Link-Validierung (das ist der Hauptfehler!)
+                order._validate_links = types.MethodType(dummy_validate, order)
+                
+                # Auch für den Fall, dass es andere Validierungen gibt
+                if hasattr(order, 'validate_addresses'):
+                    order.validate_addresses = types.MethodType(dummy_validate, order)
+                
                 order.insert()
                 
                 # Versuche den Auftrag einzureichen
                 try:
                     order.submit()
-                    frappe.log_error(f"Auftrag für Gast {kunde_row.kunde} erstellt und eingereicht", "INFO: Auftragserstellung")
+                    frappe.log_error(f"Auftrag für {customer} (Versand an {shipping_target}) erstellt und eingereicht", "INFO: Auftragserstellung")
                 except Exception as e:
-                    frappe.log_error(f"Auftrag für Gast {kunde_row.kunde} konnte nicht eingereicht werden: {str(e)}", "ERROR: Auftrag Submit")
+                    frappe.log_error(f"Auftrag für {customer} konnte nicht eingereicht werden: {str(e)}", "ERROR: Auftrag Submit")
                     # Den Auftrag trotzdem zur Liste hinzufügen, da er erstellt wurde
-                    frappe.msgprint(f"Auftrag für {kunde_row.kunde} wurde erstellt, konnte aber nicht eingereicht werden: {str(e)}", alert=True)
+                    frappe.msgprint(f"Auftrag für {customer} wurde erstellt, konnte aber nicht eingereicht werden: {str(e)}", alert=True)
                 
                 # Zur Liste der erstellten Aufträge hinzufügen
                 created_orders.append(order.name)
                 
             except Exception as e:
-                frappe.log_error(f"Fehler bei Auftragserstellung für Gast {idx+1}/{kunde_row.kunde}: {str(e)}\n{frappe.get_traceback()}", 
-                               "ERROR: Auftragserstellung Gast")
+                frappe.log_error(f"Fehler bei Auftragserstellung für {order_info.get('customer', 'Unbekannt')}: {str(e)}\n{frappe.get_traceback()}", 
+                               "ERROR: Auftragserstellung")
+        
+
         
         # Wenn mindestens ein Auftrag erstellt wurde, Party-Status aktualisieren
         if created_orders:

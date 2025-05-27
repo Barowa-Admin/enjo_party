@@ -151,8 +151,7 @@
   {
    "fieldname": "versand_gast_1",
    "fieldtype": "Select",
-   "label": "Versand Gast 1",
-   "reqd": 1
+   "label": "Versand Gast 1"
   },
   {
    "fieldname": "produktauswahl_für_gast_1_section",
@@ -167,8 +166,7 @@
   {
    "fieldname": "versand_gast_2",
    "fieldtype": "Select",
-   "label": "Versand Gast 2",
-   "reqd": 1
+   "label": "Versand Gast 2"
   },
   {
    "fieldname": "produktauswahl_für_gast_3_section",
@@ -178,8 +176,7 @@
   {
    "fieldname": "versand_gast_3",
    "fieldtype": "Select",
-   "label": "Versand Gast 3",
-   "reqd": 1
+   "label": "Versand Gast 3"
   },
   {
    "fieldname": "produktauswahl_für_gast_4_section",
@@ -194,8 +191,7 @@
   {
    "fieldname": "versand_gast_4",
    "fieldtype": "Select",
-   "label": "Versand Gast 4",
-   "reqd": 1
+   "label": "Versand Gast 4"
   },
   {
    "fieldname": "produktauswahl_für_gast_5_section",
@@ -210,8 +206,7 @@
   {
    "fieldname": "versand_gast_5",
    "fieldtype": "Select",
-   "label": "Versand Gast 5",
-   "reqd": 1
+   "label": "Versand Gast 5"
   },
   {
    "fieldname": "produktauswahl_für_gast_6_section",
@@ -226,8 +221,7 @@
   {
    "fieldname": "versand_gast_6",
    "fieldtype": "Select",
-   "label": "Versand Gast 6",
-   "reqd": 1
+   "label": "Versand Gast 6"
   },
   {
    "fieldname": "produktauswahl_für_gast_7_section",
@@ -242,8 +236,7 @@
   {
    "fieldname": "versand_gast_7",
    "fieldtype": "Select",
-   "label": "Versand Gast 7",
-   "reqd": 1
+   "label": "Versand Gast 7"
   },
   {
    "fieldname": "produktauswahl_für_gast_8_section",
@@ -258,8 +251,7 @@
   {
    "fieldname": "versand_gast_8",
    "fieldtype": "Select",
-   "label": "Versand Gast 8",
-   "reqd": 1
+   "label": "Versand Gast 8"
   },
   {
    "fieldname": "produktauswahl_für_gast_9_section",
@@ -274,8 +266,7 @@
   {
    "fieldname": "versand_gast_9",
    "fieldtype": "Select",
-   "label": "Versand Gast 9",
-   "reqd": 1
+   "label": "Versand Gast 9"
   },
   {
    "fieldname": "produktauswahl_für_gast_10_section",
@@ -290,8 +281,7 @@
   {
    "fieldname": "versand_gast_10",
    "fieldtype": "Select",
-   "label": "Versand Gast 10",
-   "reqd": 1
+   "label": "Versand Gast 10"
   },
   {
    "fieldname": "produktauswahl_für_gast_11_section",
@@ -306,8 +296,7 @@
   {
    "fieldname": "versand_gast_11",
    "fieldtype": "Select",
-   "label": "Versand Gast 11",
-   "reqd": 1
+   "label": "Versand Gast 11"
   },
   {
    "fieldname": "produktauswahl_für_gast_12_section",
@@ -322,8 +311,7 @@
   {
    "fieldname": "versand_gast_12",
    "fieldtype": "Select",
-   "label": "Versand Gast 12",
-   "reqd": 1
+   "label": "Versand Gast 12"
   },
   {
    "fieldname": "produktauswahl_für_gast_13_section",
@@ -338,8 +326,7 @@
   {
    "fieldname": "versand_gast_13",
    "fieldtype": "Select",
-   "label": "Versand Gast 13",
-   "reqd": 1
+   "label": "Versand Gast 13"
   },
   {
    "fieldname": "produktauswahl_für_gast_14_section",
@@ -354,8 +341,7 @@
   {
    "fieldname": "versand_gast_14",
    "fieldtype": "Select",
-   "label": "Versand Gast 14",
-   "reqd": 1
+   "label": "Versand Gast 14"
   },
   {
    "fieldname": "produktauswahl_für_gast_15_section",
@@ -370,8 +356,7 @@
   {
    "fieldname": "versand_gast_15",
    "fieldtype": "Select",
-   "label": "Versand Gast 15",
-   "reqd": 1
+   "label": "Versand Gast 15"
   },
   {
    "fieldname": "produktauswahl_für_gastgeberin_section",
@@ -386,8 +371,7 @@
   {
    "fieldname": "versand_gastgeberin",
    "fieldtype": "Select",
-   "label": "Versand Gastgeberin",
-   "reqd": 1
+   "label": "Versand Gastgeberin"
   }
  ],
  "grid_page_length": 50,
