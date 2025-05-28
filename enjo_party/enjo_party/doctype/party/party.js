@@ -567,32 +567,62 @@ function startAktionsSystem(frm, callback) {
 					filters: {
 						item_code: itemCode
 					},
-					fieldname: ["item_name", "standard_rate"]
+					fieldname: ["item_name", "standard_rate", "stock_uom"]
 				},
 				callback: function(r) {
 					if (r.message) {
 						let itemDetails = r.message;
 						let rate = itemDetails.standard_rate || 0;
+						let stock_uom = itemDetails.stock_uom || "Stk";
 						
-						// Füge Aktionsartikel zur entsprechenden Produkttabelle hinzu
-						let produktTabelle = frm.doc[teilnehmer.produktfeld];
-						if (!produktTabelle) {
-							produktTabelle = [];
-							frm.doc[teilnehmer.produktfeld] = produktTabelle;
+						// WICHTIG: Verwende frm.add_child() statt Array-Manipulation!
+						let neuer_eintrag = frm.add_child(teilnehmer.produktfeld);
+						
+						// Setze alle erforderlichen Felder
+						frappe.model.set_value(neuer_eintrag.doctype, neuer_eintrag.name, 'item_code', itemCode);
+						frappe.model.set_value(neuer_eintrag.doctype, neuer_eintrag.name, 'item_name', itemDetails.item_name || itemName);
+						frappe.model.set_value(neuer_eintrag.doctype, neuer_eintrag.name, 'qty', 1);
+						frappe.model.set_value(neuer_eintrag.doctype, neuer_eintrag.name, 'rate', rate);
+						frappe.model.set_value(neuer_eintrag.doctype, neuer_eintrag.name, 'amount', rate * 1);
+						frappe.model.set_value(neuer_eintrag.doctype, neuer_eintrag.name, 'uom', stock_uom);
+						frappe.model.set_value(neuer_eintrag.doctype, neuer_eintrag.name, 'stock_uom', stock_uom);
+						frappe.model.set_value(neuer_eintrag.doctype, neuer_eintrag.name, 'conversion_factor', 1.0);
+						frappe.model.set_value(neuer_eintrag.doctype, neuer_eintrag.name, 'uom_conversion_factor', 1.0);
+						frappe.model.set_value(neuer_eintrag.doctype, neuer_eintrag.name, 'stock_qty', 1.0);
+						frappe.model.set_value(neuer_eintrag.doctype, neuer_eintrag.name, 'base_amount', rate * 1);
+						frappe.model.set_value(neuer_eintrag.doctype, neuer_eintrag.name, 'base_rate', rate);
+						frappe.model.set_value(neuer_eintrag.doctype, neuer_eintrag.name, 'delivery_date', frappe.datetime.add_days(frappe.datetime.nowdate(), 7));
+						
+						// FLEXIBLES WAREHOUSE: Verwende Standard-Warehouse oder erstes verfügbares
+						let warehouse = frappe.defaults.get_user_default("Warehouse");
+						if (!warehouse) {
+							// Fallback: Verwende erstes verfügbares nicht-Gruppen-Warehouse
+							frappe.call({
+								method: "frappe.client.get_list",
+								args: {
+									doctype: "Warehouse",
+									filters: {"is_group": 0},
+									fields: ["name"],
+									limit: 1
+								},
+								async: false,
+								callback: function(wh_r) {
+									if (wh_r.message && wh_r.message.length > 0) {
+										warehouse = wh_r.message[0].name;
+									}
+								}
+							});
 						}
 						
-						// Erstelle neuen Eintrag
-						let neuerEintrag = {
-							item_code: itemCode,
-							item_name: itemDetails.item_name || itemName,
-							qty: 1,
-							rate: rate,
-							amount: rate * 1,
-							_aktionsartikel: true // Markierung für Aktionsartikel
-						};
+						if (warehouse) {
+							frappe.model.set_value(neuer_eintrag.doctype, neuer_eintrag.name, 'warehouse', warehouse);
+						}
 						
-						// Füge zur Tabelle hinzu
-						produktTabelle.push(neuerEintrag);
+						// Markierung für Aktionsartikel (als separates Feld falls nötig)
+						frappe.model.set_value(neuer_eintrag.doctype, neuer_eintrag.name, '_aktionsartikel', true);
+						
+						// Refresh das Feld, damit es sichtbar wird
+						frm.refresh_field(teilnehmer.produktfeld);
 						
 						console.log(`Aktionsartikel ${itemName} zu ${teilnehmer.displayName} hinzugefügt`);
 						resolve();
@@ -886,6 +916,10 @@ function stelleOriginalPreiseWieder(frm) {
 function erstelleAuftraege(frm) {
 	console.log("erstelleAuftraege aufgerufen");
 	
+	// WICHTIG: Setze Flags, um automatische Updates zu verhindern
+	frm._skipTotalCalculation = true;
+	frm._skipPriceUpdates = true;
+	
 	// SOFORT den Screen "einfrieren" mit Frappe's Freeze-Mechanismus
 	frappe.freeze_screen = true;
 	frappe.show_alert({
@@ -930,12 +964,12 @@ function erstelleAuftraege(frm) {
 		console.log("Fehler beim Refreshen der Tabellen:", e);
 	}
 	
-	// Berechne Gesamtsummen neu (wichtig nach Aktionsartikeln)
-	try {
-		calculate_party_totals(frm);
-	} catch (e) {
-		console.log("Fehler beim Berechnen der Gesamtsummen:", e);
-	}
+	// SKIP: Berechne Gesamtsummen NICHT neu (wichtig nach Aktionsartikeln und Gutschrift)
+	// try {
+	// 	calculate_party_totals(frm);
+	// } catch (e) {
+	// 	console.log("Fehler beim Berechnen der Gesamtsummen:", e);
+	// }
 	
 	// WICHTIG: Stelle sicher, dass alle Aktionsartikel korrekte Daten haben
 	console.log("Validiere Aktionsartikel...");
@@ -1012,6 +1046,14 @@ function validateAktionsartikel(frm) {
 function erstelleAuftraegeDirectly(frm) {
 	console.log("erstelleAuftraegeDirectly aufgerufen");
 	
+	// WICHTIG: Setze Schutz-Flag direkt im Dokument
+	frm.doc._skip_total_calculation = 1;
+	
+	// KRITISCH: ERST das Dokument speichern, damit Aktionsartikel in die DB geschrieben werden!
+	console.log("SPEICHERE DOKUMENT VOR API-AUFRUF...");
+	frm.save().then(() => {
+		console.log("Dokument gespeichert - rufe jetzt API auf");
+		
 		frappe.call({
 			method: "enjo_party.enjo_party.doctype.party.party.create_invoices",
 			args: {
@@ -1024,6 +1066,11 @@ function erstelleAuftraegeDirectly(frm) {
 			console.log("API-Antwort erhalten:", r);
 			// Screen wieder freigeben
 			frappe.freeze_screen = false;
+			
+			// WICHTIG: Flags zurücksetzen, damit normale Funktionalität wiederhergestellt wird
+			delete frm._skipTotalCalculation;
+			delete frm._skipPriceUpdates;
+			delete frm.doc._skip_total_calculation;
 			
 				if (r.message && r.message.length > 0) {
 					frappe.msgprint({
@@ -1052,6 +1099,11 @@ function erstelleAuftraegeDirectly(frm) {
 			// Screen wieder freigeben
 			frappe.freeze_screen = false;
 			
+			// WICHTIG: Flags zurücksetzen auch bei Fehlern
+			delete frm._skipTotalCalculation;
+			delete frm._skipPriceUpdates;
+			delete frm.doc._skip_total_calculation;
+			
 			// WICHTIG: Bei Fehlern Original-Preise wiederherstellen
 			stelleOriginalPreiseWieder(frm);
 			
@@ -1065,6 +1117,23 @@ function erstelleAuftraegeDirectly(frm) {
 			console.log("API-Fehler - refreshButtons wird aufgerufen");
 			refreshButtons(frm);
 		}
+	});
+		
+	}).catch((error) => {
+		console.error("Fehler beim Speichern des Dokuments:", error);
+		frappe.freeze_screen = false;
+		
+		// Flags zurücksetzen
+		delete frm._skipTotalCalculation;
+		delete frm._skipPriceUpdates;
+		delete frm.doc._skip_total_calculation;
+		
+		frappe.msgprint({
+			title: __("Fehler"),
+			message: __("Das Dokument konnte nicht gespeichert werden. Bitte versuchen Sie es erneut."),
+			indicator: "red"
+		});
+		refreshButtons(frm);
 	});
 }
 
@@ -1565,7 +1634,7 @@ frappe.ui.form.on('Party', {
 	
 	// Nach dem Speichern automatisch die Preise für alle leeren Produkte laden
 	after_save(frm) {
-		if (frm.doc.docstatus === 0) {
+		if (frm.doc.docstatus === 0 && !frm._skipPriceUpdates) {
 			refresh_item_prices(frm);
 			// Berechne auch die Gesamtsummen neu
 			calculate_party_totals(frm);
@@ -1762,8 +1831,8 @@ function update_all_empty_prices(frm) {
 		const field_name = `produktauswahl_für_gast_${i}`;
 		if (frm.doc[field_name] && frm.doc[field_name].length > 0) {
 			frm.doc[field_name].forEach(function(item) {
-				// WICHTIG: Nicht überschreiben, wenn es ein Gutschein-reduzierter Artikel ist!
-				if (item.item_code && (!item.rate || item.rate == 0) && !item._gutschein_angewendet) {
+				// WICHTIG: Nicht überschreiben, wenn es ein Gutschein-reduzierter Artikel oder Aktionsartikel ist!
+				if (item.item_code && (!item.rate || item.rate == 0) && !item._gutschein_angewendet && !item._aktionsartikel) {
 					get_item_price(frm, item);
 				}
 			});
@@ -1773,8 +1842,8 @@ function update_all_empty_prices(frm) {
 	// Auch für die Gastgeberin-Tabelle
 	if (frm.doc.produktauswahl_für_gastgeberin && frm.doc.produktauswahl_für_gastgeberin.length > 0) {
 		frm.doc.produktauswahl_für_gastgeberin.forEach(function(item) {
-			// WICHTIG: Nicht überschreiben, wenn es ein Gutschein-reduzierter Artikel ist!
-			if (item.item_code && (!item.rate || item.rate == 0) && !item._gutschein_angewendet) {
+			// WICHTIG: Nicht überschreiben, wenn es ein Gutschein-reduzierter Artikel oder Aktionsartikel ist!
+			if (item.item_code && (!item.rate || item.rate == 0) && !item._gutschein_angewendet && !item._aktionsartikel) {
 				get_item_price(frm, item);
 			}
 		});
@@ -1806,12 +1875,15 @@ function calculate_party_totals(frm) {
 		});
 	}
 	
-	// Setze Gesamtumsatz
-	frm.set_value('gesamtumsatz', total_amount);
-	
-	// Berechne Gutscheinwert basierend auf Präsentationsumsatz-Stufen
-	const gutschein_wert = calculate_gutschein_value(total_amount);
-	frm.set_value('gastgeber_gutschein_wert', gutschein_wert);
+	// Setze Gesamtumsatz NUR wenn wir nicht in der Aufträge-Erstellung sind
+	// (um Gutschrift-reduzierten Gesamtumsatz zu bewahren)
+	if (!frm._skipTotalCalculation) {
+		frm.set_value('gesamtumsatz', total_amount);
+		
+		// Berechne Gutscheinwert basierend auf Präsentationsumsatz-Stufen
+		const gutschein_wert = calculate_gutschein_value(total_amount);
+		frm.set_value('gastgeber_gutschein_wert', gutschein_wert);
+	}
 }
 
 // Funktion zur Berechnung des Gutscheinwerts basierend auf Präsentationsumsatz-Stufen

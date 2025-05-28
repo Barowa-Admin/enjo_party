@@ -24,14 +24,17 @@ class Party(Document):
 		# Stelle sicher, dass UOM Conversion Factor in allen Produkttabellen gesetzt ist
 		self.set_uom_conversion_factor()
 		
-		# Berechne Gesamtumsatz und Gutscheinwert
-		self.calculate_totals()
+		# Berechne Gesamtumsatz und Gutscheinwert NUR wenn nicht in Aufträge-Erstellung
+		# (Schutz für Gutschrift-reduzierte Preise)
+		if not getattr(self, '_skip_total_calculation', False):
+			self.calculate_totals()
 		
 		# Prüfe, dass die Gastgeberin nicht auch als Gast in der Kundenliste steht
 		self.validate_gastgeberin_not_in_kunden()
 		
-		# Prüfe, dass alle Gäste Produkte ausgewählt haben (nur wenn nicht neu)
-		if not self.is_new():
+		# Prüfe, dass alle Gäste Produkte ausgewählt haben (nur wenn nicht neu UND nicht in Aufträge-Erstellung)
+		# (Schutz für Aktionsartikel während der Aufträge-Erstellung)
+		if not self.is_new() and not getattr(self, '_skip_total_calculation', False):
 			self.validate_all_guests_have_products()
 	
 	def before_submit(self):
@@ -634,6 +637,34 @@ def link_address_to_customer(address_name, customer_name):
 		})
 		link.insert(ignore_permissions=True)
 
+# Warehouse-Hilfsfunktion hinzufügen
+def get_default_warehouse():
+	"""
+	Ermittelt das Standard-Warehouse flexibel für verschiedene Installationen
+	"""
+	# Versuche zuerst das Benutzer-Default-Warehouse
+	warehouse = frappe.defaults.get_user_default("Warehouse")
+	if warehouse:
+		return warehouse
+	
+	# Fallback: Erstes verfügbares nicht-Gruppen-Warehouse
+	warehouses = frappe.get_all("Warehouse", 
+		filters={"is_group": 0}, 
+		fields=["name"], 
+		limit=1
+	)
+	
+	if warehouses:
+		return warehouses[0].name
+	
+	# Letzter Fallback: Erstes verfügbares Warehouse überhaupt
+	all_warehouses = frappe.get_all("Warehouse", fields=["name"], limit=1)
+	if all_warehouses:
+		return all_warehouses[0].name
+	
+	# Wenn gar nichts gefunden wird, verwende einen Standard-Namen
+	return "Stores - Main"
+
 def calculate_shipping_costs_for_party(party_doc):
     """
     Berechnet die Versandkosten für alle Bestellungen einer Party
@@ -648,11 +679,30 @@ def calculate_shipping_costs_for_party(party_doc):
         
         for produkt in party_doc.produktauswahl_für_gastgeberin:
             if produkt.item_code and produkt.qty and produkt.qty > 0:
-                produkte_gastgeberin.append({
+                # WICHTIG: Übertrage ALLE Produktdaten, nicht nur die Basics!
+                product_dict = {
                     "item_code": produkt.item_code,
+                    "item_name": produkt.item_name or produkt.item_code,
                     "qty": produkt.qty,
-                    "rate": produkt.rate or 0
-                })
+                    "rate": produkt.rate or 0,
+                    "amount": produkt.amount or (flt(produkt.qty) * flt(produkt.rate or 0)),
+                    "uom": getattr(produkt, 'uom', 'Stk'),
+                    "stock_uom": getattr(produkt, 'stock_uom', 'Stk'),
+                    "conversion_factor": getattr(produkt, 'conversion_factor', 1.0),
+                    "stock_qty": getattr(produkt, 'stock_qty', flt(produkt.qty)),
+                    "base_amount": getattr(produkt, 'base_amount', produkt.amount or (flt(produkt.qty) * flt(produkt.rate or 0))),
+                    "base_rate": getattr(produkt, 'base_rate', produkt.rate or 0),
+                    "warehouse": getattr(produkt, 'warehouse', get_default_warehouse()),
+                    "delivery_date": getattr(produkt, 'delivery_date', frappe.utils.add_days(frappe.utils.nowdate(), 7))
+                }
+                
+                # KRITISCH: Übertrage auch die speziellen Markierungen für Aktionsartikel und Gutscheine
+                if hasattr(produkt, '_aktionsartikel') and produkt._aktionsartikel:
+                    product_dict['_aktionsartikel'] = True
+                if hasattr(produkt, '_gutschein_angewendet') and produkt._gutschein_angewendet:
+                    product_dict['_gutschein_angewendet'] = True
+                
+                produkte_gastgeberin.append(product_dict)
                 total_gastgeberin += flt(produkt.qty) * flt(produkt.rate or 0)
         
         if produkte_gastgeberin:
@@ -686,11 +736,30 @@ def calculate_shipping_costs_for_party(party_doc):
         
         for produkt in getattr(party_doc, field_name):
             if produkt.item_code and produkt.qty and produkt.qty > 0:
-                produkte_gast.append({
+                # WICHTIG: Übertrage ALLE Produktdaten, nicht nur die Basics!
+                product_dict = {
                     "item_code": produkt.item_code,
+                    "item_name": produkt.item_name or produkt.item_code,
                     "qty": produkt.qty,
-                    "rate": produkt.rate or 0
-                })
+                    "rate": produkt.rate or 0,
+                    "amount": produkt.amount or (flt(produkt.qty) * flt(produkt.rate or 0)),
+                    "uom": getattr(produkt, 'uom', 'Stk'),
+                    "stock_uom": getattr(produkt, 'stock_uom', 'Stk'),
+                    "conversion_factor": getattr(produkt, 'conversion_factor', 1.0),
+                    "stock_qty": getattr(produkt, 'stock_qty', flt(produkt.qty)),
+                    "base_amount": getattr(produkt, 'base_amount', produkt.amount or (flt(produkt.qty) * flt(produkt.rate or 0))),
+                    "base_rate": getattr(produkt, 'base_rate', produkt.rate or 0),
+                    "warehouse": getattr(produkt, 'warehouse', get_default_warehouse()),
+                    "delivery_date": getattr(produkt, 'delivery_date', frappe.utils.add_days(frappe.utils.nowdate(), 7))
+                }
+                
+                # KRITISCH: Übertrage auch die speziellen Markierungen für Aktionsartikel und Gutscheine
+                if hasattr(produkt, '_aktionsartikel') and produkt._aktionsartikel:
+                    product_dict['_aktionsartikel'] = True
+                if hasattr(produkt, '_gutschein_angewendet') and produkt._gutschein_angewendet:
+                    product_dict['_gutschein_angewendet'] = True
+                
+                produkte_gast.append(product_dict)
                 total_gast += flt(produkt.qty) * flt(produkt.rate or 0)
         
         if produkte_gast:
@@ -784,6 +853,12 @@ def create_invoices(party, from_submit=False, from_button=False):
         # Party-Dokument laden
         try:
             party_doc = frappe.get_doc("Party", party)
+            
+            # WICHTIG: Setze Schutz-Flag, um zu verhindern, dass calculate_totals() 
+            # die Gutschrift-reduzierten Preise überschreibt
+            if from_button:
+                party_doc._skip_total_calculation = True
+                
         except Exception as e:
             frappe.log_error(f"Party-Dokument konnte nicht geladen werden: {str(e)}", "ERROR: create_orders")
             frappe.throw("Das Party-Dokument konnte nicht geladen werden.")
