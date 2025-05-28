@@ -562,54 +562,32 @@ function startAktionsSystem(frm, callback) {
 								
 								console.log(`Preis für ${itemCode}: ${price}`);
 								
-								// NEUE STRATEGIE: Direkte Manipulation der frm.doc Daten
-								// Stelle sicher, dass die Produkttabelle existiert
-								if (!frm.doc[teilnehmer.produktfeld]) {
-									frm.doc[teilnehmer.produktfeld] = [];
+								// Einfacher Ansatz: Direkt zum Array hinzufügen
+								let produkttabelle = frm.doc[teilnehmer.produktfeld];
+								if (!produkttabelle) {
+									produkttabelle = [];
+									frm.doc[teilnehmer.produktfeld] = produkttabelle;
 								}
 								
-								// Erstelle vollständiges Item-Objekt
+								// Neues Item erstellen
 								let newItem = {
-									doctype: "Sales Order Item",
 									item_code: itemCode,
 									item_name: item.item_name || itemName,
-									description: item.description || item.item_name || itemName,
+									description: item.description || itemName,
 									qty: 1,
 									rate: price,
-									amount: price * 1,
-									base_rate: price,
-									base_amount: price * 1,
+									amount: price,
 									uom: item.stock_uom || "Stk",
 									stock_uom: item.stock_uom || "Stk",
-									conversion_factor: 1.0,
-									uom_conversion_factor: 1.0,
-									stock_qty: 1.0,
+									conversion_factor: 1,
 									warehouse: warehouse,
-									delivery_date: deliveryDate,
-									price_list_rate: price,
-									base_price_list_rate: price,
-									// Spezielle Markierungen
-									_is_aktionsartikel: true,
-									_aktionsartikel_validiert: true,
-									// Frappe-interne Felder
-									parent: frm.doc.name,
-									parentfield: teilnehmer.produktfeld,
-									parenttype: "Party",
-									docstatus: 0,
-									__islocal: 1
+									delivery_date: deliveryDate
 								};
 								
-								// Füge das Item zur Tabelle hinzu
-								frm.doc[teilnehmer.produktfeld].push(newItem);
+								// Item hinzufügen
+								produkttabelle.push(newItem);
 								
-								console.log(`Aktionsartikel ${itemName} zu ${teilnehmer.name} hinzugefügt (Direkte Manipulation)`);
-								
-								// WICHTIG: Refresh das entsprechende Feld
-								frm.refresh_field(teilnehmer.produktfeld);
-								
-								// Markiere das Formular als geändert
-								frm.dirty();
-								
+								console.log(`Aktionsartikel ${itemName} zu ${teilnehmer.name} hinzugefügt`);
 								resolve();
 							}
 						});
@@ -752,10 +730,7 @@ function wendeGutscheinAn(aktionsfaehigeGastgeberProdukte, verfuegbarerGutschein
 			// Setze Preis auf 0 und markiere als Gutschein-reduziert
 			produkt.item.rate = 0;
 			produkt.item.amount = 0;
-			produkt.item.base_rate = 0;
-			produkt.item.base_amount = 0;
 			produkt.item._gutschein_angewendet = true; // WICHTIGE MARKIERUNG!
-			produkt.item._gutschein_rabatt = rabatt; // Speichere Rabatt-Betrag
 			
 			angewendeteRabatte.push({
 				produkt: produkt,
@@ -775,10 +750,7 @@ function wendeGutscheinAn(aktionsfaehigeGastgeberProdukte, verfuegbarerGutschein
 			// Setze neuen Preis und markiere als Gutschein-reduziert
 			produkt.item.rate = neuerPreis;
 			produkt.item.amount = neuerBetrag;
-			produkt.item.base_rate = neuerPreis;
-			produkt.item.base_amount = neuerBetrag;
 			produkt.item._gutschein_angewendet = true; // WICHTIGE MARKIERUNG!
-			produkt.item._gutschein_rabatt = rabatt; // Speichere Rabatt-Betrag
 			
 			angewendeteRabatte.push({
 				produkt: produkt,
@@ -791,7 +763,7 @@ function wendeGutscheinAn(aktionsfaehigeGastgeberProdukte, verfuegbarerGutschein
 		}
 	}
 	
-	// WICHTIG: Markiere das Formular als geändert und refresh alle betroffenen Tabellen
+	// Aktualisiere alle betroffenen Tabellen
 	let betroffeneTabellen = new Set();
 	angewendeteRabatte.forEach(rabatt => {
 		betroffeneTabellen.add(rabatt.produkt.produktfeld);
@@ -801,41 +773,22 @@ function wendeGutscheinAn(aktionsfaehigeGastgeberProdukte, verfuegbarerGutschein
 		frm.refresh_field(tabelle);
 	});
 	
-	// Markiere das Formular als dirty
-	frm.dirty();
-	
 	// Berechne Gesamtsummen neu
 	calculate_party_totals(frm);
 	
 	let restbetrag = verfuegbarerGutschein - verbrauchterGutschein;
 	console.log("Gutschein angewendet - Verbraucht:", verbrauchterGutschein, "Restbetrag:", restbetrag);
 	
-	// WICHTIG: Speichere die Gutschein-Anwendung explizit
-	console.log("Speichere Gutschein-Anwendung...");
-	frm.save().then(() => {
-		console.log("Gutschein-Anwendung gespeichert");
-		
-		if (restbetrag > 0.01) { // Kleine Rundungsfehler ignorieren
-			// Zeige Restbetrag-Dialog
-			zeigeRestbetragDialog(restbetrag, frm, callback);
-		} else {
-			// Kein Restbetrag - weiter zum nächsten Schritt
-			frappe.show_alert(`Gutschein vollständig angewendet: ${verbrauchterGutschein.toFixed(2)}€`, 3);
-			// Original-Preise können gelöscht werden, da der Gutschein erfolgreich angewendet wurde
-			frm.originalPricesBackup = {};
-			callback();
-		}
-	}).catch((error) => {
-		console.log("Fehler beim Speichern der Gutschein-Anwendung:", error);
-		// Auch bei Speicherfehlern fortfahren
-		if (restbetrag > 0.01) {
-			zeigeRestbetragDialog(restbetrag, frm, callback);
-		} else {
-			frappe.show_alert(`Gutschein vollständig angewendet: ${verbrauchterGutschein.toFixed(2)}€`, 3);
-			frm.originalPricesBackup = {};
-			callback();
-		}
-	});
+	if (restbetrag > 0.01) { // Kleine Rundungsfehler ignorieren
+		// Zeige Restbetrag-Dialog
+		zeigeRestbetragDialog(restbetrag, frm, callback);
+	} else {
+		// Kein Restbetrag - weiter zum nächsten Schritt
+		frappe.show_alert(`Gutschein vollständig angewendet: ${verbrauchterGutschein.toFixed(2)}€`, 3);
+		// Original-Preise können gelöscht werden, da der Gutschein erfolgreich angewendet wurde
+		frm.originalPricesBackup = {};
+		callback();
+	}
 }
 
 // Dialog für Restbetrag-Behandlung (auch bei Vollbetrag)
@@ -985,84 +938,14 @@ function erstelleAuftraege(frm) {
 	
 	// Kurze Pause, damit alle Updates verarbeitet werden
 	setTimeout(() => {
-		// WICHTIG: Explizit speichern nach Aktionsartikel-Validierung
-		console.log("Speichere Aktionsartikel-Validierungen...");
+		// Direkt zur API ohne explizites Speichern (Frappe speichert automatisch vor API-Aufrufen)
+	frappe.show_alert({
+			message: __("Erstelle Aufträge..."),
+			indicator: "orange"
+		});
 		
-		// DETAILLIERTES LOGGING: Zeige alle Aktionsartikel und Gutschein-Rabatte
-		console.log("=== FINALE DATENPRÜFUNG VOR API-AUFRUF ===");
-		let aktionsartikelCount = 0;
-		let gutscheinRabatteCount = 0;
-		
-		// Prüfe Gastgeberin-Tabelle
-		if (frm.doc.produktauswahl_für_gastgeberin) {
-			frm.doc.produktauswahl_für_gastgeberin.forEach((item, index) => {
-				if (item._is_aktionsartikel) {
-					aktionsartikelCount++;
-					console.log(`AKTIONSARTIKEL Gastgeberin[${index}]: ${item.item_code} (${item.item_name}) - Qty: ${item.qty}, Rate: ${item.rate}`);
-				}
-				if (item._gutschein_angewendet) {
-					gutscheinRabatteCount++;
-					console.log(`GUTSCHEIN-RABATT Gastgeberin[${index}]: ${item.item_code} - Original: ${item._gutschein_rabatt}€, Neuer Preis: ${item.rate}€`);
-				}
-			});
-		}
-		
-		// Prüfe Gäste-Tabellen
-		for (let i = 1; i <= 15; i++) {
-			let fieldName = `produktauswahl_für_gast_${i}`;
-			if (frm.doc[fieldName]) {
-				frm.doc[fieldName].forEach((item, index) => {
-					if (item._is_aktionsartikel) {
-						aktionsartikelCount++;
-						console.log(`AKTIONSARTIKEL Gast${i}[${index}]: ${item.item_code} (${item.item_name}) - Qty: ${item.qty}, Rate: ${item.rate}`);
-					}
-					if (item._gutschein_angewendet) {
-						gutscheinRabatteCount++;
-						console.log(`GUTSCHEIN-RABATT Gast${i}[${index}]: ${item.item_code} - Original: ${item._gutschein_rabatt}€, Neuer Preis: ${item.rate}€`);
-					}
-				});
-			}
-		}
-		
-		console.log(`=== ZUSAMMENFASSUNG: ${aktionsartikelCount} Aktionsartikel, ${gutscheinRabatteCount} Gutschein-Rabatte ===`);
-		
-		// Prüfe, ob das Formular Änderungen hat (durch Aktionsartikel-Validierung)
-		if (frm.is_dirty() || aktionsartikelCount > 0 || gutscheinRabatteCount > 0) {
-			console.log("Formular ist dirty oder hat Aktionsartikel/Rabatte - FINALES SPEICHERN vor API-Aufruf");
-			
-			frm.save().then(() => {
-				console.log("=== FINALES SPEICHERN ERFOLGREICH ===");
-				console.log("Aktionsartikel-Validierungen und Gutschein-Rabatte gespeichert - rufe API auf");
-				
-				// Direkt zur API ohne explizites Speichern (Frappe speichert automatisch vor API-Aufrufen)
-				frappe.show_alert({
-					message: __("Erstelle Aufträge..."),
-					indicator: "orange"
-				});
-				
-				console.log("Rufe create_invoices API direkt auf...");
-				erstelleAuftraegeDirectly(frm);
-			}).catch((error) => {
-				console.log("=== FEHLER BEIM FINALEN SPEICHERN ===", error);
-				console.log("Fehler beim Speichern der Aktionsartikel-Validierungen:", error);
-				// Auch bei Speicherfehlern versuchen, die Aufträge zu erstellen
-				frappe.show_alert({
-					message: __("Erstelle Aufträge..."),
-					indicator: "orange"
-				});
-				erstelleAuftraegeDirectly(frm);
-			});
-		} else {
-			console.log("Formular ist nicht dirty und hat keine Aktionsartikel/Rabatte - rufe API direkt auf");
-			// Direkt zur API ohne explizites Speichern (Frappe speichert automatisch vor API-Aufrufen)
-			frappe.show_alert({
-				message: __("Erstelle Aufträge..."),
-				indicator: "orange"
-			});
-			
-			console.log("Rufe create_invoices API direkt auf...");
-			erstelleAuftraegeDirectly(frm);
-		}
+		console.log("Rufe create_invoices API direkt auf...");
+		erstelleAuftraegeDirectly(frm);
 	}, 500); // Nur 0.5 Sekunden Pause
 }
 
@@ -1075,38 +958,22 @@ function validateAktionsartikel(frm) {
 	
 	// Prüfe alle Produkttabellen
 	let aktionsartikelGefunden = 0;
-	let validierteAktionsartikel = 0;
 	
 	// Gastgeberin-Tabelle
 	if (frm.doc.produktauswahl_für_gastgeberin) {
-		frm.doc.produktauswahl_für_gastgeberin.forEach((item, index) => {
+		frm.doc.produktauswahl_für_gastgeberin.forEach(item => {
 			if (aktionsCodes.includes(item.item_code)) {
 				aktionsartikelGefunden++;
-				console.log(`Aktionsartikel gefunden in Gastgeberin-Tabelle: ${item.item_code}`);
-				
-				// Validiere und ergänze alle wichtigen Felder
-				if (!item.qty || item.qty <= 0) item.qty = 1;
-				if (!item.rate && item.rate !== 0) item.rate = 0;
-				if (!item.amount && item.amount !== 0) item.amount = (item.qty || 1) * (item.rate || 0);
-				if (!item.base_rate && item.base_rate !== 0) item.base_rate = item.rate || 0;
-				if (!item.base_amount && item.base_amount !== 0) item.base_amount = item.amount || 0;
+				// Stelle sicher, dass wichtige Felder gesetzt sind
+				if (!item.qty) item.qty = 1;
+				if (!item.rate) item.rate = 0;
+				if (!item.amount) item.amount = 0;
 				if (!item.uom) item.uom = "Stk";
-				if (!item.stock_uom) item.stock_uom = item.uom || "Stk";
-				if (!item.conversion_factor) item.conversion_factor = 1.0;
-				if (!item.uom_conversion_factor) item.uom_conversion_factor = 1.0;
-				if (!item.stock_qty) item.stock_qty = (item.qty || 1) * (item.conversion_factor || 1);
+				if (!item.stock_uom) item.stock_uom = "Stk";
+				if (!item.conversion_factor) item.conversion_factor = 1;
 				if (!item.delivery_date) item.delivery_date = frappe.datetime.add_days(frappe.datetime.nowdate(), 7);
 				if (!item.warehouse) item.warehouse = "Lagerräume - BM";
-				if (!item.price_list_rate && item.price_list_rate !== 0) item.price_list_rate = item.rate || 0;
-				if (!item.base_price_list_rate && item.base_price_list_rate !== 0) item.base_price_list_rate = item.rate || 0;
-				if (!item.item_name) item.item_name = item.item_code;
-				if (!item.description) item.description = item.item_name || item.item_code;
-				
-				// Markiere als validiert
-				item._aktionsartikel_validiert = true;
-				validierteAktionsartikel++;
-				
-				console.log(`Aktionsartikel validiert: ${item.item_code} für Gastgeberin (Qty: ${item.qty}, Rate: ${item.rate}, Amount: ${item.amount})`);
+				console.log(`Aktionsartikel validiert: ${item.item_code} für Gastgeberin`);
 			}
 		});
 	}
@@ -1115,82 +982,61 @@ function validateAktionsartikel(frm) {
 	for (let i = 1; i <= 15; i++) {
 		let fieldName = `produktauswahl_für_gast_${i}`;
 		if (frm.doc[fieldName]) {
-			frm.doc[fieldName].forEach((item, index) => {
+			frm.doc[fieldName].forEach(item => {
 				if (aktionsCodes.includes(item.item_code)) {
 					aktionsartikelGefunden++;
-					console.log(`Aktionsartikel gefunden in Gast ${i} Tabelle: ${item.item_code}`);
-					
-					// Validiere und ergänze alle wichtigen Felder
-					if (!item.qty || item.qty <= 0) item.qty = 1;
-					if (!item.rate && item.rate !== 0) item.rate = 0;
-					if (!item.amount && item.amount !== 0) item.amount = (item.qty || 1) * (item.rate || 0);
-					if (!item.base_rate && item.base_rate !== 0) item.base_rate = item.rate || 0;
-					if (!item.base_amount && item.base_amount !== 0) item.base_amount = item.amount || 0;
+					// Stelle sicher, dass wichtige Felder gesetzt sind
+					if (!item.qty) item.qty = 1;
+					if (!item.rate) item.rate = 0;
+					if (!item.amount) item.amount = 0;
 					if (!item.uom) item.uom = "Stk";
-					if (!item.stock_uom) item.stock_uom = item.uom || "Stk";
-					if (!item.conversion_factor) item.conversion_factor = 1.0;
-					if (!item.uom_conversion_factor) item.uom_conversion_factor = 1.0;
-					if (!item.stock_qty) item.stock_qty = (item.qty || 1) * (item.conversion_factor || 1);
+					if (!item.stock_uom) item.stock_uom = "Stk";
+					if (!item.conversion_factor) item.conversion_factor = 1;
 					if (!item.delivery_date) item.delivery_date = frappe.datetime.add_days(frappe.datetime.nowdate(), 7);
 					if (!item.warehouse) item.warehouse = "Lagerräume - BM";
-					if (!item.price_list_rate && item.price_list_rate !== 0) item.price_list_rate = item.rate || 0;
-					if (!item.base_price_list_rate && item.base_price_list_rate !== 0) item.base_price_list_rate = item.rate || 0;
-					if (!item.item_name) item.item_name = item.item_code;
-					if (!item.description) item.description = item.item_name || item.item_code;
-					
-					// Markiere als validiert
-					item._aktionsartikel_validiert = true;
-					validierteAktionsartikel++;
-					
-					console.log(`Aktionsartikel validiert: ${item.item_code} für Gast ${i} (Qty: ${item.qty}, Rate: ${item.rate}, Amount: ${item.amount})`);
+					console.log(`Aktionsartikel validiert: ${item.item_code} für Gast ${i}`);
 				}
 			});
 		}
 	}
 	
-	console.log(`${aktionsartikelGefunden} Aktionsartikel gefunden und ${validierteAktionsartikel} validiert`);
-	
-	// WICHTIG: Markiere das Formular als geändert, damit die Validierungen gespeichert werden
-	if (validierteAktionsartikel > 0) {
-		frm.dirty();
-		console.log("Formular als 'dirty' markiert wegen Aktionsartikel-Validierung");
-	}
+	console.log(`${aktionsartikelGefunden} Aktionsartikel gefunden und validiert`);
 }
 
 // Hilfsfunktion für direkten API-Aufruf
 function erstelleAuftraegeDirectly(frm) {
 	console.log("erstelleAuftraegeDirectly aufgerufen");
 	
-	frappe.call({
-		method: "enjo_party.enjo_party.doctype.party.party.create_invoices",
-		args: {
-			party: frm.doc.name,
-			from_button: true  // Flag, um zu zeigen, dass der Aufruf vom Button kommt
-		},
-		freeze: true,
+		frappe.call({
+			method: "enjo_party.enjo_party.doctype.party.party.create_invoices",
+			args: {
+				party: frm.doc.name,
+				from_button: true  // Flag, um zu zeigen, dass der Aufruf vom Button kommt
+			},
+			freeze: true,
 		freeze_message: __("Erstelle und reiche Aufträge ein..."),
-		callback: function(r) {
+			callback: function(r) {
 			console.log("API-Antwort erhalten:", r);
 			// Screen wieder freigeben
 			frappe.freeze_screen = false;
 			
-			if (r.message && r.message.length > 0) {
-				frappe.msgprint({
-					title: __("Erfolg"),
-					message: __("Es wurden {0} Aufträge erstellt und eingereicht!", [r.message.length]),
-					indicator: "green"
-				});
-				// Vollständiges Neuladen der Seite, um den Status zu aktualisieren
-				setTimeout(function() {
-					location.reload();
-				}, 2000);
-			} else {
+				if (r.message && r.message.length > 0) {
+					frappe.msgprint({
+						title: __("Erfolg"),
+						message: __("Es wurden {0} Aufträge erstellt und eingereicht!", [r.message.length]),
+						indicator: "green"
+					});
+					// Vollständiges Neuladen der Seite, um den Status zu aktualisieren
+					setTimeout(function() {
+						location.reload();
+					}, 2000);
+				} else {
 				console.log("Keine Aufträge erstellt - refreshButtons wird aufgerufen");
-				frappe.msgprint({
-					title: __("Hinweis"),
-					message: __("Es wurden keine Aufträge erstellt. Bitte überprüfen Sie, ob Produkte ausgewählt wurden."),
-					indicator: "orange"
-				});
+					frappe.msgprint({
+						title: __("Hinweis"),
+						message: __("Es wurden keine Aufträge erstellt. Bitte überprüfen Sie, ob Produkte ausgewählt wurden."),
+						indicator: "orange"
+					});
 				// Buttons wieder herstellen statt reload
 				console.log("Keine Aufträge erstellt - refreshButtons wird aufgerufen");
 				refreshButtons(frm);
@@ -1205,11 +1051,11 @@ function erstelleAuftraegeDirectly(frm) {
 			stelleOriginalPreiseWieder(frm);
 			
 			// Bei API-Fehlern
-			frappe.msgprint({
+		frappe.msgprint({
 				title: __("Fehler"),
 				message: __("Es ist ein Fehler beim Erstellen der Aufträge aufgetreten. Die Original-Preise wurden wiederhergestellt. Bitte versuchen Sie es erneut."),
-				indicator: "red"
-			});
+			indicator: "red"
+		});
 			// Buttons wieder herstellen
 			console.log("API-Fehler - refreshButtons wird aufgerufen");
 			refreshButtons(frm);
@@ -1462,7 +1308,7 @@ frappe.ui.form.on('Party', {
 		
 		// Custom Buttons basierend auf dem Status anzeigen - verwende die zentrale Funktion
 		// Verzögere den Aufruf, damit alle anderen Initialisierungen abgeschlossen sind
-		setTimeout(() => {
+			setTimeout(() => {
 			refreshButtons(frm);
 		}, 200);
 		
