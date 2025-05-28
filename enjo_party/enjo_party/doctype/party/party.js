@@ -250,15 +250,32 @@ function startAktionsSystem(frm, callback) {
 	
 	// Gastgeberin hinzufügen
 	if (frm.doc.gastgeberin && frm.doc.produktauswahl_für_gastgeberin && frm.doc.produktauswahl_für_gastgeberin.length > 0) {
-		teilnehmerMitProdukten.push({
-			name: frm.doc.gastgeberin,
-			typ: "Gastgeberin",
-			produktfeld: "produktauswahl_für_gastgeberin",
-			produkte: frm.doc.produktauswahl_für_gastgeberin
+		// Hole Gastgeberin-Name
+		frappe.call({
+			method: "frappe.client.get_value",
+			args: {
+				doctype: "Customer",
+				filters: {
+					name: frm.doc.gastgeberin
+				},
+				fieldname: "customer_name"
+			},
+			async: false,
+			callback: function(r) {
+				let gastgeberinName = r.message ? r.message.customer_name : frm.doc.gastgeberin;
+				teilnehmerMitProdukten.push({
+					name: frm.doc.gastgeberin,
+					displayName: gastgeberinName,
+					typ: "Gastgeberin",
+					produktfeld: "produktauswahl_für_gastgeberin",
+					produkte: frm.doc.produktauswahl_für_gastgeberin
+				});
+			}
 		});
 	}
 	
 	// Alle Gäste hinzufügen
+	let gastePromises = [];
 	for (let i = 0; i < frm.doc.kunden.length; i++) {
 		let kunde = frm.doc.kunden[i];
 		if (!kunde.kunde) continue;
@@ -267,27 +284,49 @@ function startAktionsSystem(frm, callback) {
 		if (frm.doc[field_name] && frm.doc[field_name].length > 0) {
 			let hatProdukte = frm.doc[field_name].some(item => item.item_code && item.qty && item.qty > 0);
 			if (hatProdukte) {
-				teilnehmerMitProdukten.push({
-					name: kunde.kunde,
-					typ: "Gast",
-					gastNummer: i + 1,
-					produktfeld: field_name,
-					produkte: frm.doc[field_name]
+				// Hole Gast-Name
+				let promise = new Promise((resolve) => {
+					frappe.call({
+						method: "frappe.client.get_value",
+						args: {
+							doctype: "Customer",
+							filters: {
+								name: kunde.kunde
+							},
+							fieldname: "customer_name"
+						},
+						callback: function(r) {
+							let gastName = r.message ? r.message.customer_name : kunde.kunde;
+							teilnehmerMitProdukten.push({
+								name: kunde.kunde,
+								displayName: gastName,
+								typ: "Gast",
+								gastNummer: i + 1,
+								produktfeld: field_name,
+								produkte: frm.doc[field_name]
+							});
+							resolve();
+						}
+					});
 				});
+				gastePromises.push(promise);
 			}
 		}
 	}
 	
-	console.log("Gefundene Teilnehmer mit Produkten:", teilnehmerMitProdukten.length);
-	
-	if (teilnehmerMitProdukten.length === 0) {
-		console.log("Keine Teilnehmer mit Produkten gefunden - überspringe Aktions-System");
-		callback();
-		return;
-	}
-	
-	// Prüfe jeden Teilnehmer auf Aktionsberechtigung
-	checkTeilnehmerForAction(teilnehmerMitProdukten, 0, []);
+	// Warte auf alle Gast-Namen
+	Promise.all(gastePromises).then(() => {
+		console.log("Gefundene Teilnehmer mit Produkten:", teilnehmerMitProdukten.length);
+		
+		if (teilnehmerMitProdukten.length === 0) {
+			console.log("Keine Teilnehmer mit Produkten gefunden - überspringe Aktions-System");
+			callback();
+			return;
+		}
+		
+		// Prüfe jeden Teilnehmer auf Aktionsberechtigung
+		checkTeilnehmerForAction(teilnehmerMitProdukten, 0, []);
+	});
 	
 	function checkTeilnehmerForAction(teilnehmer, index, aktionsberechtigteTeilnehmer) {
 		if (index >= teilnehmer.length) {
@@ -303,13 +342,13 @@ function startAktionsSystem(frm, callback) {
 		}
 		
 		let teilnehmer_obj = teilnehmer[index];
-		console.log(`Prüfe Teilnehmer: ${teilnehmer_obj.name} (${teilnehmer_obj.typ})`);
+		console.log(`Prüfe Teilnehmer: ${teilnehmer_obj.displayName} (${teilnehmer_obj.typ})`);
 		
 		checkItemsForAction(teilnehmer_obj.produkte, 0, [], 0, teilnehmer_obj);
 		
 		function checkItemsForAction(items, itemIndex, actionItems, total, teilnehmer_obj) {
 			if (itemIndex >= items.length) {
-				console.log(`${teilnehmer_obj.name}: ${actionItems.length} aktionsfähige Items, Summe: ${total}`);
+				console.log(`${teilnehmer_obj.displayName}: ${actionItems.length} aktionsfähige Items, Summe: ${total}`);
 				
 				let hasAktionsartikel = items.some(item => allAktionsCodes.includes(item.item_code));
 				
@@ -355,7 +394,7 @@ function startAktionsSystem(frm, callback) {
 					if (r.message && r.message.custom_considered_for_action) {
 						actionItems.push(item);
 						total += item.amount || 0;
-						console.log(`${teilnehmer_obj.name}: Item ${item.item_code} aktionsfähig (${item.amount || 0} EUR)`);
+						console.log(`${teilnehmer_obj.displayName}: Item ${item.item_code} aktionsfähig (${item.amount || 0} EUR)`);
 					}
 					
 					checkItemsForAction(items, itemIndex + 1, actionItems, total, teilnehmer_obj);
@@ -397,7 +436,7 @@ function startAktionsSystem(frm, callback) {
 				fieldname: `teilnehmer_info_${index}`,
 				options: `
 					<div style="margin: 10px 0; padding: 10px; background-color: #f8f9fa; border-radius: 5px;">
-						<strong>${teilnehmer.name}</strong> (${teilnehmer.typ})<br>
+						<strong>${teilnehmer.displayName}</strong><br>
 						<small>Aktionssumme: ${teilnehmer.aktionssumme.toFixed(2)} EUR - ${stageText} Aktion</small>
 					</div>
 				`
@@ -406,7 +445,7 @@ function startAktionsSystem(frm, callback) {
 			dialogFields.push({
 				fieldtype: 'Select',
 				fieldname: `aktion_artikel_${index}`,
-				label: `Aktionsartikel für ${teilnehmer.name}`,
+				label: `Aktionsartikel für ${teilnehmer.displayName}`,
 				options: optionen,
 				default: ""
 			});
@@ -438,7 +477,7 @@ function startAktionsSystem(frm, callback) {
 					let selectedItem = values[`aktion_artikel_${index}`];
 					
 					if (selectedItem && selectedItem.trim() !== "") {
-						console.log(`${teilnehmer.name} hat gewählt: ${selectedItem}`);
+						console.log(`${teilnehmer.displayName} hat gewählt: ${selectedItem}`);
 						
 						let itemCode = getItemCodeFromName(selectedItem);
 						
@@ -448,7 +487,7 @@ function startAktionsSystem(frm, callback) {
 							aktionsartikelHinzugefuegt++;
 						}
 					} else {
-						console.log(`${teilnehmer.name} hat "Nein, danke" gewählt`);
+						console.log(`${teilnehmer.displayName} hat "Nein, danke" gewählt`);
 					}
 				});
 				
@@ -517,83 +556,49 @@ function startAktionsSystem(frm, callback) {
 	}
 	
 	function addAktionsartikelToTeilnehmer(teilnehmer, itemCode, itemName) {
+		console.log(`Füge ${itemCode} zu ${teilnehmer.displayName} hinzu`);
+		
 		return new Promise((resolve, reject) => {
-			console.log(`Füge ${itemCode} zu ${teilnehmer.name} hinzu`);
-			
-			// Hole Item-Informationen
+			// Hole Item-Details
 			frappe.call({
 				method: "frappe.client.get_value",
 				args: {
 					doctype: "Item",
 					filters: {
-						name: itemCode
+						item_code: itemCode
 					},
-					fieldname: ["item_name", "description", "stock_uom"]
+					fieldname: ["item_name", "standard_rate"]
 				},
 				callback: function(r) {
 					if (r.message) {
-						let item = r.message;
+						let itemDetails = r.message;
+						let rate = itemDetails.standard_rate || 0;
 						
-						// Bestimme Warehouse (vom ersten Produkt des Teilnehmers)
-						let warehouse = "Lagerräume - BM"; // Default
-						if (teilnehmer.produkte && teilnehmer.produkte.length > 0) {
-							warehouse = teilnehmer.produkte[0].warehouse || warehouse;
+						// Füge Aktionsartikel zur entsprechenden Produkttabelle hinzu
+						let produktTabelle = frm.doc[teilnehmer.produktfeld];
+						if (!produktTabelle) {
+							produktTabelle = [];
+							frm.doc[teilnehmer.produktfeld] = produktTabelle;
 						}
 						
-						// Berechne Liefertermin (7 Tage ab heute)
-						let deliveryDate = frappe.datetime.add_days(frappe.datetime.nowdate(), 7);
+						// Erstelle neuen Eintrag
+						let neuerEintrag = {
+							item_code: itemCode,
+							item_name: itemDetails.item_name || itemName,
+							qty: 1,
+							rate: rate,
+							amount: rate * 1,
+							_aktionsartikel: true // Markierung für Aktionsartikel
+						};
 						
-						// Hole den Preis - verwende 0 als Standard für Aktionsartikel
-						frappe.call({
-							method: "frappe.client.get_value",
-							args: {
-								doctype: "Item Price",
-								filters: {
-									item_code: itemCode
-								},
-								fieldname: "price_list_rate"
-							},
-							callback: function(price_r) {
-								// Preis (0 wenn nicht gefunden - Aktionsartikel sind oft kostenlos)
-								let price = 0;
-								if (price_r.message && price_r.message.price_list_rate) {
-									price = price_r.message.price_list_rate;
-								}
-								
-								console.log(`Preis für ${itemCode}: ${price}`);
-								
-								// Einfacher Ansatz: Direkt zum Array hinzufügen
-								let produkttabelle = frm.doc[teilnehmer.produktfeld];
-								if (!produkttabelle) {
-									produkttabelle = [];
-									frm.doc[teilnehmer.produktfeld] = produkttabelle;
-								}
-								
-								// Neues Item erstellen
-								let newItem = {
-									item_code: itemCode,
-									item_name: item.item_name || itemName,
-									description: item.description || itemName,
-									qty: 1,
-									rate: price,
-									amount: price,
-									uom: item.stock_uom || "Stk",
-									stock_uom: item.stock_uom || "Stk",
-									conversion_factor: 1,
-									warehouse: warehouse,
-									delivery_date: deliveryDate
-								};
-								
-								// Item hinzufügen
-								produkttabelle.push(newItem);
-								
-								console.log(`Aktionsartikel ${itemName} zu ${teilnehmer.name} hinzugefügt`);
-								resolve();
-							}
-						});
+						// Füge zur Tabelle hinzu
+						produktTabelle.push(neuerEintrag);
+						
+						console.log(`Aktionsartikel ${itemName} zu ${teilnehmer.displayName} hinzugefügt`);
+						resolve();
 					} else {
-						console.error(`Aktionsartikel ${itemCode} konnte nicht gefunden werden`);
-						reject(new Error(`Item ${itemCode} nicht gefunden`));
+						console.error(`Konnte Item-Details für ${itemCode} nicht laden`);
+						reject(`Item-Details nicht gefunden`);
 					}
 				}
 			});
@@ -1148,7 +1153,7 @@ function updateCustomHeaders(frm) {
 function updateKundenFilter(frm) {
 	if (!frm.fields_dict["kunden"]) return;
 	
-	// Sammle alle bereits ausgewählten Kunden
+	// Sammle alle bereits ausgewählten Kunden (inklusive aktueller Änderungen)
 	let selected_customers = [];
 	if (frm.doc.kunden) {
 		frm.doc.kunden.forEach(function(k) {
@@ -1158,11 +1163,127 @@ function updateKundenFilter(frm) {
 		});
 	}
 	
-	// Setze den Filter für die Kunden-Tabelle
-	frm.set_query("kunde", "kunden", function() {
+	// Setze den Filter für die Kunden-Tabelle mit verbesserter Logik
+	frm.set_query("kunde", "kunden", function(doc, cdt, cdn) {
+		// Hole die aktuelle Zeile
+		let current_row = locals[cdt][cdn];
+		
+		// Sammle alle anderen ausgewählten Kunden (außer der aktuellen Zeile)
+		let other_selected = [];
+		if (frm.doc.kunden) {
+			frm.doc.kunden.forEach(function(k, index) {
+				if (k.kunde && k.name !== current_row.name) {
+					other_selected.push(k.kunde);
+				}
+			});
+		}
+		
 		let filters = [["name", "!=", frm.doc.gastgeberin]];
-		if (selected_customers.length > 0) {
-			filters.push(["name", "not in", selected_customers]);
+		if (other_selected.length > 0) {
+			filters.push(["name", "not in", other_selected]);
+		}
+		return { filters: filters };
+	});
+}
+
+// Neue Funktion zur sofortigen Validierung von Duplikaten
+function validateKundenDuplicates(frm, current_row) {
+	if (!current_row.kunde) return true;
+	
+	// Prüfe auf Gastgeberin
+	if (current_row.kunde === frm.doc.gastgeberin) {
+		frappe.msgprint({
+			title: __("Fehler"),
+			message: __("Die Gastgeberin kann nicht als Gast ausgewählt werden!"),
+			indicator: "red"
+		});
+		// Leere das Feld
+		setTimeout(() => {
+			current_row.kunde = "";
+			frm.refresh_field("kunden");
+		}, 100);
+		return false;
+	}
+	
+	// Prüfe auf andere Gäste
+	let duplicate_found = false;
+	if (frm.doc.kunden) {
+		frm.doc.kunden.forEach(function(k) {
+			if (k.kunde === current_row.kunde && k.name !== current_row.name) {
+				duplicate_found = true;
+			}
+		});
+	}
+	
+	if (duplicate_found) {
+		frappe.msgprint({
+			title: __("Fehler"),
+			message: __("Dieser Gast wurde bereits ausgewählt!"),
+			indicator: "red"
+		});
+		// Leere das Feld
+		setTimeout(() => {
+			current_row.kunde = "";
+			frm.refresh_field("kunden");
+		}, 100);
+		return false;
+	}
+	
+	return true;
+}
+
+// Neue Funktion zur Validierung der Gastgeberin gegen bereits ausgewählte Gäste
+function validateGastgeberinDuplicates(frm) {
+	if (!frm.doc.gastgeberin) return true;
+	
+	// Prüfe, ob die Gastgeberin bereits als Gast ausgewählt ist
+	let duplicate_found = false;
+	let duplicate_guest_name = "";
+	
+	if (frm.doc.kunden) {
+		frm.doc.kunden.forEach(function(k) {
+			if (k.kunde === frm.doc.gastgeberin) {
+				duplicate_found = true;
+				duplicate_guest_name = k.kunde;
+			}
+		});
+	}
+	
+	if (duplicate_found) {
+		frappe.msgprint({
+			title: __("Fehler"),
+			message: __("Diese Person ist bereits als Gast ausgewählt! Bitte wähle eine andere Gastgeberin oder entferne sie aus der Gästeliste."),
+			indicator: "red"
+		});
+		// Leere das Gastgeberin-Feld
+		setTimeout(() => {
+			frm.set_value('gastgeberin', '');
+		}, 100);
+		return false;
+	}
+	
+	return true;
+}
+
+// Funktion zum Setzen des Gastgeberin-Filters
+function updateGastgeberinFilter(frm) {
+	if (!frm.fields_dict["gastgeberin"]) return;
+	
+	// Sammle alle bereits ausgewählten Gäste
+	let selected_guests = [];
+	if (frm.doc.kunden) {
+		frm.doc.kunden.forEach(function(k) {
+			if (k.kunde) {
+				selected_guests.push(k.kunde);
+			}
+		});
+	}
+	
+	// Setze den Filter für die Gastgeberin-Auswahl
+	frm.set_query("gastgeberin", function() {
+		let filters = [];
+		if (selected_guests.length > 0) {
+			filters.push(["name", "not in", selected_guests]);
 		}
 		return { filters: filters };
 	});
@@ -1321,6 +1442,14 @@ frappe.ui.form.on('Party', {
 	
 	// Füge einen Event-Handler für die Gastgeberin hinzu
 	gastgeberin: function(frm) {
+		// SOFORTIGE Validierung auf Duplikate mit bereits ausgewählten Gästen
+		if (!validateGastgeberinDuplicates(frm)) {
+			return; // Stoppe hier, wenn Duplikat gefunden
+		}
+		
+		// SOFORTIGE Filter-Aktualisierung
+		updateKundenFilter(frm);
+		
 		// Wenn die Gastgeberin geändert wird, setze sie als Standard für den Versand
 		if (frm.doc.gastgeberin) {
 			// Aktualisiere das Label für die Gastgeberin
@@ -1335,10 +1464,10 @@ frappe.ui.form.on('Party', {
 			frm.set_value('versand_gastgeberin', frm.doc.gastgeberin);
 		}
 		
-		// Aktualisiere auch die Überschriften
+		// Header-Updates mit minimaler Verzögerung
 		setTimeout(() => {
 			updateCustomHeaders(frm);
-		}, 500);
+		}, 100);
 		
 		// Aktualisiere die Optionen für die Versandfelder
 		let optionen = [];
@@ -1369,17 +1498,6 @@ frappe.ui.form.on('Party', {
 			}
 			frm.set_df_property('versand_gastgeberin', 'options', optionen);
 		});
-		
-		// Aktualisiere die Kunden-Tabelle, um Gastgeberin aus den Optionen zu entfernen
-		if (frm.doc.gastgeberin && frm.fields_dict["kunden"]) {
-			frm.set_query("kunde", "kunden", function() {
-				return {
-					filters: {
-						"name": ["!=", frm.doc.gastgeberin]
-					}
-				};
-			});
-		}
 	},
 	
 	onload: function(frm) {
@@ -1442,6 +1560,7 @@ frappe.ui.form.on('Party', {
 		
 		// Initiale Filterung
 		updateKundenFilter(frm);
+		updateGastgeberinFilter(frm);
 	},
 	
 	// Nach dem Speichern automatisch die Preise für alle leeren Produkte laden
@@ -1455,16 +1574,24 @@ frappe.ui.form.on('Party', {
 	
 	// Aktualisiere auch wenn Kunden hinzugefügt oder entfernt werden
 	kunden_add: function(frm) {
+		// SOFORTIGE Filter-Aktualisierung
+		updateKundenFilter(frm);
+		updateGastgeberinFilter(frm);
+		
+		// Header-Updates mit minimaler Verzögerung
 		setTimeout(() => {
 			updateCustomHeaders(frm);
-			updateKundenFilter(frm);
-		}, 500);
+		}, 100);
 	},
 	kunden_remove: function(frm) {
+		// SOFORTIGE Filter-Aktualisierung
+		updateKundenFilter(frm);
+		updateGastgeberinFilter(frm);
+		
+		// Header-Updates mit minimaler Verzögerung
 		setTimeout(() => {
 			updateCustomHeaders(frm);
-			updateKundenFilter(frm);
-		}, 500);
+		}, 100);
 	}
 });
 
@@ -1474,16 +1601,41 @@ frappe.ui.form.on('Party Kunde', {
 		let row = locals[cdt][cdn];
 		let idx = row.idx;
 		
+		// SOFORTIGE Validierung auf Duplikate
+		if (!validateKundenDuplicates(frm, row)) {
+			return; // Stoppe hier, wenn Duplikat gefunden
+		}
+		
 		// Sofort das Versand-Label aktualisieren
 		if (row.kunde) {
 			frm.set_df_property(`versand_gast_${idx}`, 'label', `Versand für ${row.kunde} an:`);
 		}
 		
-		// Aktualisiere die benutzerdefinierten Header und Filter
+		// SOFORTIGE Filter-Aktualisierung (ohne Verzögerung)
+		updateKundenFilter(frm);
+		updateGastgeberinFilter(frm);
+		
+		// Header-Updates mit minimaler Verzögerung
 		setTimeout(() => {
 			updateCustomHeaders(frm);
+		}, 100);
+	},
+	
+	// Zusätzlicher Event-Handler für das Verlassen des Feldes
+	kunde_on_form_rendered: function(frm, cdt, cdn) {
+		// Stelle sicher, dass Filter immer aktuell sind
+		updateKundenFilter(frm);
+		updateGastgeberinFilter(frm);
+	},
+	
+	// Event-Handler für das Entfernen von Zeilen
+	before_kunden_remove: function(frm, cdt, cdn) {
+		// Filter nach dem Entfernen aktualisieren
+		setTimeout(() => {
 			updateKundenFilter(frm);
-		}, 500);
+			updateGastgeberinFilter(frm);
+			updateCustomHeaders(frm);
+		}, 50);
 	}
 });
 
