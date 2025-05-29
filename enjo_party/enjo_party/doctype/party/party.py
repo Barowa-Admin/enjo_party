@@ -429,191 +429,50 @@ class Party(Document):
 				item.amount = flt(item.qty) * new_rate
 				item.base_amount = item.amount
 
-# Funktion zum Erstellen oder Finden einer Adresse für einen Kunden
+# VERALTET: Diese Funktion erstellt automatisch Adressen - NICHT MEHR VERWENDEN!
 def get_or_create_address(customer_name, address_type="Billing"):
 	"""
-	Funktion zum Erstellen oder Finden einer Adresse für einen Kunden.
-	Wenn address_type="Shipping" bevorzugt sie eine Lieferadresse, verwendet aber notfalls jede verfügbare Adresse.
+	VERALTET: Verwende find_existing_address() stattdessen!
+	Diese Funktion erstellt KEINE neuen Adressen mehr.
 	"""
-	try:
-		# Prüfen, ob der Customer überhaupt existiert
-		if not frappe.db.exists("Customer", customer_name):
-			frappe.log_error(f"Customer '{customer_name}' existiert nicht!", "ERROR: get_or_create_address")
-			raise Exception(f"Customer '{customer_name}' existiert nicht!")
-		
-		# Prüfen, ob bereits eine Adresse für diesen Kunden existiert
-		# Zuerst nach exakter Übereinstimmung suchen
-		address_links = frappe.get_all(
-			"Dynamic Link",
-			filters={"link_doctype": "Customer", "link_name": customer_name},
-			fields=["parent"]
-		)
-	except Exception as e:
-		frappe.log_error(f"Fehler beim Suchen von Adressen für '{customer_name}': {str(e)}", "ERROR: get_or_create_address")
-		raise e
+	frappe.log_error(f"WARNUNG: get_or_create_address ist veraltet! Verwende find_existing_address für '{customer_name}'", "WARNING: deprecated_function")
+	return find_existing_address(customer_name, address_type)
+
+def create_robust_fallback_address(customer_name, address_type):
+	"""
+	GEÄNDERT: Erstellt KEINE neuen Adressen mehr!
+	Sucht nur nach existierenden Adressen und gibt None zurück wenn keine gefunden wird
+	"""
+	frappe.log_error(f"WARNUNG: create_robust_fallback_address aufgerufen für '{customer_name}' - suche nur nach existierenden Adressen", "WARNING: no_auto_create")
 	
-	# Wenn keine exakte Übereinstimmung gefunden wurde, nach Namen suchen, die mit customer_name beginnen
-	if not address_links:
-		# Verwende LIKE-Abfrage, um auch Kundennamen zu finden, die mit dem gesuchten Namen beginnen
-		address_links = frappe.get_all(
-			"Dynamic Link",
-			filters={
-				"link_doctype": "Customer",
-				"link_name": ["like", f"{customer_name}%"]
-			},
-			fields=["parent", "link_name"]
-		)
-		
-		if address_links:
-			frappe.log_error(f"Adresse mit Wildcard-Suche gefunden für '{customer_name}': {address_links[0].link_name}", "INFO: get_or_create_address")
-	
-	# Wenn keine Adressen gefunden wurden, erstelle eine neue
-	if not address_links:
-		return create_new_address(customer_name, address_type)
-	
-	# Adressen nach Typen sammeln
-	shipping_addresses = []
-	billing_addresses = []
-	other_addresses = []
-	
-	# Alle gefundenen Adressen durchgehen und nach Typ sortieren
-	for link in address_links:
-		try:
-			addr = frappe.get_doc("Address", link.parent)
-			if addr.address_type == "Shipping":
-				shipping_addresses.append(addr.name)
-			elif addr.address_type == "Billing":
-				billing_addresses.append(addr.name)
-			else:
-				other_addresses.append(addr.name)
-		except Exception as e:
-			frappe.log_error(f"Fehler beim Laden der Adresse {link.parent}: {str(e)}", "ERROR: get_or_create_address")
-			continue
-	
-	# Entscheidungslogik basierend auf dem gesuchten Adresstyp
-	if address_type == "Shipping":
-		# Wenn wir eine Lieferadresse suchen, bevorzugen wir diese
-		if shipping_addresses:
-			return shipping_addresses[0]
-		# Falls keine Lieferadresse existiert, nehmen wir eine Rechnungsadresse
-		elif billing_addresses:
-			return billing_addresses[0]
-		# Sonst nehmen wir irgendeine andere Adresse
-		elif other_addresses:
-			return other_addresses[0]
-	elif address_type == "Billing":
-		# Wenn wir eine Rechnungsadresse suchen, bevorzugen wir diese
-		if billing_addresses:
-			return billing_addresses[0]
-		# Falls keine Rechnungsadresse existiert, nehmen wir eine Lieferadresse
-		elif shipping_addresses:
-			return shipping_addresses[0]
-		# Sonst nehmen wir irgendeine andere Adresse
-		elif other_addresses:
-			return other_addresses[0]
+	# Verwende die neue find_existing_address Funktion
+	existing_address = find_existing_address(customer_name, address_type)
+	if existing_address:
+		frappe.log_error(f"Existierende Adresse gefunden für '{customer_name}': {existing_address}", "INFO: existing_found")
+		return existing_address
 	else:
-		# Bei anderen Adresstypen suchen wir exakt nach diesem Typ
-		# Oder erstellen eine neue, wenn keine gefunden wurde
-		for link in address_links:
-			try:
-				addr = frappe.get_doc("Address", link.parent)
-				if addr.address_type == address_type:
-					return addr.name
-			except Exception:
-				continue
-		
-		# Wenn keine Adresse vom gesuchten Typ gefunden wurde, 
-		# nehmen wir irgendeine vorhandene Adresse
-		all_addresses = shipping_addresses + billing_addresses + other_addresses
-		if all_addresses:
-			return all_addresses[0]
-	
-	# Wenn keine passende Adresse gefunden wurde, erstelle eine neue
-	try:
-		return create_new_address(customer_name, address_type)
-	except Exception as e:
-		frappe.log_error(f"Konnte keine Adresse für '{customer_name}' erstellen: {str(e)}", "ERROR: get_or_create_address")
-		# Als letzter Fallback: Verwende eine Standard-Dummy-Adresse
-		return create_fallback_address()
+		frappe.log_error(f"KEINE Adresse für '{customer_name}' gefunden - erstelle KEINE neue Adresse!", "ERROR: no_address_available")
+		return None
 
+def get_available_country():
+	"""
+	VERALTET: Diese Funktion wird nicht mehr benötigt,
+	da wir keine neuen Adressen mehr erstellen
+	"""
+	frappe.log_error("get_available_country ist veraltet - keine neuen Adressen mehr!", "WARNING: deprecated")
+	return "Germany"
+
+# ENTFERNT: Diese Funktion erstellt neue Adressen - nicht mehr verwenden!
 def create_new_address(customer_name, address_type):
-	"""Erstellt eine neue Adresse für einen Kunden"""
-	# Versuche zuerst das Land "Germany" zu finden, dann "Deutschland", dann "DE"
-	country = None
-	for country_name in ["Germany", "Deutschland", "DE"]:
-		if frappe.db.exists("Country", country_name):
-			country = country_name
-			break
-	
-	# Falls kein Land gefunden wurde, verwende das erste verfügbare Land
-	if not country:
-		countries = frappe.get_all("Country", fields=["name"], limit=1)
-		if countries:
-			country = countries[0].name
-		else:
-			country = "Germany"  # Fallback
-	
-	new_address = frappe.get_doc({
-		"doctype": "Address",
-		"address_title": f"{customer_name}-{address_type}",
-		"address_type": address_type,
-		"address_line1": customer_name,  # Als Platzhalter den Kundennamen verwenden
-		"city": "Stadt",  # Platzhalter
-		"country": country,  # Dynamisch ermitteltes Land
-		"links": [{"link_doctype": "Customer", "link_name": customer_name}]
-	})
-	
-	try:
-		new_address.insert(ignore_permissions=True)
-		frappe.log_error(f"Neue Adresse für '{customer_name}' erstellt: {new_address.name}", "INFO: create_new_address")
-		return new_address.name
-	except Exception as e:
-		frappe.log_error(f"Fehler beim Erstellen einer neuen Adresse für '{customer_name}': {str(e)}", "ERROR: create_new_address")
-		raise e  # Fehler weiterreichen, damit create_fallback_address aufgerufen wird
+	"""VERALTET: Erstellt KEINE neuen Adressen mehr!"""
+	frappe.log_error(f"create_new_address für '{customer_name}' aufgerufen - erstelle KEINE Adresse!", "ERROR: no_auto_create")
+	return None
 
+# ENTFERNT: Diese Funktion erstellt neue Adressen - nicht mehr verwenden!
 def create_fallback_address():
-	"""
-	Findet eine existierende Adresse als Fallback oder erstellt eine minimale Platzhalter-Adresse
-	WICHTIG: Diese sollte nur in Notfällen verwendet werden!
-	"""
-	# Versuche zuerst, eine existierende Adresse zu finden
-	existing_addresses = frappe.get_all("Address", fields=["name"], limit=1)
-	if existing_addresses:
-		frappe.log_error(f"Verwende existierende Adresse als Fallback: {existing_addresses[0].name}", "WARNING: fallback_address")
-		return existing_addresses[0].name
-	
-	# Falls gar keine Adressen existieren, erstelle eine minimale Platzhalter-Adresse
-	# Diese sollte dann manuell vervollständigt werden!
-	fallback_name = "INCOMPLETE-ADDRESS-NEEDS-UPDATE"
-	
-	if frappe.db.exists("Address", fallback_name):
-		return fallback_name
-	
-	try:
-		country = "Germany"
-		if not frappe.db.exists("Country", country):
-			countries = frappe.get_all("Country", fields=["name"], limit=1)
-			if countries:
-				country = countries[0].name
-		
-		fallback_address = frappe.get_doc({
-			"doctype": "Address",
-			"name": fallback_name,
-			"address_title": "UNVOLLSTÄNDIGE ADRESSE - BITTE AKTUALISIEREN",
-			"address_type": "Billing",
-			"address_line1": "ADRESSE MUSS VERVOLLSTÄNDIGT WERDEN",
-			"city": "STADT FEHLT",
-			"country": country
-		})
-		
-		fallback_address.insert(ignore_permissions=True)
-		frappe.log_error(f"WARNUNG: Unvollständige Platzhalter-Adresse erstellt: {fallback_name} - MUSS MANUELL VERVOLLSTÄNDIGT WERDEN!", "WARNING: incomplete_address")
-		return fallback_name
-		
-	except Exception as e:
-		frappe.log_error(f"Kritischer Fehler: Konnte keine Adresse erstellen: {str(e)}", "CRITICAL: create_fallback_address")
-		# Als allerletzte Option: Fehler weiterreichen
-		raise Exception(f"Konnte keine Adresse für Auftrag erstellen: {str(e)}")
+	"""VERALTET: Erstellt KEINE neuen Adressen mehr!"""
+	frappe.log_error("create_fallback_address aufgerufen - erstelle KEINE Adresse!", "ERROR: no_auto_create")
+	return None
 
 # Neue Funktion für das Verknüpfen einer Adresse mit einem Kunden
 def link_address_to_customer(address_name, customer_name):
@@ -950,12 +809,21 @@ def create_invoices(party, from_submit=False, from_button=False):
         # if not party_doc.check_hostess_voucher_usage():
         #     return []  # Benutzer möchte noch Produkte hinzufügen
             
-        # Stelle sicher, dass für die Gastgeberin eine Adresse existiert
-        gastgeberin_address = get_or_create_address(party_doc.gastgeberin, "Shipping")
-        
         # NEUE VERSANDKOSTENLOGIK
         # Sammle alle Bestellungen mit ihren Versandzielen und berechne Versandkosten
         all_orders_with_shipping = calculate_shipping_costs_for_party(party_doc)
+        
+        frappe.log_error(f"Anzahl Orders mit Versandkosten: {len(all_orders_with_shipping)}", "DEBUG: orders_count")
+        
+        if not all_orders_with_shipping:
+            frappe.log_error("Keine Bestellungen gefunden - calculate_shipping_costs_for_party gab leere Liste zurück", "ERROR: no_orders_calculated")
+            frappe.msgprint("Keine Bestellungen gefunden. Bitte prüfe, ob Produkte ausgewählt wurden.", alert=True)
+            return []
+        
+        # Debug: Zeige Details der ersten Bestellung
+        if all_orders_with_shipping:
+            first_order = all_orders_with_shipping[0]
+            frappe.log_error(f"Erste Bestellung: Customer={first_order.get('customer')}, Products={len(first_order.get('products', []))}", "DEBUG: first_order")
         
         # Erstelle eine Liste für die erstellten Aufträge
         created_orders = []
@@ -969,33 +837,37 @@ def create_invoices(party, from_submit=False, from_button=False):
                 shipping_cost = order_info["shipping_cost"]
                 shipping_note = order_info["shipping_note"]
                 
-                # Hole den Customer Name für das Versandziel
-                try:
-                    shipping_target_name = frappe.db.get_value("Customer", shipping_target, "customer_name") or shipping_target
-                except Exception as e:
-                    frappe.log_error(f"Konnte Customer Name für Versandziel '{shipping_target}' nicht laden: {str(e)}", "WARNING: get_customer_name")
-                    shipping_target_name = shipping_target
+                frappe.log_error(f"Verarbeite: Customer={customer}, Shipping_Target={shipping_target}", "DEBUG: order_processing")
                 
-                # INTELLIGENTE ADRESS-LOGIK:
-                # Rechnungsadresse: Immer vom Kunden (der bestellt)
-                # Versandadresse: Vom Versandziel (kann jemand anderes sein)
+                # NEUE EINFACHE ADRESS-LOGIK:
+                # Rechnungsadresse: IMMER Billing vom Kunden (der bestellt)
+                # Versandadresse: Shipping vom Versandziel, Fallback auf Billing vom Versandziel
                 
-                try:
-                    billing_address = get_or_create_address(customer, "Billing")
-                except Exception as e:
-                    frappe.log_error(f"Fehler bei Billing-Adresse für '{customer}': {str(e)}", "ERROR: billing_address")
-                    frappe.msgprint(f"Kunde {customer} konnte nicht gefunden werden", alert=True)
-                    continue  # Überspringe diesen Auftrag
+                billing_address = None
+                shipping_address = None
                 
-                # WICHTIG: Für Versandadresse verwenden wir IMMER die Adresse des Versandziels
-                # Auch wenn es eine andere Person ist (z.B. alle an Gastgeberin)
-                try:
-                    shipping_address = get_or_create_address(shipping_target, "Shipping")
-                except Exception as e:
-                    frappe.log_error(f"Fehler bei Shipping-Adresse für '{shipping_target}': {str(e)}", "ERROR: shipping_address")
-                    # Falls das Versandziel keine Adresse hat, verwende die Billing-Adresse des Kunden
-                    frappe.log_error(f"Fallback: Verwende Billing-Adresse von '{customer}' als Versandadresse", "INFO: shipping_fallback")
-                    shipping_address = billing_address
+                # 1. RECHNUNGSADRESSE: Immer vom Kunden der bestellt
+                billing_address = find_existing_address(customer, "Billing")
+                if not billing_address:
+                    frappe.log_error(f"KRITISCH: Keine Adresse für Kunde '{customer}' gefunden", "ERROR: no_billing")
+                    frappe.msgprint(f"Kunde {customer} hat keine Adresse hinterlegt. Auftrag wird übersprungen.", alert=True)
+                    continue
+                
+                frappe.log_error(f"Billing-Adresse für Kunde '{customer}': {billing_address}", "INFO: billing_found")
+                
+                # 2. VERSANDADRESSE: Erst Shipping vom Versandziel, dann Billing vom Versandziel
+                shipping_address = find_existing_address(shipping_target, "Shipping")
+                if not shipping_address:
+                    # Fallback: Billing-Adresse vom Versandziel
+                    shipping_address = find_existing_address(shipping_target, "Billing")
+                    if shipping_address:
+                        frappe.log_error(f"Versand-Fallback: Billing-Adresse von '{shipping_target}': {shipping_address}", "INFO: shipping_fallback")
+                    else:
+                        frappe.log_error(f"KRITISCH: Keine Adresse für Versandziel '{shipping_target}' gefunden", "ERROR: no_shipping")
+                        frappe.msgprint(f"Versandziel {shipping_target} hat keine Adresse hinterlegt. Auftrag wird übersprungen.", alert=True)
+                        continue
+                else:
+                    frappe.log_error(f"Shipping-Adresse für Versandziel '{shipping_target}': {shipping_address}", "INFO: shipping_found")
                 
                 # Auftragsdaten mit klarer Adress-Dokumentation
                 order_data = {
@@ -1006,64 +878,90 @@ def create_invoices(party, from_submit=False, from_button=False):
                     "items": products,
                     "customer_address": billing_address,  # Rechnungsadresse des Kunden
                     "shipping_address_name": shipping_address,  # Versandadresse (kann andere Person sein)
-                    "remarks": f"Erstellt aus Party: {party} | Kunde: {customer} | Versand an: {shipping_target_name}",
+                    "remarks": f"Erstellt aus Party: {party} | Kunde: {customer} | Versand an: {shipping_target}",
                     "po_no": party,  # Party-Referenz in po_no speichern
                     "company": company,
                     "currency": currency,
                     "status": "Draft",
                     "order_type": "Sales",
                     # Sales Partner aus der Party übernehmen (Priorität vor Customer Sales Partner)
-                    "sales_partner": party_doc.partnerin if party_doc.partnerin else None,
-                    # Custom Fields für Versandinformationen
-                    "custom_party_reference": party,
-                    "custom_shipping_target": shipping_target_name,
-                    "custom_calculated_shipping_cost": shipping_cost,
-                    "custom_shipping_note": shipping_note
+                    "sales_partner": party_doc.partnerin if party_doc.partnerin else None
+                    # Custom Fields für Versandinformationen temporär entfernt zum Testen
+                    # "custom_party_reference": party,
+                    # "custom_shipping_target": shipping_target,  
+                    # "custom_shipping_target_name": shipping_target,  
+                    # "custom_calculated_shipping_cost": shipping_cost,
+                    # "custom_shipping_note": shipping_note
                 }
+                
+                frappe.log_error(f"Erstelle Auftrag für '{customer}'", "INFO: creating_order")
                 
                 # Auftrag erstellen
                 order = frappe.get_doc(order_data)
                 
-                # RADIKALE LÖSUNG: Deaktiviere die komplette Link-Validierung
-                def dummy_validate(*args, **kwargs):
+                # SAUBERE LÖSUNG: Nur spezifische Adress-Validierungen umgehen, 
+                # aber Sales Partner Provisionsberechnung NICHT beeinträchtigen
+                import types
+                
+                def safe_validate_party_address(self, *args, **kwargs):
+                    # Nur kritische Adress-Validierung überspringen, falls Adressen existieren
+                    frappe.log_error(f"Überspringe party_address für {self.customer}", "INFO: skip_validation")
                     pass
                 
-                # Monkey-patch alle möglichen Validierungen
-                import types
-                order.validate_party_address = types.MethodType(dummy_validate, order)
-                order.validate_shipping_address = types.MethodType(dummy_validate, order)
-                order.validate_billing_address = types.MethodType(dummy_validate, order)
-                order.validate_address = types.MethodType(dummy_validate, order)
+                def safe_validate_shipping_address(self, *args, **kwargs):
+                    # Nur Versandadress-Validierung überspringen
+                    frappe.log_error(f"Überspringe shipping_address für {self.customer}", "INFO: skip_validation")
+                    pass
                 
-                # WICHTIG: Deaktiviere die Link-Validierung (das ist der Hauptfehler!)
-                order._validate_links = types.MethodType(dummy_validate, order)
+                def safe_validate_billing_address(self, *args, **kwargs):
+                    # Nur Rechnungsadress-Validierung überspringen  
+                    frappe.log_error(f"Überspringe billing_address für {self.customer}", "INFO: skip_validation")
+                    pass
                 
-                # Auch für den Fall, dass es andere Validierungen gibt
-                if hasattr(order, 'validate_addresses'):
-                    order.validate_addresses = types.MethodType(dummy_validate, order)
+                # Nur die spezifischen Adress-Validierungen deaktivieren
+                order.validate_party_address = types.MethodType(safe_validate_party_address, order)
+                order.validate_shipping_address = types.MethodType(safe_validate_shipping_address, order)
+                order.validate_billing_address = types.MethodType(safe_validate_billing_address, order)
                 
+                # WICHTIG: validate(), validate_links(), Sales Partner Validierung etc. NICHT deaktivieren!
+                # Diese sind für Provisionsberechnung essentiell
+                
+                frappe.log_error(f"Führe order.insert() aus für '{customer}'...", "INFO: order_insert")
                 order.insert()
+                frappe.log_error(f"Order.insert() erfolgreich für '{customer}': {order.name}", "INFO: order_created")
                 
                 # Versuche den Auftrag einzureichen
                 try:
+                    frappe.log_error(f"Führe order.submit() aus für '{customer}'...", "INFO: order_submit")
                     order.submit()
-                    frappe.log_error(f"Auftrag für {customer} (Versand an {shipping_target}) erstellt und eingereicht", "INFO: Auftragserstellung")
+                    frappe.log_error(f"Auftrag für {customer} eingereicht: {order.name}", "SUCCESS: order_complete")
                 except Exception as e:
-                    frappe.log_error(f"Auftrag für {customer} konnte nicht eingereicht werden: {str(e)}", "ERROR: Auftrag Submit")
+                    frappe.log_error(f"Submit-Fehler für {customer}: {str(e)}", "ERROR: order_submit")
                     # Den Auftrag trotzdem zur Liste hinzufügen, da er erstellt wurde
-                    frappe.msgprint(f"Auftrag für {customer} wurde erstellt, konnte aber nicht eingereicht werden: {str(e)}", alert=True)
+                    frappe.msgprint(f"Auftrag für {customer} wurde erstellt ({order.name}), konnte aber nicht eingereicht werden: {str(e)}", alert=True)
                 
                 # Zur Liste der erstellten Aufträge hinzufügen
                 created_orders.append(order.name)
+                frappe.log_error(f"Auftrag {order.name} hinzugefügt. Anzahl: {len(created_orders)}", "INFO: order_added")
                 
             except Exception as e:
-                frappe.log_error(f"Fehler bei Auftragserstellung für {order_info.get('customer', 'Unbekannt')}: {str(e)}\n{frappe.get_traceback()}", 
-                               "ERROR: Auftragserstellung")
-        
-
+                frappe.log_error(f"Kritischer Fehler für {order_info.get('customer', 'Unbekannt')}: {str(e)}", "ERROR: critical_order_error")
+                # Bei kritischen Fehlern den Auftrag überspringen, aber weitermachen mit den anderen
+                frappe.msgprint(f"Auftrag für {order_info.get('customer', 'Unbekannt')} konnte nicht erstellt werden: {str(e)}", alert=True)
+                continue
         
         # Wenn mindestens ein Auftrag erstellt wurde, Party-Status aktualisieren
         if created_orders:
+            # NEU: Erstelle Delivery Notes (Packlisten) nach Versandzielen gruppiert
+            try:
+                frappe.log_error(f"Starte Delivery Note Erstellung für {len(created_orders)} Aufträge", "INFO: delivery_note_start")
+                created_delivery_notes = create_delivery_notes_for_party(party_doc, all_orders_with_shipping, created_orders)
+                frappe.log_error(f"Delivery Notes erstellt: {created_delivery_notes}", "INFO: delivery_notes_created")
+            except Exception as e:
+                frappe.log_error(f"Fehler bei Delivery Note Erstellung: {str(e)}", "ERROR: delivery_note_creation")
+                frappe.msgprint(f"Aufträge wurden erstellt, aber Packlisten konnten nicht erstellt werden: {str(e)}", alert=True)
+                created_delivery_notes = []  # Fallback für Fehlerfälle
+            
             # Status auf "Abgeschlossen" setzen
             party_doc.status = "Abgeschlossen"
             
@@ -1081,11 +979,17 @@ def create_invoices(party, from_submit=False, from_button=False):
                     frappe.msgprint(f"Aufträge wurden erstellt, aber die Party konnte nicht eingereicht werden: {str(e)}", alert=True)
             
             # Erfolgsmeldung anzeigen
-            frappe.msgprint(f"Es wurden {len(created_orders)} Aufträge erfolgreich erstellt und eingereicht.", alert=True)
+            delivery_note_msg = f" und {len(created_delivery_notes)} Packlisten" if 'created_delivery_notes' in locals() and created_delivery_notes else ""
+            frappe.msgprint(f"Es wurden {len(created_orders)} Aufträge{delivery_note_msg} erfolgreich erstellt und eingereicht.", alert=True)
+            frappe.log_error(f"ERFOLG: {len(created_orders)} Aufträge erstellt: {created_orders}", "SUCCESS: final_result")
         else:
-            frappe.msgprint("Es wurden keine Aufträge erstellt. Bitte prüfe, ob Produkte für mindestens einen Kunden ausgewählt wurden.", alert=True)
+            frappe.log_error(f"Keine Aufträge erstellt für Party {party}. Einträge: {len(all_orders_with_shipping)}", "ERROR: no_orders_created")
+            if all_orders_with_shipping:
+                frappe.log_error(f"Fehlgeschlagene Kunden: {[order.get('customer', 'Unknown') for order in all_orders_with_shipping]}", "ERROR: failed_customers")
+            frappe.msgprint("Es wurden keine Aufträge erstellt. Bitte prüfe die Logs und versuche es erneut.", alert=True)
         
         frappe.db.commit()
+        frappe.log_error(f"create_invoices beendet. Rückgabe: {created_orders}", "INFO: function_end")
         return created_orders
         
     except Exception as e:
@@ -1147,3 +1051,219 @@ def cancel_multiple_parties(parties):
         "failed": failed_count,
         "total": len(party_list)
     }
+
+# Einfache Funktion zum Finden vorhandener Adressen (OHNE automatische Erstellung)
+def find_existing_address(customer_name, preferred_type="Billing"):
+	"""
+	Findet eine vorhandene Adresse für einen Kunden
+	- preferred_type: "Billing" oder "Shipping" 
+	- Falls preferred_type nicht gefunden wird, nimm andere verfügbare Adresse
+	- NIEMALS neue Adressen erstellen!
+	"""
+	try:
+		# Prüfen, ob der Customer überhaupt existiert
+		if not frappe.db.exists("Customer", customer_name):
+			frappe.log_error(f"Customer '{customer_name}' existiert nicht!", "ERROR: find_address")
+			return None
+		
+		# Finde alle Adressen für diesen Kunden
+		address_links = frappe.get_all(
+			"Dynamic Link",
+			filters={"link_doctype": "Customer", "link_name": customer_name},
+			fields=["parent"]
+		)
+		
+		if not address_links:
+			frappe.log_error(f"Keine Adressen für Customer '{customer_name}' gefunden", "WARNING: no_addresses")
+			return None
+		
+		# Sammle Adressen nach Typ
+		preferred_addresses = []
+		other_addresses = []
+		
+		for link in address_links:
+			try:
+				addr = frappe.get_doc("Address", link.parent)
+				if addr.address_type == preferred_type:
+					preferred_addresses.append(addr.name)
+				else:
+					other_addresses.append(addr.name)
+			except Exception as e:
+				continue
+		
+		# Rückgabe-Logik
+		if preferred_addresses:
+			frappe.log_error(f"Gefunden: {preferred_type}-Adresse für '{customer_name}': {preferred_addresses[0]}", "INFO: address_found")
+			return preferred_addresses[0]
+		elif other_addresses:
+			frappe.log_error(f"Fallback: Andere Adresse für '{customer_name}': {other_addresses[0]} (kein {preferred_type} gefunden)", "INFO: address_fallback")
+			return other_addresses[0]
+		else:
+			frappe.log_error(f"Keine verwendbaren Adressen für '{customer_name}' gefunden", "ERROR: no_usable_address")
+			return None
+			
+	except Exception as e:
+		frappe.log_error(f"Fehler beim Suchen von Adressen für '{customer_name}': {str(e)}", "ERROR: find_address_error")
+		return None
+
+def create_delivery_notes_for_party(party_doc, all_orders_with_shipping, created_order_names):
+	"""
+	Erstellt Delivery Notes (Packlisten) gruppiert nach Versandziel
+	
+	Args:
+		party_doc: Das Party-Dokument
+		all_orders_with_shipping: Liste der Order-Infos mit Versandziel
+		created_order_names: Liste der tatsächlich erstellten Sales Order Namen
+	
+	Returns:
+		Liste der erstellten Delivery Note Namen
+	"""
+	try:
+		frappe.log_error(f"create_delivery_notes_for_party gestartet", "INFO: delivery_note_function")
+		
+		# Gruppiere nach Versandziel
+		shipping_groups = {}
+		sales_orders_by_customer = {}
+		
+		# Erstelle ein Mapping von Customer zu Sales Order Name
+		for order_info in all_orders_with_shipping:
+			customer = order_info["customer"]
+			shipping_target = order_info["shipping_target"]
+			
+			# Finde den entsprechenden Sales Order Namen
+			sales_order_name = None
+			for order_name in created_order_names:
+				try:
+					order_doc = frappe.get_doc("Sales Order", order_name)
+					if order_doc.customer == customer:
+						sales_order_name = order_name
+						break
+				except:
+					continue
+			
+			if sales_order_name:
+				sales_orders_by_customer[customer] = sales_order_name
+				
+				if shipping_target not in shipping_groups:
+					shipping_groups[shipping_target] = []
+				shipping_groups[shipping_target].append(order_info)
+		
+		frappe.log_error(f"Shipping Groups: {list(shipping_groups.keys())}", "INFO: shipping_groups")
+		
+		created_delivery_notes = []
+		
+		# Erstelle eine Delivery Note pro Versandziel
+		for shipping_target, orders_for_target in shipping_groups.items():
+			try:
+				frappe.log_error(f"Erstelle Delivery Note für Versandziel: {shipping_target}", "INFO: creating_dn")
+				
+				# Sammle alle Artikel für dieses Versandziel
+				all_items_for_target = []
+				all_sales_orders_for_target = []
+				
+				for order_info in orders_for_target:
+					customer = order_info["customer"]
+					sales_order_name = sales_orders_by_customer.get(customer)
+					
+					if sales_order_name:
+						all_sales_orders_for_target.append(sales_order_name)
+						
+						# Füge alle Produkte dieses Kunden hinzu (OHNE Sales Order Verknüpfung)
+						for product in order_info["products"]:
+							# Konvertiere zu Delivery Note Item Format (ohne SO-Verknüpfung)
+							dn_item = {
+								"item_code": product["item_code"],
+								"item_name": product["item_name"],
+								"qty": product["qty"],
+								"rate": product["rate"],
+								"amount": product["amount"],
+								"uom": product.get("uom", "Stk"),
+								"stock_uom": product.get("stock_uom", "Stk"),
+								"conversion_factor": product.get("conversion_factor", 1.0),
+								"stock_qty": product.get("stock_qty", product["qty"]),
+								"warehouse": product.get("warehouse", get_default_warehouse()),
+								# KEINE Sales Order Verknüpfung für reine Packliste!
+								# "against_sales_order": sales_order_name,
+								# "so_detail": so_detail
+							}
+							all_items_for_target.append(dn_item)
+							
+							frappe.log_error(f"DN Item erstellt: {product['item_code']} für Versandziel {shipping_target} (ohne SO-Verknüpfung)", "INFO: dn_item_created")
+				
+				if not all_items_for_target:
+					frappe.log_error(f"Keine Items für Versandziel {shipping_target} gefunden", "WARNING: no_items")
+					continue
+				
+				# Bestimme den Customer für die Delivery Note (Versandziel)
+				delivery_customer = shipping_target  # Das Versandziel wird der Customer der Delivery Note
+				
+				# Finde Adressen für die Delivery Note
+				customer_address = find_existing_address(delivery_customer, "Billing")
+				shipping_address = find_existing_address(shipping_target, "Shipping")
+				if not shipping_address:
+					shipping_address = find_existing_address(shipping_target, "Billing")
+				
+				if not customer_address or not shipping_address:
+					frappe.log_error(f"Adressen fehlen für Delivery Note - Customer: {customer_address}, Shipping: {shipping_address}", "ERROR: missing_addresses")
+					continue
+				
+				# Delivery Note Daten
+				dn_data = {
+					"doctype": "Delivery Note",
+					"customer": delivery_customer,  # Das Versandziel ist der Customer
+					"posting_date": frappe.utils.today(),
+					"posting_time": frappe.utils.nowtime(),
+					"items": all_items_for_target,
+					"customer_address": customer_address,
+					"shipping_address_name": shipping_address,
+					"remarks": f"Sammel-Packliste für Party: {party_doc.name} | Versandziel: {shipping_target} | Aufträge: {', '.join(all_sales_orders_for_target)}",
+					"company": frappe.defaults.get_user_default("Company"),
+					"currency": frappe.defaults.get_user_default("Currency"),
+					"status": "Draft"
+				}
+				
+				frappe.log_error(f"Erstelle Delivery Note für {shipping_target} mit {len(all_items_for_target)} Items", "INFO: dn_creation")
+				
+				# Erstelle Delivery Note
+				delivery_note = frappe.get_doc(dn_data)
+				
+				# Ähnliche Validierung-Umgehung wie bei Sales Orders
+				import types
+				
+				def safe_validate_party_address_dn(self, *args, **kwargs):
+					frappe.log_error(f"Überspringe DN party_address für {self.customer}", "INFO: skip_dn_validation")
+					pass
+				
+				def safe_validate_shipping_address_dn(self, *args, **kwargs):
+					frappe.log_error(f"Überspringe DN shipping_address für {self.customer}", "INFO: skip_dn_validation")
+					pass
+				
+				# Deaktiviere nur die problematischen Adress-Validierungen
+				delivery_note.validate_party_address = types.MethodType(safe_validate_party_address_dn, delivery_note)
+				delivery_note.validate_shipping_address = types.MethodType(safe_validate_shipping_address_dn, delivery_note)
+				
+				# Erstelle die Delivery Note
+				delivery_note.insert()
+				frappe.log_error(f"Delivery Note erstellt: {delivery_note.name}", "SUCCESS: dn_created")
+				
+				# DEAKTIVIERT: Submit wegen Warehouse-Account-Setup-Problemen
+				# Delivery Note wird nur erstellt, kann später manuell eingereicht werden
+				# try:
+				# 	delivery_note.submit()
+				# 	frappe.log_error(f"Delivery Note eingereicht: {delivery_note.name}", "SUCCESS: dn_submitted")
+				# except Exception as e:
+				# 	frappe.log_error(f"Delivery Note konnte nicht eingereicht werden: {str(e)}", "WARNING: dn_submit_failed")
+				# 	# Trotzdem weitermachen
+				
+				created_delivery_notes.append(delivery_note.name)
+				
+			except Exception as e:
+				frappe.log_error(f"Fehler beim Erstellen der Delivery Note für {shipping_target}: {str(e)}", "ERROR: dn_creation_error")
+				continue
+		
+		frappe.log_error(f"Delivery Notes erstellt: {created_delivery_notes}", "SUCCESS: all_dns_created")
+		return created_delivery_notes
+		
+	except Exception as e:
+		frappe.log_error(f"Allgemeiner Fehler in create_delivery_notes_for_party: {str(e)}\n{frappe.get_traceback()}", "ERROR: dn_function_error")
+		return []

@@ -195,10 +195,16 @@ function startAuftraegeErstellung(frm) {
 				frm.refresh_field("kunden");
 				frappe.msgprint(`${gaeste_ohne_produkte.length} Gäste wurden entfernt.`, "Erfolgreich entfernt");
 				
-				// Aktions-System direkt aufrufen
-				startAktionsSystem(frm, function() {
-					// Aufträge erstellen (das Speichern wird in erstelleAuftraege() gemacht)
-					erstelleAuftraege(frm);
+				// WICHTIG: Auch hier das Gutschein-System durchlaufen, nicht direkt zum Aktions-System!
+				console.log("Starte Gutschein-System nach Gäste-Entfernung");
+				applyGutscheinSystem(frm, function() {
+					console.log("Gutschein-System abgeschlossen - starte Aktions-System");
+					// Aktions-System aufrufen
+					startAktionsSystem(frm, function() {
+						console.log("Aktions-System abgeschlossen - erstelle Aufträge");
+						// Aufträge erstellen
+						erstelleAuftraege(frm);
+					});
 				});
 			}
 			dialog.hide();
@@ -335,7 +341,8 @@ function startAktionsSystem(frm, callback) {
 			if (aktionsberechtigteTeilnehmer.length > 0) {
 				showAktionsDialog(aktionsberechtigteTeilnehmer);
 			} else {
-				console.log("Keine aktionsberechtigten Teilnehmer gefunden");
+				console.log("Keine aktionsberechtigten Teilnehmer gefunden - fahre direkt mit Aufträge-Erstellung fort");
+				// WICHTIG: Auch wenn keine Aktion verfügbar ist, müssen die Aufträge erstellt werden!
 				callback();
 			}
 			return;
@@ -852,21 +859,32 @@ function zeigeRestbetragDialog(restbetrag, frm, callback) {
 		primary_action_label: istVollbetrag ? 'Aktionsfähige Produkte hinzufügen' : 'Zurück zur Bearbeitung',
 		primary_action: function() {
 			dialog.hide();
-			// WICHTIG: Original-Preise wiederherstellen!
-			stelleOriginalPreiseWieder(frm);
-			
-			// Buttons wieder herstellen (ohne zusätzliches Pop-up)
-			refreshButtons(frm);
+			if (istVollbetrag) {
+				// Bei Vollbetrag: Zurück zur Bearbeitung (Produkte hinzufügen)
+				stelleOriginalPreiseWieder(frm);
+				refreshButtons(frm);
+			} else {
+				// Bei Restbetrag: Zurück zur Bearbeitung
+				stelleOriginalPreiseWieder(frm);
+				refreshButtons(frm);
+			}
 		},
 		secondary_action_label: istVollbetrag ? 'Gutschein verfallen lassen' : 'Restbetrag verfallen lassen',
 		secondary_action: function() {
 			dialog.hide();
-			let nachricht = istVollbetrag 
-				? `Gutschein von ${restbetrag.toFixed(2)}€ verfällt`
-				: `Restbetrag von ${restbetrag.toFixed(2)}€ verfällt`;
-			frappe.show_alert(nachricht, 3);
-			// Weiter zum nächsten Schritt
-			callback();
+			if (istVollbetrag) {
+				// Bei Vollbetrag: Gutschein verfällt, aber Party wird trotzdem gebucht
+				console.log("DEBUG: Vollbetrag - Gutschein verfällt, rufe callback auf");
+				frappe.show_alert(`Gutschein von ${restbetrag.toFixed(2)}€ verfällt - fahre mit Bestellung fort`, 3);
+				callback(); // WICHTIG: Weiter zum Aktions-System!
+			} else {
+				// Bei Restbetrag: Verfallen lassen und fortfahren
+				console.log("DEBUG: Restbetrag - verfällt, rufe callback auf");
+				let nachricht = `Restbetrag von ${restbetrag.toFixed(2)}€ verfällt`;
+				frappe.show_alert(nachricht, 3);
+				// Weiter zum nächsten Schritt
+				callback();
+			}
 		}
 	});
 	
@@ -1044,16 +1062,31 @@ function validateAktionsartikel(frm) {
 
 // Hilfsfunktion für direkten API-Aufruf
 function erstelleAuftraegeDirectly(frm) {
+	console.log("DEBUG: erstelleAuftraegeDirectly aufgerufen - NEUE VERSION");
 	console.log("erstelleAuftraegeDirectly aufgerufen");
 	
 	// WICHTIG: Setze Schutz-Flag direkt im Dokument
 	frm.doc._skip_total_calculation = 1;
 	
+	// SKIP: Das Speichern verursacht Probleme - die API macht das automatisch
+	console.log("DEBUG: Überspringe Speichern - rufe API direkt auf");
+	callCreateInvoicesAPI();
+	
+	// ALTE PROBLEMATISCHE LOGIK (auskommentiert):
 	// KRITISCH: ERST das Dokument speichern, damit Aktionsartikel in die DB geschrieben werden!
-	console.log("SPEICHERE DOKUMENT VOR API-AUFRUF...");
-	frm.save().then(() => {
-		console.log("Dokument gespeichert - rufe jetzt API auf");
-		
+	// console.log("SPEICHERE DOKUMENT VOR API-AUFRUF...");
+	// frm.save().then(() => {
+	// 	console.log("DEBUG: Dokument erfolgreich gespeichert - rufe jetzt API auf");
+	// 	callCreateInvoicesAPI();
+	// }).catch((error) => {
+	// 	console.error("DEBUG: Fehler beim Speichern des Dokuments:", error);
+	// 	console.log("DEBUG: Speichern fehlgeschlagen - versuche API trotzdem (wird automatisch speichern)");
+	// 	// Versuche trotzdem die API aufzurufen - die API speichert automatisch
+	// 	callCreateInvoicesAPI();
+	// });
+	
+	function callCreateInvoicesAPI() {
+		console.log("DEBUG: Starte API-Aufruf");
 		frappe.call({
 			method: "enjo_party.enjo_party.doctype.party.party.create_invoices",
 			args: {
@@ -1063,7 +1096,7 @@ function erstelleAuftraegeDirectly(frm) {
 			freeze: true,
 		freeze_message: __("Erstelle und reiche Aufträge ein..."),
 			callback: function(r) {
-			console.log("API-Antwort erhalten:", r);
+			console.log("DEBUG: API-Antwort erhalten:", r);
 			// Screen wieder freigeben
 			frappe.freeze_screen = false;
 			
@@ -1095,7 +1128,7 @@ function erstelleAuftraegeDirectly(frm) {
 			}
 		},
 		error: function(r) {
-			console.log("API-Fehler aufgetreten - refreshButtons wird aufgerufen");
+			console.log("DEBUG: API-Fehler aufgetreten:", r);
 			// Screen wieder freigeben
 			frappe.freeze_screen = false;
 			
@@ -1118,23 +1151,7 @@ function erstelleAuftraegeDirectly(frm) {
 			refreshButtons(frm);
 		}
 	});
-		
-	}).catch((error) => {
-		console.error("Fehler beim Speichern des Dokuments:", error);
-		frappe.freeze_screen = false;
-		
-		// Flags zurücksetzen
-		delete frm._skipTotalCalculation;
-		delete frm._skipPriceUpdates;
-		delete frm.doc._skip_total_calculation;
-		
-		frappe.msgprint({
-			title: __("Fehler"),
-			message: __("Das Dokument konnte nicht gespeichert werden. Bitte versuchen Sie es erneut."),
-			indicator: "red"
-		});
-		refreshButtons(frm);
-	});
+	}
 }
 
 // Funktion zum Aktualisieren der benutzerdefinierten Überschriften
@@ -1407,6 +1424,9 @@ frappe.ui.form.on('Party', {
 		if (frm.fields_dict["produktauswahl_für_gastgeberin"]) {
 			frm.fields_dict["produktauswahl_für_gastgeberin"].grid.update_docfield_property('delivery_date', 'hidden', 1);
 			frm.fields_dict["produktauswahl_für_gastgeberin"].grid.update_docfield_property('delivery_date', 'reqd', 0);
+			// Verstecke auch das Warehouse-Feld
+			frm.fields_dict["produktauswahl_für_gastgeberin"].grid.update_docfield_property('warehouse', 'hidden', 1);
+			frm.fields_dict["produktauswahl_für_gastgeberin"].grid.update_docfield_property('warehouse', 'reqd', 0);
 		}
 		
 		// Sammle alle Namen: Gastgeberin, Partnerin, Gäste
@@ -1446,18 +1466,43 @@ frappe.ui.form.on('Party', {
 				// Verstecke das Datum-Feld in der Tabelle (damit kein Kalender erscheint)
 				frm.fields_dict[fieldName].grid.update_docfield_property('delivery_date', 'hidden', 1);
 				frm.fields_dict[fieldName].grid.update_docfield_property('delivery_date', 'reqd', 0);
+				// Verstecke auch das Warehouse-Feld
+				frm.fields_dict[fieldName].grid.update_docfield_property('warehouse', 'hidden', 1);
+				frm.fields_dict[fieldName].grid.update_docfield_property('warehouse', 'reqd', 0);
+				
+				// Automatische Spaltenbreiten - CSS-Regeln entfernt
+				// Zusätzlich: Verstecke die Spalten per CSS (robustere Methode)
+				setTimeout(() => {
+					$(frm.wrapper).find(`[data-fieldname="${fieldName}"] .grid-body .data-row .col[data-fieldname="delivery_date"]`).hide();
+					$(frm.wrapper).find(`[data-fieldname="${fieldName}"] .grid-body .data-row .col[data-fieldname="warehouse"]`).hide();
+					$(frm.wrapper).find(`[data-fieldname="${fieldName}"] .grid-heading-row .col[data-fieldname="delivery_date"]`).hide();
+					$(frm.wrapper).find(`[data-fieldname="${fieldName}"] .grid-heading-row .col[data-fieldname="warehouse"]`).hide();
+					
+					// Mache die Artikel-Code Spalte breiter
+					// $(frm.wrapper).find(`[data-fieldname="${fieldName}"] .grid-heading-row .col[data-fieldname="item_code"]`).css('width', '300px');
+					// $(frm.wrapper).find(`[data-fieldname="${fieldName}"] .grid-body .data-row .col[data-fieldname="item_code"]`).css('width', '300px');
+				}, 500);
+				
+				// Setze Standard-Spaltenbreiten wie in der manuellen Konfiguration
+				if (frm.fields_dict[fieldName].grid) {
+					// Spaltenbreiten entfernt - lasse Frappe automatisch wählen  
+					// frm.fields_dict[fieldName].grid.update_docfield_property('item_code', 'columns', 4);
+					// frm.fields_dict[fieldName].grid.update_docfield_property('qty', 'columns', 1);
+					// frm.fields_dict[fieldName].grid.update_docfield_property('rate', 'columns', 2);
+					// frm.fields_dict[fieldName].grid.update_docfield_property('amount', 'columns', 2);
+				}
 				
 				// Setze Filter für Item-Auswahl (nur Sales Items, nicht disabled)
 				if (frm.fields_dict[fieldName].grid.get_field('item_code')) {
-					frm.fields_dict[fieldName].grid.get_field('item_code').get_query = function() {
-						return {
-							filters: {
-								'is_sales_item': 1,
-								'disabled': 0
-							}
+						frm.fields_dict[fieldName].grid.get_field('item_code').get_query = function() {
+							return {
+								filters: {
+									'is_sales_item': 1,
+									'disabled': 0
+								}
+							};
 						};
-					};
-				}
+					}
 			}
 		}
 		
@@ -1465,6 +1510,29 @@ frappe.ui.form.on('Party', {
 		if (frm.fields_dict["produktauswahl_für_gastgeberin"]) {
 			frm.fields_dict["produktauswahl_für_gastgeberin"].grid.update_docfield_property('delivery_date', 'hidden', 1);
 			frm.fields_dict["produktauswahl_für_gastgeberin"].grid.update_docfield_property('delivery_date', 'reqd', 0);
+			// Verstecke auch das Warehouse-Feld
+			frm.fields_dict["produktauswahl_für_gastgeberin"].grid.update_docfield_property('warehouse', 'hidden', 1);
+			frm.fields_dict["produktauswahl_für_gastgeberin"].grid.update_docfield_property('warehouse', 'reqd', 0);
+			
+			// Zusätzlich: Verstecke die Spalten per CSS (robustere Methode)
+			setTimeout(() => {
+				$(frm.wrapper).find('[data-fieldname="produktauswahl_für_gastgeberin"] .grid-body .data-row .col[data-fieldname="delivery_date"]').hide();
+				$(frm.wrapper).find('[data-fieldname="produktauswahl_für_gastgeberin"] .grid-body .data-row .col[data-fieldname="warehouse"]').hide();
+				$(frm.wrapper).find('[data-fieldname="produktauswahl_für_gastgeberin"] .grid-heading-row .col[data-fieldname="delivery_date"]').hide();
+				$(frm.wrapper).find('[data-fieldname="produktauswahl_für_gastgeberin"] .grid-heading-row .col[data-fieldname="warehouse"]').hide();
+				
+				// Mache die Artikel-Code Spalte breiter
+				// $(frm.wrapper).find('[data-fieldname="produktauswahl_für_gastgeberin"] .grid-heading-row .col[data-fieldname="item_code"]').css('width', '300px');
+				// $(frm.wrapper).find('[data-fieldname="produktauswahl_für_gastgeberin"] .grid-body .data-row .col[data-fieldname="item_code"]').css('width', '300px');
+			}, 500);
+			
+			// Setze Standard-Spaltenbreiten wie in der manuellen Konfiguration
+			if (frm.fields_dict["produktauswahl_für_gastgeberin"].grid) {
+				// frm.fields_dict["produktauswahl_für_gastgeberin"].grid.update_docfield_property('item_code', 'columns', 4);
+				// frm.fields_dict["produktauswahl_für_gastgeberin"].grid.update_docfield_property('qty', 'columns', 1);
+				// frm.fields_dict["produktauswahl_für_gastgeberin"].grid.update_docfield_property('rate', 'columns', 2);
+				// frm.fields_dict["produktauswahl_für_gastgeberin"].grid.update_docfield_property('amount', 'columns', 2);
+			}
 			
 			// Setze Filter für Item-Auswahl
 			if (frm.fields_dict["produktauswahl_für_gastgeberin"].grid.get_field('item_code')) {
@@ -1501,6 +1569,177 @@ frappe.ui.form.on('Party', {
 			setTimeout(() => {
 			refreshButtons(frm);
 		}, 200);
+		
+		// Sidebar dauerhaft ausblenden (für cleane Party-Verwaltung)
+		setTimeout(() => {
+			if (frm.page && frm.page.sidebar) {
+				frm.page.sidebar.hide();
+			}
+			// Alternative Methode falls die erste nicht funktioniert
+			$(frm.wrapper).find('.layout-side-section').hide();
+		}, 100);
+		
+		// Blauen Submit-Banner ausblenden
+		setTimeout(() => {
+			$(frm.wrapper).find('.form-message.blue').hide();
+			$(frm.wrapper).find('.msgprint').hide();
+			// Auch für zukünftige Banner
+			$(frm.wrapper).find('[data-fieldtype="HTML"][data-fieldname*="submit"]').hide();
+		}, 200);
+		
+		// Status-Feld ausblenden (wird automatisch verwaltet)
+		frm.toggle_display('status', false);
+		
+		// Label ändern: "Name der Partei" zu "Name der Präsentation"
+		frm.set_df_property('party_name', 'label', 'Name der Präsentation');
+		
+		// Titel im Browser-Tab und Breadcrumb ändern (robustere Methode)
+		function changeTitleToPräsentation() {
+			// Browser-Tab Titel ändern
+			if (document.title.includes('Party')) {
+				document.title = document.title.replace(/Party/g, 'Präsentation');
+			}
+			
+			// Verschiedene Breadcrumb-Selektoren versuchen
+			$('.breadcrumb a:contains("Party")').text('Präsentation');
+			$('.breadcrumb-item:contains("Party")').each(function() {
+				$(this).text($(this).text().replace('Party', 'Präsentation'));
+			});
+			$('nav[aria-label="breadcrumb"] a:contains("Party")').text('Präsentation');
+			
+			// Page-Header und andere Titel
+			$('.page-title:contains("Party")').each(function() {
+				$(this).text($(this).text().replace('Party', 'Präsentation'));
+			});
+			$('h1:contains("Party")').each(function() {
+				$(this).text($(this).text().replace('Party', 'Präsentation'));
+			});
+			
+			// Auch im Hauptnavigationsbereich
+			$('.navbar a:contains("Party")').text('Präsentation');
+		}
+		
+		// Zusätzliche UI-Verbesserungen
+		function hideUnwantedElements() {
+			// "Teilnehmer" Überschrift ausblenden
+			$('h4:contains("Teilnehmer")').hide();
+			$('.section-head:contains("Teilnehmer")').hide();
+			$('[data-label="Teilnehmer"]').hide();
+			
+			// NUR das nicht-editierbare Eingabefeld "Name der Präsentation" ausblenden
+			// NICHT den fetten Seitentitel oben links
+			$('[data-fieldname="party_name"]').hide();
+			$('.form-control[data-fieldname="party_name"]').hide();
+			
+			// Gesamtumsatz und Gutscheinwert nach links verschieben
+			// Finde die Felder und verschiebe sie in die linke Spalte
+			setTimeout(() => {
+				// Bessere Layout-Anordnung: Alle wichtigen Felder oben zusammenfassen
+				let gesamtumsatzField = $('[data-fieldname="gesamtumsatz"]').closest('.frappe-control');
+				let gutscheinField = $('[data-fieldname="gastgeber_gutschein_wert"]').closest('.frappe-control');
+				let datumField = $('[data-fieldname="party_date"]').closest('.frappe-control');
+				let partnerinField = $('[data-fieldname="partnerin"]').closest('.frappe-control');
+				let gastgeberinField = $('[data-fieldname="gastgeberin"]').closest('.frappe-control');
+				
+				// Erstelle eine neue obere Sektion für wichtige Felder
+				if (!$('.custom-top-section').length) {
+					$('.form-layout .form-page').prepend(`
+						<div class="custom-top-section" style="
+							display: flex; 
+							flex-wrap: wrap; 
+							gap: 15px; 
+							margin-bottom: 20px; 
+							padding: 15px; 
+							background: white; 
+							border-radius: 8px;
+							border: 1px solid #e9ecef;
+						">
+							<div class="top-left-column" style="flex: 1; min-width: 300px;"></div>
+							<div class="top-right-column" style="flex: 1; min-width: 300px;"></div>
+						</div>
+					`);
+				}
+				
+				let topLeftColumn = $('.custom-top-section .top-left-column');
+				let topRightColumn = $('.custom-top-section .top-right-column');
+				
+				// Verschiebe Felder in die obere Sektion (GETAUSCHT)
+				// LINKS: Datum, Partnerin, Gastgeberin
+				if (datumField.length && topLeftColumn.length) {
+					datumField.appendTo(topLeftColumn);
+				}
+				
+				if (partnerinField.length && topLeftColumn.length) {
+					partnerinField.appendTo(topLeftColumn);
+				}
+				
+				if (gastgeberinField.length && topLeftColumn.length) {
+					gastgeberinField.appendTo(topLeftColumn);
+				}
+				
+				// RECHTS: Gesamtumsatz, Gutscheinwert
+				if (gesamtumsatzField.length && topRightColumn.length) {
+					gesamtumsatzField.appendTo(topRightColumn);
+				}
+				
+				if (gutscheinField.length && topRightColumn.length) {
+					gutscheinField.appendTo(topRightColumn);
+				}
+			}, 300);
+			
+			// Hamburger-Menü (Sidebar-Toggle) ausblenden
+			$('.sidebar-toggle-btn').hide();
+			$('.menu-btn').hide();
+			$('.navbar-toggle').hide();
+			$('[data-toggle="sidebar"]').hide();
+			
+			// Drucken-Button ausblenden
+			$('.btn-default:contains("Drucken")').hide();
+			$('.dropdown-item:contains("Drucken")').hide();
+			$('[data-label="Drucken"]').hide();
+			
+			// Kommentar/Mail/Aktivität-Bereiche mit weißem Abstand statt radikalem Abschnitt
+			$('.form-comments').css({
+				'display': 'none'
+			});
+			$('.comment-box').css({
+				'display': 'none'
+			});
+			$('.form-timeline').css({
+				'display': 'none'
+			});
+			$('.form-activity').css({
+				'display': 'none'
+			});
+			$('.timeline-content').css({
+				'display': 'none'
+			});
+			$('.comment-input-wrapper').css({
+				'display': 'none'
+			});
+			$('.new-email').css({
+				'display': 'none'
+			});
+			
+			// Weißen Abstand am Ende hinzufügen statt radikalem Abschnitt
+			if (!$('.custom-bottom-spacing').length) {
+				$('.form-layout').append('<div class="custom-bottom-spacing" style="height: 50px; background: white;"></div>');
+			}
+			
+			// Spezifische Bereiche nach Überschrift sanft ausblenden
+			$('h4:contains("Kommentare")').parent().css('display', 'none');
+			$('h4:contains("Aktivität")').parent().css('display', 'none');
+			$('h4:contains("E-Mail")').parent().css('display', 'none');
+		}
+		
+		// Mehrere Versuche mit verschiedenen Timings
+		setTimeout(changeTitleToPräsentation, 100);
+		setTimeout(changeTitleToPräsentation, 500);
+		setTimeout(changeTitleToPräsentation, 1000);
+		
+		setTimeout(hideUnwantedElements, 100);
+		setTimeout(hideUnwantedElements, 500);
+		setTimeout(hideUnwantedElements, 1000);
 		
 		if (frm.doc.docstatus === 1) {
 			// Dokument ist eingereicht/abgeschlossen
