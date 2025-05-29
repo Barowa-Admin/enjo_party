@@ -72,32 +72,12 @@ frappe.listview_settings['Party'] = {
             $('.column-header:contains("Name der Partei")').each(function() {
                 $(this).text($(this).text().replace('Name der Partei', 'Name der Präsentation'));
             });
-            
-            // Hamburger-Menü (Sidebar-Toggle) ausblenden
-            $('.sidebar-toggle-btn').hide();
-            $('.menu-btn').hide();
-            $('.navbar-toggle').hide();
-            $('[data-toggle="sidebar"]').hide();
-        }
-        
-        // Sidebar in Listenansicht ausblenden
-        function hideSidebar() {
-            // Verschiedene Sidebar-Selektoren
-            $('.layout-side-section').hide();
-            $('.sidebar-section').hide();
-            $('.list-sidebar').hide();
-            // Hauptinhalt breiter machen
-            $('.layout-main-section').css('width', '100%');
-            $('.layout-main-section').css('margin-left', '0');
         }
         
         // Mehrere Versuche mit verschiedenen Timings
         setTimeout(changeTitleToPräsentation, 100);
         setTimeout(changeTitleToPräsentation, 500);
         setTimeout(changeTitleToPräsentation, 1000);
-        
-        setTimeout(hideSidebar, 100);
-        setTimeout(hideSidebar, 500);
     },
     
     onload: function(listview) {

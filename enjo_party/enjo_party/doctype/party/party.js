@@ -1566,18 +1566,9 @@ frappe.ui.form.on('Party', {
 		
 		// Custom Buttons basierend auf dem Status anzeigen - verwende die zentrale Funktion
 		// Verzögere den Aufruf, damit alle anderen Initialisierungen abgeschlossen sind
-			setTimeout(() => {
+		setTimeout(() => {
 			refreshButtons(frm);
 		}, 200);
-		
-		// Sidebar dauerhaft ausblenden (für cleane Party-Verwaltung)
-		setTimeout(() => {
-			if (frm.page && frm.page.sidebar) {
-				frm.page.sidebar.hide();
-			}
-			// Alternative Methode falls die erste nicht funktioniert
-			$(frm.wrapper).find('.layout-side-section').hide();
-		}, 100);
 		
 		// Blauen Submit-Banner ausblenden
 		setTimeout(() => {
@@ -1686,12 +1677,6 @@ frappe.ui.form.on('Party', {
 					gutscheinField.appendTo(topRightColumn);
 				}
 			}, 300);
-			
-			// Hamburger-Menü (Sidebar-Toggle) ausblenden
-			$('.sidebar-toggle-btn').hide();
-			$('.menu-btn').hide();
-			$('.navbar-toggle').hide();
-			$('[data-toggle="sidebar"]').hide();
 			
 			// Drucken-Button ausblenden
 			$('.btn-default:contains("Drucken")').hide();
