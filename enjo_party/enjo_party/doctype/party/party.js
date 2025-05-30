@@ -226,421 +226,441 @@ function startAuftraegeErstellung(frm) {
 function startAktionsSystem(frm, callback) {
 	console.log("startAktionsSystem gestartet");
 	
-	// Schwellwerte für die Aktion als Variablen
-	const STAGE_1_MIN = 99;   // Mindestbetrag für Stage 1
-	const STAGE_1_MAX = 199;  // Maximalbetrag für Stage 1 / Minimalbetrag für Stage 2
-	
-	// Artikelvariablen für Frühlingsaktion 2025
-	const v1_code = "50238-Aktion";
-	const v2_code = "52004-Aktion";
-	const v3_code = "50320-Aktion";
-	const v4_code = "15312a-Aktion";
-	const v5_code = "15313-Aktion";
-	const v6_code = "15308-Aktion";
-	const v7_code = "15312b-Aktion";
-	
-	// Artikelnamen für die Auswahl
-	const v1_name = "V1: Duo-Ministar";
-	const v2_name = "V2: Lavendelbl. Waschmittel";
-	const v3_name = "V3: ENJOfil Wohnen";
-	const v4_name = "V4: Multi-Tool Platte & Faser Stark";
-	const v5_name = "V5: Duo-Ministar & Lavendelbl.";
-	const v6_name = "V6: Duo-Ministar & ENJOfil";
-	const v7_name = "V7: Multi-Tool Platte & Faser Stark";
-	
-	// Array mit allen Aktionsartikeln
-	const allAktionsCodes = [v1_code, v2_code, v3_code, v4_code, v5_code, v6_code, v7_code];
-	
-	// Sammle alle Teilnehmer und ihre Produkttabellen
-	let teilnehmerMitProdukten = [];
-	
-	// Gastgeberin hinzufügen
-	if (frm.doc.gastgeberin && frm.doc.produktauswahl_für_gastgeberin && frm.doc.produktauswahl_für_gastgeberin.length > 0) {
-		// Hole Gastgeberin-Name
-		frappe.call({
-			method: "frappe.client.get_value",
-			args: {
-				doctype: "Customer",
-				filters: {
-					name: frm.doc.gastgeberin
-				},
-				fieldname: "customer_name"
-			},
-			async: false,
-			callback: function(r) {
-				let gastgeberinName = r.message ? r.message.customer_name : frm.doc.gastgeberin;
-				teilnehmerMitProdukten.push({
-					name: frm.doc.gastgeberin,
-					displayName: gastgeberinName,
-					typ: "Gastgeberin",
-					produktfeld: "produktauswahl_für_gastgeberin",
-					produkte: frm.doc.produktauswahl_für_gastgeberin
-				});
+	// WICHTIG: Lade die Aktionseinstellungen dynamisch aus der Datenbank
+	frappe.call({
+		method: "enjo_party.enjo_party.doctype.enjo_aktionseinstellungen.enjo_aktionseinstellungen.get_aktionseinstellungen",
+		callback: function(r) {
+			if (!r.message) {
+				console.error("Konnte Aktionseinstellungen nicht laden");
+				callback(); // Fallback: Weiter ohne Aktion
+				return;
 			}
-		});
-	}
-	
-	// Alle Gäste hinzufügen
-	let gastePromises = [];
-	for (let i = 0; i < frm.doc.kunden.length; i++) {
-		let kunde = frm.doc.kunden[i];
-		if (!kunde.kunde) continue;
-		
-		let field_name = `produktauswahl_für_gast_${i+1}`;
-		if (frm.doc[field_name] && frm.doc[field_name].length > 0) {
-			let hatProdukte = frm.doc[field_name].some(item => item.item_code && item.qty && item.qty > 0);
-			if (hatProdukte) {
-				// Hole Gast-Name
-				let promise = new Promise((resolve) => {
+			
+			let settings = r.message;
+			console.log("Aktionseinstellungen geladen:", settings);
+			
+			// Schwellwerte aus den Einstellungen
+			const STAGE_1_MIN = settings.stage_1_minimum;
+			const STAGE_1_MAX = settings.stage_1_maximum;
+			
+			// Artikelvariablen aus den Einstellungen
+			const v1_code = settings.v1_code;
+			const v2_code = settings.v2_code;
+			const v3_code = settings.v3_code;
+			const v4_code = settings.v4_code;
+			const v5_code = settings.v5_code;
+			const v6_code = settings.v6_code;
+			const v7_code = settings.v7_code;
+			
+			// Artikelnamen aus den Einstellungen
+			const v1_name = settings.v1_name;
+			const v2_name = settings.v2_name;
+			const v3_name = settings.v3_name;
+			const v4_name = settings.v4_name;
+			const v5_name = settings.v5_name;
+			const v6_name = settings.v6_name;
+			const v7_name = settings.v7_name;
+			
+			// Array mit allen Aktionsartikeln
+			const allAktionsCodes = [v1_code, v2_code, v3_code, v4_code, v5_code, v6_code, v7_code];
+			
+			// Jetzt die eigentliche Aktions-Logik mit den geladenen Einstellungen
+			processAktionsSystemWithSettings();
+			
+			function processAktionsSystemWithSettings() {
+				// Sammle alle Teilnehmer und ihre Produkttabellen
+				let teilnehmerMitProdukten = [];
+				
+				// Gastgeberin hinzufügen
+				if (frm.doc.gastgeberin && frm.doc.produktauswahl_für_gastgeberin && frm.doc.produktauswahl_für_gastgeberin.length > 0) {
+					// Hole Gastgeberin-Name
 					frappe.call({
 						method: "frappe.client.get_value",
 						args: {
 							doctype: "Customer",
 							filters: {
-								name: kunde.kunde
+								name: frm.doc.gastgeberin
 							},
 							fieldname: "customer_name"
 						},
+						async: false,
 						callback: function(r) {
-							let gastName = r.message ? r.message.customer_name : kunde.kunde;
+							let gastgeberinName = r.message ? r.message.customer_name : frm.doc.gastgeberin;
 							teilnehmerMitProdukten.push({
-								name: kunde.kunde,
-								displayName: gastName,
-								typ: "Gast",
-								gastNummer: i + 1,
-								produktfeld: field_name,
-								produkte: frm.doc[field_name]
+								name: frm.doc.gastgeberin,
+								displayName: gastgeberinName,
+								typ: "Gastgeberin",
+								produktfeld: "produktauswahl_für_gastgeberin",
+								produkte: frm.doc.produktauswahl_für_gastgeberin
 							});
-							resolve();
+						}
+					});
+				}
+				
+				// Alle Gäste hinzufügen
+				let gastePromises = [];
+				for (let i = 0; i < frm.doc.kunden.length; i++) {
+					let kunde = frm.doc.kunden[i];
+					if (!kunde.kunde) continue;
+					
+					let field_name = `produktauswahl_für_gast_${i+1}`;
+					if (frm.doc[field_name] && frm.doc[field_name].length > 0) {
+						let hatProdukte = frm.doc[field_name].some(item => item.item_code && item.qty && item.qty > 0);
+						if (hatProdukte) {
+							// Hole Gast-Name
+							let promise = new Promise((resolve) => {
+								frappe.call({
+									method: "frappe.client.get_value",
+									args: {
+										doctype: "Customer",
+										filters: {
+											name: kunde.kunde
+										},
+										fieldname: "customer_name"
+									},
+									callback: function(r) {
+										let gastName = r.message ? r.message.customer_name : kunde.kunde;
+										teilnehmerMitProdukten.push({
+											name: kunde.kunde,
+											displayName: gastName,
+											typ: "Gast",
+											gastNummer: i + 1,
+											produktfeld: field_name,
+											produkte: frm.doc[field_name]
+										});
+										resolve();
+									}
+								});
+							});
+							gastePromises.push(promise);
+						}
+					}
+				}
+				
+				// Warte auf alle Gast-Namen
+				Promise.all(gastePromises).then(() => {
+					console.log("Gefundene Teilnehmer mit Produkten:", teilnehmerMitProdukten.length);
+					
+					if (teilnehmerMitProdukten.length === 0) {
+						console.log("Keine Teilnehmer mit Produkten gefunden - überspringe Aktions-System");
+						callback();
+						return;
+					}
+					
+					// Prüfe jeden Teilnehmer auf Aktionsberechtigung
+					checkTeilnehmerForAction(teilnehmerMitProdukten, 0, []);
+				});
+			}
+			
+			function checkTeilnehmerForAction(teilnehmer, index, aktionsberechtigteTeilnehmer) {
+				if (index >= teilnehmer.length) {
+					console.log("Aktionsberechtigte Teilnehmer:", aktionsberechtigteTeilnehmer.length);
+					
+					if (aktionsberechtigteTeilnehmer.length > 0) {
+						showAktionsDialog(aktionsberechtigteTeilnehmer);
+					} else {
+						console.log("Keine aktionsberechtigten Teilnehmer gefunden - fahre direkt mit Aufträge-Erstellung fort");
+						// WICHTIG: Auch wenn keine Aktion verfügbar ist, müssen die Aufträge erstellt werden!
+						callback();
+					}
+					return;
+				}
+				
+				let teilnehmer_obj = teilnehmer[index];
+				console.log(`Prüfe Teilnehmer: ${teilnehmer_obj.displayName} (${teilnehmer_obj.typ})`);
+				
+				checkItemsForAction(teilnehmer_obj.produkte, 0, [], 0, teilnehmer_obj);
+				
+				function checkItemsForAction(items, itemIndex, actionItems, total, teilnehmer_obj) {
+					if (itemIndex >= items.length) {
+						console.log(`${teilnehmer_obj.displayName}: ${actionItems.length} aktionsfähige Items, Summe: ${total}`);
+						
+						let hasAktionsartikel = items.some(item => allAktionsCodes.includes(item.item_code));
+						
+						if (actionItems.length > 0 && !hasAktionsartikel) {
+							let stage = null;
+							if (total > STAGE_1_MAX) {
+								stage = 2; // Premium
+							} else if (total > STAGE_1_MIN) {
+								stage = 1; // Standard
+							}
+							
+							if (stage) {
+								aktionsberechtigteTeilnehmer.push({
+									...teilnehmer_obj,
+									aktionssumme: total,
+									stage: stage,
+									aktionsItems: actionItems
+								});
+							}
+						}
+						
+						checkTeilnehmerForAction(teilnehmer, index + 1, aktionsberechtigteTeilnehmer);
+						return;
+					}
+					
+					let item = items[itemIndex];
+					
+					if (!item.item_code || !item.qty || item.qty <= 0) {
+						checkItemsForAction(items, itemIndex + 1, actionItems, total, teilnehmer_obj);
+						return;
+					}
+					
+					frappe.call({
+						method: "frappe.client.get_value",
+						args: {
+							doctype: "Item",
+							filters: {
+								item_code: item.item_code
+							},
+							fieldname: "custom_considered_for_action"
+						},
+						callback: function(r) {
+							if (r.message && r.message.custom_considered_for_action) {
+								actionItems.push(item);
+								total += item.amount || 0;
+								console.log(`${teilnehmer_obj.displayName}: Item ${item.item_code} aktionsfähig (${item.amount || 0} EUR)`);
+							}
+							
+							checkItemsForAction(items, itemIndex + 1, actionItems, total, teilnehmer_obj);
+						}
+					});
+				}
+			}
+			
+			function showAktionsDialog(aktionsberechtigteTeilnehmer) {
+				console.log("Zeige Aktions-Dialog für", aktionsberechtigteTeilnehmer.length, "Teilnehmer");
+				
+				let dialogFields = [
+					{
+						fieldtype: 'HTML',
+						fieldname: 'description',
+						options: `
+							<div style="margin-bottom: 15px;">
+								<h4>Herzlichen Glückwunsch!</h4>
+								<p>Die folgenden Teilnehmer sind für unsere aktuelle Aktion berechtigt:</p>
+							</div>
+						`
+					}
+				];
+				
+				aktionsberechtigteTeilnehmer.forEach((teilnehmer, index) => {
+					let optionen = [];
+					let stageText = "";
+					
+					if (teilnehmer.stage === 1) {
+						optionen = ["", v1_name, v2_name, v3_name, v4_name];
+						stageText = "Standard";
+					} else if (teilnehmer.stage === 2) {
+						optionen = ["", v5_name, v6_name, v7_name];
+						stageText = "Premium";
+					}
+					
+					dialogFields.push({
+						fieldtype: 'HTML',
+						fieldname: `teilnehmer_info_${index}`,
+						options: `
+							<div style="margin: 10px 0; padding: 10px; background-color: #f8f9fa; border-radius: 5px;">
+								<strong>${teilnehmer.displayName}</strong><br>
+								<small>Aktionssumme: ${teilnehmer.aktionssumme.toFixed(2)} EUR - ${stageText} Aktion</small>
+							</div>
+						`
+					});
+					
+					dialogFields.push({
+						fieldtype: 'Select',
+						fieldname: `aktion_artikel_${index}`,
+						label: `Aktionsartikel für ${teilnehmer.displayName}`,
+						options: optionen,
+						default: ""
+					});
+				});
+				
+				dialogFields.push({
+					fieldtype: 'HTML',
+					fieldname: 'footer_info',
+					options: `
+						<div style="margin-top: 15px; padding: 10px; background-color: #fff3cd; border-radius: 5px;">
+							<small><strong>Hinweis:</strong> Leer lassen = "Nein, danke" - die Aktion verfällt für diesen Teilnehmer unwiderruflich.</small>
+						</div>
+					`
+				});
+				
+				let d = new frappe.ui.Dialog({
+					title: 'Aktions-System',
+					fields: dialogFields,
+					size: 'large',
+					primary_action_label: 'Aktionsartikel hinzufügen',
+					primary_action: function() {
+						let values = d.get_values();
+						console.log("Dialog-Werte:", values);
+						
+						let aktionsartikelHinzugefuegt = 0;
+						let verarbeitungsPromises = [];
+						
+						aktionsberechtigteTeilnehmer.forEach((teilnehmer, index) => {
+							let selectedItem = values[`aktion_artikel_${index}`];
+							
+							if (selectedItem && selectedItem.trim() !== "") {
+								console.log(`${teilnehmer.displayName} hat gewählt: ${selectedItem}`);
+								
+								let itemCode = getItemCodeFromName(selectedItem);
+								
+								if (itemCode) {
+									let promise = addAktionsartikelToTeilnehmer(teilnehmer, itemCode, selectedItem);
+									verarbeitungsPromises.push(promise);
+									aktionsartikelHinzugefuegt++;
+								}
+							} else {
+								console.log(`${teilnehmer.displayName} hat "Nein, danke" gewählt`);
+							}
+						});
+						
+						// Warte auf alle Verarbeitungen
+						Promise.all(verarbeitungsPromises).then(() => {
+							console.log(`${aktionsartikelHinzugefuegt} Aktionsartikel wurden hinzugefügt`);
+							
+							if (aktionsartikelHinzugefuegt > 0) {
+								// Refresh alle betroffenen Felder (mit Fehlerbehandlung)
+								try {
+									// Gastgeberin-Tabelle
+									if (frm.fields_dict.produktauswahl_für_gastgeberin) {
+										frm.refresh_field('produktauswahl_für_gastgeberin');
+									}
+									
+									// Gäste-Tabellen
+									for (let i = 1; i <= 15; i++) {
+										let fieldName = `produktauswahl_für_gast_${i}`;
+										if (frm.fields_dict[fieldName]) {
+											try {
+												frm.refresh_field(fieldName);
+											} catch (e) {
+												console.log(`Konnte ${fieldName} nicht refreshen:`, e);
+											}
+										}
+									}
+								} catch (e) {
+									console.log("Fehler beim Refreshen nach Aktionsartikeln:", e);
+								}
+								
+								frappe.show_alert(`${aktionsartikelHinzugefuegt} Aktionsartikel wurden hinzugefügt!`, 5);
+							}
+							
+							d.hide();
+							callback();
+						}).catch((error) => {
+							console.error("Fehler beim Hinzufügen der Aktionsartikel:", error);
+							// Entferne die Fehlermeldung, da die Artikel trotzdem hinzugefügt wurden
+							console.log("Artikel wurden trotz Fehler hinzugefügt - fahre fort");
+							d.hide();
+							callback(); // Auch bei Fehlern fortfahren
+						});
+					},
+					secondary_action_label: 'Alle ablehnen',
+					secondary_action: function() {
+						console.log("Alle Aktionen abgelehnt");
+						d.hide();
+						callback();
+					}
+				});
+				
+				d.show();
+			}
+			
+			function getItemCodeFromName(itemName) {
+				switch(itemName) {
+					case v1_name: return v1_code;
+					case v2_name: return v2_code;
+					case v3_name: return v3_code;
+					case v4_name: return v4_code;
+					case v5_name: return v5_code;
+					case v6_name: return v6_code;
+					case v7_name: return v7_code;
+					default: return null;
+				}
+			}
+			
+			function addAktionsartikelToTeilnehmer(teilnehmer, itemCode, itemName) {
+				console.log(`Füge ${itemCode} zu ${teilnehmer.displayName} hinzu`);
+				
+				return new Promise((resolve, reject) => {
+					// Hole Item-Details
+					frappe.call({
+						method: "frappe.client.get_value",
+						args: {
+							doctype: "Item",
+							filters: {
+								item_code: itemCode
+							},
+							fieldname: ["item_name", "standard_rate", "stock_uom"]
+						},
+						callback: function(r) {
+							if (r.message) {
+								let itemDetails = r.message;
+								let rate = itemDetails.standard_rate || 0;
+								let stock_uom = itemDetails.stock_uom || "Stk";
+								
+								// WICHTIG: Verwende frm.add_child() statt Array-Manipulation!
+								let neuer_eintrag = frm.add_child(teilnehmer.produktfeld);
+								
+								// Setze alle erforderlichen Felder
+								frappe.model.set_value(neuer_eintrag.doctype, neuer_eintrag.name, 'item_code', itemCode);
+								frappe.model.set_value(neuer_eintrag.doctype, neuer_eintrag.name, 'item_name', itemDetails.item_name || itemName);
+								frappe.model.set_value(neuer_eintrag.doctype, neuer_eintrag.name, 'qty', 1);
+								frappe.model.set_value(neuer_eintrag.doctype, neuer_eintrag.name, 'rate', rate);
+								frappe.model.set_value(neuer_eintrag.doctype, neuer_eintrag.name, 'amount', rate * 1);
+								frappe.model.set_value(neuer_eintrag.doctype, neuer_eintrag.name, 'uom', stock_uom);
+								frappe.model.set_value(neuer_eintrag.doctype, neuer_eintrag.name, 'stock_uom', stock_uom);
+								frappe.model.set_value(neuer_eintrag.doctype, neuer_eintrag.name, 'conversion_factor', 1.0);
+								frappe.model.set_value(neuer_eintrag.doctype, neuer_eintrag.name, 'uom_conversion_factor', 1.0);
+								frappe.model.set_value(neuer_eintrag.doctype, neuer_eintrag.name, 'stock_qty', 1.0);
+								frappe.model.set_value(neuer_eintrag.doctype, neuer_eintrag.name, 'base_amount', rate * 1);
+								frappe.model.set_value(neuer_eintrag.doctype, neuer_eintrag.name, 'base_rate', rate);
+								frappe.model.set_value(neuer_eintrag.doctype, neuer_eintrag.name, 'delivery_date', frappe.datetime.add_days(frappe.datetime.nowdate(), 7));
+								
+								// FLEXIBLES WAREHOUSE: Verwende Standard-Warehouse oder erstes verfügbares
+								let warehouse = frappe.defaults.get_user_default("Warehouse");
+								if (!warehouse) {
+									// Fallback: Verwende erstes verfügbares nicht-Gruppen-Warehouse
+									frappe.call({
+										method: "frappe.client.get_list",
+										args: {
+											doctype: "Warehouse",
+											filters: {"is_group": 0},
+											fields: ["name"],
+											limit: 1
+										},
+										async: false,
+										callback: function(wh_r) {
+											if (wh_r.message && wh_r.message.length > 0) {
+												warehouse = wh_r.message[0].name;
+											}
+										}
+									});
+								}
+								
+								if (warehouse) {
+									frappe.model.set_value(neuer_eintrag.doctype, neuer_eintrag.name, 'warehouse', warehouse);
+								}
+								
+								// Markierung für Aktionsartikel (als separates Feld falls nötig)
+								frappe.model.set_value(neuer_eintrag.doctype, neuer_eintrag.name, '_aktionsartikel', true);
+								
+								// Refresh das Feld, damit es sichtbar wird
+								frm.refresh_field(teilnehmer.produktfeld);
+								
+								console.log(`Aktionsartikel ${itemName} zu ${teilnehmer.displayName} hinzugefügt`);
+								resolve();
+							} else {
+								console.error(`Konnte Item-Details für ${itemCode} nicht laden`);
+								reject(`Item-Details nicht gefunden`);
+							}
 						}
 					});
 				});
-				gastePromises.push(promise);
 			}
 		}
-	}
-	
-	// Warte auf alle Gast-Namen
-	Promise.all(gastePromises).then(() => {
-		console.log("Gefundene Teilnehmer mit Produkten:", teilnehmerMitProdukten.length);
-		
-		if (teilnehmerMitProdukten.length === 0) {
-			console.log("Keine Teilnehmer mit Produkten gefunden - überspringe Aktions-System");
-			callback();
-			return;
-		}
-		
-		// Prüfe jeden Teilnehmer auf Aktionsberechtigung
-		checkTeilnehmerForAction(teilnehmerMitProdukten, 0, []);
 	});
-	
-	function checkTeilnehmerForAction(teilnehmer, index, aktionsberechtigteTeilnehmer) {
-		if (index >= teilnehmer.length) {
-			console.log("Aktionsberechtigte Teilnehmer:", aktionsberechtigteTeilnehmer.length);
-			
-			if (aktionsberechtigteTeilnehmer.length > 0) {
-				showAktionsDialog(aktionsberechtigteTeilnehmer);
-			} else {
-				console.log("Keine aktionsberechtigten Teilnehmer gefunden - fahre direkt mit Aufträge-Erstellung fort");
-				// WICHTIG: Auch wenn keine Aktion verfügbar ist, müssen die Aufträge erstellt werden!
-				callback();
-			}
-			return;
-		}
-		
-		let teilnehmer_obj = teilnehmer[index];
-		console.log(`Prüfe Teilnehmer: ${teilnehmer_obj.displayName} (${teilnehmer_obj.typ})`);
-		
-		checkItemsForAction(teilnehmer_obj.produkte, 0, [], 0, teilnehmer_obj);
-		
-		function checkItemsForAction(items, itemIndex, actionItems, total, teilnehmer_obj) {
-			if (itemIndex >= items.length) {
-				console.log(`${teilnehmer_obj.displayName}: ${actionItems.length} aktionsfähige Items, Summe: ${total}`);
-				
-				let hasAktionsartikel = items.some(item => allAktionsCodes.includes(item.item_code));
-				
-				if (actionItems.length > 0 && !hasAktionsartikel) {
-					let stage = null;
-					if (total > STAGE_1_MAX) {
-						stage = 2; // Premium
-					} else if (total > STAGE_1_MIN) {
-						stage = 1; // Standard
-					}
-					
-					if (stage) {
-						aktionsberechtigteTeilnehmer.push({
-							...teilnehmer_obj,
-							aktionssumme: total,
-							stage: stage,
-							aktionsItems: actionItems
-						});
-					}
-				}
-				
-				checkTeilnehmerForAction(teilnehmer, index + 1, aktionsberechtigteTeilnehmer);
-				return;
-			}
-			
-			let item = items[itemIndex];
-			
-			if (!item.item_code || !item.qty || item.qty <= 0) {
-				checkItemsForAction(items, itemIndex + 1, actionItems, total, teilnehmer_obj);
-				return;
-			}
-			
-			frappe.call({
-				method: "frappe.client.get_value",
-				args: {
-					doctype: "Item",
-					filters: {
-						item_code: item.item_code
-					},
-					fieldname: "custom_considered_for_action"
-				},
-				callback: function(r) {
-					if (r.message && r.message.custom_considered_for_action) {
-						actionItems.push(item);
-						total += item.amount || 0;
-						console.log(`${teilnehmer_obj.displayName}: Item ${item.item_code} aktionsfähig (${item.amount || 0} EUR)`);
-					}
-					
-					checkItemsForAction(items, itemIndex + 1, actionItems, total, teilnehmer_obj);
-				}
-			});
-		}
-	}
-	
-	function showAktionsDialog(aktionsberechtigteTeilnehmer) {
-		console.log("Zeige Aktions-Dialog für", aktionsberechtigteTeilnehmer.length, "Teilnehmer");
-		
-		let dialogFields = [
-			{
-				fieldtype: 'HTML',
-				fieldname: 'description',
-				options: `
-					<div style="margin-bottom: 15px;">
-						<h4>Herzlichen Glückwunsch!</h4>
-						<p>Die folgenden Teilnehmer sind für unsere aktuelle Aktion berechtigt:</p>
-					</div>
-				`
-			}
-		];
-		
-		aktionsberechtigteTeilnehmer.forEach((teilnehmer, index) => {
-			let optionen = [];
-			let stageText = "";
-			
-			if (teilnehmer.stage === 1) {
-				optionen = ["", v1_name, v2_name, v3_name, v4_name];
-				stageText = "Standard";
-			} else if (teilnehmer.stage === 2) {
-				optionen = ["", v5_name, v6_name, v7_name];
-				stageText = "Premium";
-			}
-			
-			dialogFields.push({
-				fieldtype: 'HTML',
-				fieldname: `teilnehmer_info_${index}`,
-				options: `
-					<div style="margin: 10px 0; padding: 10px; background-color: #f8f9fa; border-radius: 5px;">
-						<strong>${teilnehmer.displayName}</strong><br>
-						<small>Aktionssumme: ${teilnehmer.aktionssumme.toFixed(2)} EUR - ${stageText} Aktion</small>
-					</div>
-				`
-			});
-			
-			dialogFields.push({
-				fieldtype: 'Select',
-				fieldname: `aktion_artikel_${index}`,
-				label: `Aktionsartikel für ${teilnehmer.displayName}`,
-				options: optionen,
-				default: ""
-			});
-		});
-		
-		dialogFields.push({
-			fieldtype: 'HTML',
-			fieldname: 'footer_info',
-			options: `
-				<div style="margin-top: 15px; padding: 10px; background-color: #fff3cd; border-radius: 5px;">
-					<small><strong>Hinweis:</strong> Leer lassen = "Nein, danke" - die Aktion verfällt für diesen Teilnehmer unwiderruflich.</small>
-				</div>
-			`
-		});
-		
-		let d = new frappe.ui.Dialog({
-			title: 'Aktions-System',
-			fields: dialogFields,
-			size: 'large',
-			primary_action_label: 'Aktionsartikel hinzufügen',
-			primary_action: function() {
-				let values = d.get_values();
-				console.log("Dialog-Werte:", values);
-				
-				let aktionsartikelHinzugefuegt = 0;
-				let verarbeitungsPromises = [];
-				
-				aktionsberechtigteTeilnehmer.forEach((teilnehmer, index) => {
-					let selectedItem = values[`aktion_artikel_${index}`];
-					
-					if (selectedItem && selectedItem.trim() !== "") {
-						console.log(`${teilnehmer.displayName} hat gewählt: ${selectedItem}`);
-						
-						let itemCode = getItemCodeFromName(selectedItem);
-						
-						if (itemCode) {
-							let promise = addAktionsartikelToTeilnehmer(teilnehmer, itemCode, selectedItem);
-							verarbeitungsPromises.push(promise);
-							aktionsartikelHinzugefuegt++;
-						}
-					} else {
-						console.log(`${teilnehmer.displayName} hat "Nein, danke" gewählt`);
-					}
-				});
-				
-				// Warte auf alle Verarbeitungen
-				Promise.all(verarbeitungsPromises).then(() => {
-					console.log(`${aktionsartikelHinzugefuegt} Aktionsartikel wurden hinzugefügt`);
-					
-					if (aktionsartikelHinzugefuegt > 0) {
-						// Refresh alle betroffenen Felder (mit Fehlerbehandlung)
-						try {
-							// Gastgeberin-Tabelle
-							if (frm.fields_dict.produktauswahl_für_gastgeberin) {
-								frm.refresh_field('produktauswahl_für_gastgeberin');
-							}
-							
-							// Gäste-Tabellen
-							for (let i = 1; i <= 15; i++) {
-								let fieldName = `produktauswahl_für_gast_${i}`;
-								if (frm.fields_dict[fieldName]) {
-									try {
-										frm.refresh_field(fieldName);
-									} catch (e) {
-										console.log(`Konnte ${fieldName} nicht refreshen:`, e);
-									}
-								}
-							}
-						} catch (e) {
-							console.log("Fehler beim Refreshen nach Aktionsartikeln:", e);
-						}
-						
-						frappe.show_alert(`${aktionsartikelHinzugefuegt} Aktionsartikel wurden hinzugefügt!`, 5);
-					}
-					
-					d.hide();
-					callback();
-				}).catch((error) => {
-					console.error("Fehler beim Hinzufügen der Aktionsartikel:", error);
-					// Entferne die Fehlermeldung, da die Artikel trotzdem hinzugefügt wurden
-					console.log("Artikel wurden trotz Fehler hinzugefügt - fahre fort");
-					d.hide();
-					callback(); // Auch bei Fehlern fortfahren
-				});
-			},
-			secondary_action_label: 'Alle ablehnen',
-			secondary_action: function() {
-				console.log("Alle Aktionen abgelehnt");
-				d.hide();
-				callback();
-			}
-		});
-		
-		d.show();
-	}
-	
-	function getItemCodeFromName(itemName) {
-		switch(itemName) {
-			case v1_name: return v1_code;
-			case v2_name: return v2_code;
-			case v3_name: return v3_code;
-			case v4_name: return v4_code;
-			case v5_name: return v5_code;
-			case v6_name: return v6_code;
-			case v7_name: return v7_code;
-			default: return null;
-		}
-	}
-	
-	function addAktionsartikelToTeilnehmer(teilnehmer, itemCode, itemName) {
-		console.log(`Füge ${itemCode} zu ${teilnehmer.displayName} hinzu`);
-		
-		return new Promise((resolve, reject) => {
-			// Hole Item-Details
-			frappe.call({
-				method: "frappe.client.get_value",
-				args: {
-					doctype: "Item",
-					filters: {
-						item_code: itemCode
-					},
-					fieldname: ["item_name", "standard_rate", "stock_uom"]
-				},
-				callback: function(r) {
-					if (r.message) {
-						let itemDetails = r.message;
-						let rate = itemDetails.standard_rate || 0;
-						let stock_uom = itemDetails.stock_uom || "Stk";
-						
-						// WICHTIG: Verwende frm.add_child() statt Array-Manipulation!
-						let neuer_eintrag = frm.add_child(teilnehmer.produktfeld);
-						
-						// Setze alle erforderlichen Felder
-						frappe.model.set_value(neuer_eintrag.doctype, neuer_eintrag.name, 'item_code', itemCode);
-						frappe.model.set_value(neuer_eintrag.doctype, neuer_eintrag.name, 'item_name', itemDetails.item_name || itemName);
-						frappe.model.set_value(neuer_eintrag.doctype, neuer_eintrag.name, 'qty', 1);
-						frappe.model.set_value(neuer_eintrag.doctype, neuer_eintrag.name, 'rate', rate);
-						frappe.model.set_value(neuer_eintrag.doctype, neuer_eintrag.name, 'amount', rate * 1);
-						frappe.model.set_value(neuer_eintrag.doctype, neuer_eintrag.name, 'uom', stock_uom);
-						frappe.model.set_value(neuer_eintrag.doctype, neuer_eintrag.name, 'stock_uom', stock_uom);
-						frappe.model.set_value(neuer_eintrag.doctype, neuer_eintrag.name, 'conversion_factor', 1.0);
-						frappe.model.set_value(neuer_eintrag.doctype, neuer_eintrag.name, 'uom_conversion_factor', 1.0);
-						frappe.model.set_value(neuer_eintrag.doctype, neuer_eintrag.name, 'stock_qty', 1.0);
-						frappe.model.set_value(neuer_eintrag.doctype, neuer_eintrag.name, 'base_amount', rate * 1);
-						frappe.model.set_value(neuer_eintrag.doctype, neuer_eintrag.name, 'base_rate', rate);
-						frappe.model.set_value(neuer_eintrag.doctype, neuer_eintrag.name, 'delivery_date', frappe.datetime.add_days(frappe.datetime.nowdate(), 7));
-						
-						// FLEXIBLES WAREHOUSE: Verwende Standard-Warehouse oder erstes verfügbares
-						let warehouse = frappe.defaults.get_user_default("Warehouse");
-						if (!warehouse) {
-							// Fallback: Verwende erstes verfügbares nicht-Gruppen-Warehouse
-							frappe.call({
-								method: "frappe.client.get_list",
-								args: {
-									doctype: "Warehouse",
-									filters: {"is_group": 0},
-									fields: ["name"],
-									limit: 1
-								},
-								async: false,
-								callback: function(wh_r) {
-									if (wh_r.message && wh_r.message.length > 0) {
-										warehouse = wh_r.message[0].name;
-									}
-								}
-							});
-						}
-						
-						if (warehouse) {
-							frappe.model.set_value(neuer_eintrag.doctype, neuer_eintrag.name, 'warehouse', warehouse);
-						}
-						
-						// Markierung für Aktionsartikel (als separates Feld falls nötig)
-						frappe.model.set_value(neuer_eintrag.doctype, neuer_eintrag.name, '_aktionsartikel', true);
-						
-						// Refresh das Feld, damit es sichtbar wird
-						frm.refresh_field(teilnehmer.produktfeld);
-						
-						console.log(`Aktionsartikel ${itemName} zu ${teilnehmer.displayName} hinzugefügt`);
-						resolve();
-					} else {
-						console.error(`Konnte Item-Details für ${itemCode} nicht laden`);
-						reject(`Item-Details nicht gefunden`);
-					}
-				}
-			});
-		});
-	}
 }
 
 // Gutschein-System: Wendet Gastgeber-Gutschein auf aktionsfähige Produkte an
@@ -1010,54 +1030,78 @@ function erstelleAuftraege(frm) {
 function validateAktionsartikel(frm) {
 	console.log("Validiere Aktionsartikel...");
 	
-	// Aktionsartikel-Codes
-	const aktionsCodes = ["50238-Aktion", "52004-Aktion", "50320-Aktion", "15312a-Aktion", "15313-Aktion", "15308-Aktion", "15312b-Aktion"];
-	
-	// Prüfe alle Produkttabellen
-	let aktionsartikelGefunden = 0;
-	
-	// Gastgeberin-Tabelle
-	if (frm.doc.produktauswahl_für_gastgeberin) {
-		frm.doc.produktauswahl_für_gastgeberin.forEach(item => {
-			if (aktionsCodes.includes(item.item_code)) {
-				aktionsartikelGefunden++;
-				// Stelle sicher, dass wichtige Felder gesetzt sind
-				if (!item.qty) item.qty = 1;
-				if (!item.rate) item.rate = 0;
-				if (!item.amount) item.amount = 0;
-				if (!item.uom) item.uom = "Stk";
-				if (!item.stock_uom) item.stock_uom = "Stk";
-				if (!item.conversion_factor) item.conversion_factor = 1;
-				if (!item.delivery_date) item.delivery_date = frappe.datetime.add_days(frappe.datetime.nowdate(), 7);
-				if (!item.warehouse) item.warehouse = "Lagerräume - BM";
-				console.log(`Aktionsartikel validiert: ${item.item_code} für Gastgeberin`);
+	// Lade Aktionseinstellungen dynamisch
+	frappe.call({
+		method: "enjo_party.enjo_party.doctype.enjo_aktionseinstellungen.enjo_aktionseinstellungen.get_aktionseinstellungen",
+		async: false, // Synchron laden für Validation
+		callback: function(r) {
+			if (!r.message) {
+				console.log("Konnte Aktionseinstellungen nicht laden - verwende Fallback");
+				return;
 			}
-		});
-	}
-	
-	// Gäste-Tabellen
-	for (let i = 1; i <= 15; i++) {
-		let fieldName = `produktauswahl_für_gast_${i}`;
-		if (frm.doc[fieldName]) {
-			frm.doc[fieldName].forEach(item => {
-				if (aktionsCodes.includes(item.item_code)) {
-					aktionsartikelGefunden++;
-					// Stelle sicher, dass wichtige Felder gesetzt sind
-					if (!item.qty) item.qty = 1;
-					if (!item.rate) item.rate = 0;
-					if (!item.amount) item.amount = 0;
-					if (!item.uom) item.uom = "Stk";
-					if (!item.stock_uom) item.stock_uom = "Stk";
-					if (!item.conversion_factor) item.conversion_factor = 1;
-					if (!item.delivery_date) item.delivery_date = frappe.datetime.add_days(frappe.datetime.nowdate(), 7);
-					if (!item.warehouse) item.warehouse = "Lagerräume - BM";
-					console.log(`Aktionsartikel validiert: ${item.item_code} für Gast ${i}`);
+			
+			let settings = r.message;
+			
+			// Aktionsartikel-Codes aus den Einstellungen
+			const aktionsCodes = [
+				settings.v1_code,
+				settings.v2_code, 
+				settings.v3_code,
+				settings.v4_code,
+				settings.v5_code,
+				settings.v6_code,
+				settings.v7_code
+			].filter(code => code); // Filter leere Codes heraus
+			
+			console.log("Dynamische Aktions-Codes:", aktionsCodes);
+			
+			// Prüfe alle Produkttabellen
+			let aktionsartikelGefunden = 0;
+			
+			// Gastgeberin-Tabelle
+			if (frm.doc.produktauswahl_für_gastgeberin) {
+				frm.doc.produktauswahl_für_gastgeberin.forEach(item => {
+					if (aktionsCodes.includes(item.item_code)) {
+						aktionsartikelGefunden++;
+						// Stelle sicher, dass wichtige Felder gesetzt sind
+						if (!item.qty) item.qty = 1;
+						if (!item.rate) item.rate = 0;
+						if (!item.amount) item.amount = 0;
+						if (!item.uom) item.uom = "Stk";
+						if (!item.stock_uom) item.stock_uom = "Stk";
+						if (!item.conversion_factor) item.conversion_factor = 1;
+						if (!item.delivery_date) item.delivery_date = frappe.datetime.add_days(frappe.datetime.nowdate(), 7);
+						if (!item.warehouse) item.warehouse = "Lagerräume - BM";
+						console.log(`Aktionsartikel validiert: ${item.item_code} für Gastgeberin`);
+					}
+				});
+			}
+			
+			// Gäste-Tabellen
+			for (let i = 1; i <= 15; i++) {
+				let fieldName = `produktauswahl_für_gast_${i}`;
+				if (frm.doc[fieldName]) {
+					frm.doc[fieldName].forEach(item => {
+						if (aktionsCodes.includes(item.item_code)) {
+							aktionsartikelGefunden++;
+							// Stelle sicher, dass wichtige Felder gesetzt sind
+							if (!item.qty) item.qty = 1;
+							if (!item.rate) item.rate = 0;
+							if (!item.amount) item.amount = 0;
+							if (!item.uom) item.uom = "Stk";
+							if (!item.stock_uom) item.stock_uom = "Stk";
+							if (!item.conversion_factor) item.conversion_factor = 1;
+							if (!item.delivery_date) item.delivery_date = frappe.datetime.add_days(frappe.datetime.nowdate(), 7);
+							if (!item.warehouse) item.warehouse = "Lagerräume - BM";
+							console.log(`Aktionsartikel validiert: ${item.item_code} für Gast ${i}`);
+						}
+					});
 				}
-			});
+			}
+			
+			console.log(`${aktionsartikelGefunden} Aktionsartikel gefunden und validiert`);
 		}
-	}
-	
-	console.log(`${aktionsartikelGefunden} Aktionsartikel gefunden und validiert`);
+	});
 }
 
 // Hilfsfunktion für direkten API-Aufruf
