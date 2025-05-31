@@ -11,9 +11,11 @@
   "party_date",
   "partnerin",
   "gastgeberin",
+  "column_break_info",
   "gesamtumsatz",
   "gastgeber_gutschein_wert",
   "status",
+  "section_break_gaeste",
   "kunden",
   "amended_from",
   "produktauswahl_für_gast_1_section",
@@ -108,6 +110,10 @@
    "reqd": 1
   },
   {
+   "fieldname": "column_break_info",
+   "fieldtype": "Column Break"
+  },
+  {
    "fieldname": "gesamtumsatz",
    "fieldtype": "Currency",
    "label": "Gesamtumsatz",
@@ -126,6 +132,11 @@
    "label": "Status",
    "options": "Gäste\nProdukte\nAbgeschlossen",
    "read_only": 1
+  },
+  {
+   "fieldname": "section_break_gaeste",
+   "fieldtype": "Section Break",
+   "label": "Gäste"
   },
   {
    "fieldname": "kunden",

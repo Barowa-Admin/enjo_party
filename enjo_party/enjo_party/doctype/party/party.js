@@ -63,6 +63,14 @@ function refreshButtons(frm) {
 		}
 	} else {
 		console.log("Dokument ist eingereicht (docstatus !== 0)");
+		// Für gebuchte Parties: "Zu den Aufträgen" Button anzeigen
+		if (frm.doc.docstatus === 1) {
+			frm.add_custom_button(__("Zu den Aufträgen"), function() {
+				frappe.set_route("List", "Sales Order", {
+					"custom_party_reference": frm.doc.name
+				});
+			}).addClass("btn-primary");
+		}
 	}
 }
 
@@ -1471,6 +1479,8 @@ frappe.ui.form.on('Party', {
 			// Verstecke auch das Warehouse-Feld
 			frm.fields_dict["produktauswahl_für_gastgeberin"].grid.update_docfield_property('warehouse', 'hidden', 1);
 			frm.fields_dict["produktauswahl_für_gastgeberin"].grid.update_docfield_property('warehouse', 'reqd', 0);
+			// Mache das Preisfeld schreibgeschützt
+			frm.fields_dict["produktauswahl_für_gastgeberin"].grid.update_docfield_property('rate', 'read_only', 1);
 		}
 		
 		// Sammle alle Namen: Gastgeberin, Partnerin, Gäste
@@ -1513,6 +1523,8 @@ frappe.ui.form.on('Party', {
 				// Verstecke auch das Warehouse-Feld
 				frm.fields_dict[fieldName].grid.update_docfield_property('warehouse', 'hidden', 1);
 				frm.fields_dict[fieldName].grid.update_docfield_property('warehouse', 'reqd', 0);
+				// Mache das Preisfeld schreibgeschützt
+				frm.fields_dict[fieldName].grid.update_docfield_property('rate', 'read_only', 1);
 				
 				// Automatische Spaltenbreiten - CSS-Regeln entfernt
 				// Zusätzlich: Verstecke die Spalten per CSS (robustere Methode)
@@ -1557,6 +1569,8 @@ frappe.ui.form.on('Party', {
 			// Verstecke auch das Warehouse-Feld
 			frm.fields_dict["produktauswahl_für_gastgeberin"].grid.update_docfield_property('warehouse', 'hidden', 1);
 			frm.fields_dict["produktauswahl_für_gastgeberin"].grid.update_docfield_property('warehouse', 'reqd', 0);
+			// Mache das Preisfeld schreibgeschützt
+			frm.fields_dict["produktauswahl_für_gastgeberin"].grid.update_docfield_property('rate', 'read_only', 1);
 			
 			// Zusätzlich: Verstecke die Spalten per CSS (robustere Methode)
 			setTimeout(() => {
@@ -1564,19 +1578,7 @@ frappe.ui.form.on('Party', {
 				$(frm.wrapper).find('[data-fieldname="produktauswahl_für_gastgeberin"] .grid-body .data-row .col[data-fieldname="warehouse"]').hide();
 				$(frm.wrapper).find('[data-fieldname="produktauswahl_für_gastgeberin"] .grid-heading-row .col[data-fieldname="delivery_date"]').hide();
 				$(frm.wrapper).find('[data-fieldname="produktauswahl_für_gastgeberin"] .grid-heading-row .col[data-fieldname="warehouse"]').hide();
-				
-				// Mache die Artikel-Code Spalte breiter
-				// $(frm.wrapper).find('[data-fieldname="produktauswahl_für_gastgeberin"] .grid-heading-row .col[data-fieldname="item_code"]').css('width', '300px');
-				// $(frm.wrapper).find('[data-fieldname="produktauswahl_für_gastgeberin"] .grid-body .data-row .col[data-fieldname="item_code"]').css('width', '300px');
 			}, 500);
-			
-			// Setze Standard-Spaltenbreiten wie in der manuellen Konfiguration
-			if (frm.fields_dict["produktauswahl_für_gastgeberin"].grid) {
-				// frm.fields_dict["produktauswahl_für_gastgeberin"].grid.update_docfield_property('item_code', 'columns', 4);
-				// frm.fields_dict["produktauswahl_für_gastgeberin"].grid.update_docfield_property('qty', 'columns', 1);
-				// frm.fields_dict["produktauswahl_für_gastgeberin"].grid.update_docfield_property('rate', 'columns', 2);
-				// frm.fields_dict["produktauswahl_für_gastgeberin"].grid.update_docfield_property('amount', 'columns', 2);
-			}
 			
 			// Setze Filter für Item-Auswahl
 			if (frm.fields_dict["produktauswahl_für_gastgeberin"].grid.get_field('item_code')) {
@@ -1666,66 +1668,24 @@ frappe.ui.form.on('Party', {
 			$('[data-fieldname="party_name"]').hide();
 			$('.form-control[data-fieldname="party_name"]').hide();
 			
-			// Gesamtumsatz und Gutscheinwert nach links verschieben
-			// Finde die Felder und verschiebe sie in die linke Spalte
-			setTimeout(() => {
-				// Bessere Layout-Anordnung: Alle wichtigen Felder oben zusammenfassen
-				let gesamtumsatzField = $('[data-fieldname="gesamtumsatz"]').closest('.frappe-control');
-				let gutscheinField = $('[data-fieldname="gastgeber_gutschein_wert"]').closest('.frappe-control');
-				let datumField = $('[data-fieldname="party_date"]').closest('.frappe-control');
-				let partnerinField = $('[data-fieldname="partnerin"]').closest('.frappe-control');
-				let gastgeberinField = $('[data-fieldname="gastgeberin"]').closest('.frappe-control');
-				
-				// Erstelle eine neue obere Sektion für wichtige Felder
-				if (!$('.custom-top-section').length) {
-					$('.form-layout .form-page').prepend(`
-						<div class="custom-top-section" style="
-							display: flex; 
-							flex-wrap: wrap; 
-							gap: 15px; 
-							margin-bottom: 20px; 
-							padding: 15px; 
-							background: white; 
-							border-radius: 8px;
-							border: 1px solid #e9ecef;
-						">
-							<div class="top-left-column" style="flex: 1; min-width: 300px;"></div>
-							<div class="top-right-column" style="flex: 1; min-width: 300px;"></div>
-						</div>
-					`);
-				}
-				
-				let topLeftColumn = $('.custom-top-section .top-left-column');
-				let topRightColumn = $('.custom-top-section .top-right-column');
-				
-				// Verschiebe Felder in die obere Sektion (GETAUSCHT)
-				// LINKS: Datum, Partnerin, Gastgeberin
-				if (datumField.length && topLeftColumn.length) {
-					datumField.appendTo(topLeftColumn);
-				}
-				
-				if (partnerinField.length && topLeftColumn.length) {
-					partnerinField.appendTo(topLeftColumn);
-				}
-				
-				if (gastgeberinField.length && topLeftColumn.length) {
-					gastgeberinField.appendTo(topLeftColumn);
-				}
-				
-				// RECHTS: Gesamtumsatz, Gutscheinwert
-				if (gesamtumsatzField.length && topRightColumn.length) {
-					gesamtumsatzField.appendTo(topRightColumn);
-				}
-				
-				if (gutscheinField.length && topRightColumn.length) {
-					gutscheinField.appendTo(topRightColumn);
-				}
-			}, 300);
-			
 			// Drucken-Button ausblenden
 			$('.btn-default:contains("Drucken")').hide();
 			$('.dropdown-item:contains("Drucken")').hide();
 			$('[data-label="Drucken"]').hide();
+			
+			// Seitenleiste (Sidebar) ausblenden - nur für Party-Formular
+			$(frm.wrapper).find('.layout-side-section').hide();
+			$(frm.wrapper).find('.sidebar-area').hide();
+			$(frm.wrapper).find('.form-sidebar').hide();
+			// Hauptinhalt auf volle Breite erweitern
+			$(frm.wrapper).find('.layout-main-section').css({
+				'margin-right': '0',
+				'width': '100%'
+			});
+			$(frm.wrapper).find('.form-layout').css({
+				'margin-right': '0',
+				'width': '100%'
+			});
 			
 			// Kommentar/Mail/Aktivität-Bereiche mit weißem Abstand statt radikalem Abschnitt
 			$('.form-comments').css({

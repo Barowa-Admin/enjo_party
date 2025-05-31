@@ -885,9 +885,9 @@ def create_invoices(party, from_submit=False, from_button=False):
                     "status": "Draft",
                     "order_type": "Sales",
                     # Sales Partner aus der Party übernehmen (Priorität vor Customer Sales Partner)
-                    "sales_partner": party_doc.partnerin if party_doc.partnerin else None
-                    # Custom Fields für Versandinformationen temporär entfernt zum Testen
-                    # "custom_party_reference": party,
+                    "sales_partner": party_doc.partnerin if party_doc.partnerin else None,
+                    # Custom Fields für Versandinformationen
+                    "custom_party_reference": party
                     # "custom_shipping_target": shipping_target,  
                     # "custom_shipping_target_name": shipping_target,  
                     # "custom_calculated_shipping_cost": shipping_cost,
