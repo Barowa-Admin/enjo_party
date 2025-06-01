@@ -1,0 +1,136 @@
+{
+ "actions": [],
+ "allow_rename": 1,
+ "creation": "2025-01-28 10:00:00.000000",
+ "doctype": "DocType",
+ "engine": "InnoDB",
+ "field_order": [
+  "sales_partner",
+  "sales_invoice",
+  "item_code",
+  "item_name",
+  "column_break_1",
+  "qty",
+  "punkte_pro_item",
+  "punkte_gesamt",
+  "column_break_2",
+  "transaction_date",
+  "is_cancelled"
+ ],
+ "fields": [
+  {
+   "fieldname": "sales_partner",
+   "fieldtype": "Link",
+   "in_list_view": 1,
+   "label": "Vertriebspartnerin",
+   "options": "Sales Partner",
+   "reqd": 1
+  },
+  {
+   "fieldname": "sales_invoice",
+   "fieldtype": "Link",
+   "in_list_view": 1,
+   "label": "Rechnung",
+   "options": "Sales Invoice",
+   "reqd": 1
+  },
+  {
+   "fieldname": "item_code",
+   "fieldtype": "Link",
+   "in_list_view": 1,
+   "label": "Artikel",
+   "options": "Item",
+   "reqd": 1
+  },
+  {
+   "fieldname": "item_name",
+   "fieldtype": "Data",
+   "label": "Artikelname",
+   "read_only": 1
+  },
+  {
+   "fieldname": "column_break_1",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "qty",
+   "fieldtype": "Float",
+   "in_list_view": 1,
+   "label": "Menge",
+   "precision": "2",
+   "reqd": 1
+  },
+  {
+   "fieldname": "punkte_pro_item",
+   "fieldtype": "Int",
+   "in_list_view": 1,
+   "label": "Punkte pro Stück",
+   "reqd": 1
+  },
+  {
+   "fieldname": "punkte_gesamt",
+   "fieldtype": "Int",
+   "in_list_view": 1,
+   "label": "Punkte Gesamt",
+   "read_only": 1,
+   "reqd": 1
+  },
+  {
+   "fieldname": "column_break_2",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "transaction_date",
+   "fieldtype": "Date",
+   "in_list_view": 1,
+   "label": "Datum",
+   "reqd": 1
+  },
+  {
+   "default": "0",
+   "fieldname": "is_cancelled",
+   "fieldtype": "Check",
+   "label": "Storniert"
+  }
+ ],
+ "index_web_pages_for_search": 1,
+ "links": [],
+ "modified": "2025-01-28 10:00:00.000000",
+ "modified_by": "Administrator",
+ "module": "Enjo Party",
+ "name": "ENJO Punkte Transaktion",
+ "owner": "Administrator",
+ "permissions": [
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "System Manager",
+   "share": 1,
+   "write": 1
+  },
+  {
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Sales User",
+   "share": 1
+  },
+  {
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Sales Manager",
+   "share": 1,
+   "write": 1
+  }
+ ],
+ "sort_field": "creation",
+ "sort_order": "DESC"
+} 
