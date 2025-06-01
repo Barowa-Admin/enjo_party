@@ -150,7 +150,12 @@ class Party(Document):
 			# Prüfen ob die Tabelle existiert und Produkte enthält
 			hat_produkte = False
 			if hasattr(self, field_name) and getattr(self, field_name):
-				for produkt in getattr(self, field_name):
+				tabelle_inhalt = getattr(self, field_name)
+				frappe.log_error(f"Gast {index} ({kunde_row.kunde}) - Anzahl Zeilen in {field_name}: {len(tabelle_inhalt)}", "DEBUG: table_check")
+				
+				for idx_prod, produkt in enumerate(getattr(self, field_name)):
+					if produkt.item_code:
+						frappe.log_error(f"  Zeile {idx_prod}: item_code={produkt.item_code}, qty={produkt.qty}, rate={produkt.rate}", "DEBUG: row_check")
 					if produkt.item_code and produkt.qty and produkt.qty > 0:
 						hat_produkte = True
 						break
@@ -574,18 +579,23 @@ def get_default_warehouse():
 
 def calculate_shipping_costs_for_party(party_doc):
     """
-    Berechnet die Versandkosten für alle Bestellungen einer Party
-    basierend auf dem Versandziel und der 200€ Schwelle
+    Berechnet Versandkosten für eine Party und erstellt Order-Informationen
     """
     all_orders = []
     
-    # Sammle Gastgeberin-Bestellung
-    if hasattr(party_doc, "produktauswahl_für_gastgeberin") and party_doc.produktauswahl_für_gastgeberin:
+    frappe.log_error(f"=== CALCULATE_SHIPPING_COSTS START für {party_doc.name} ===", "DEBUG: shipping_start")
+    
+    # Gastgeberin verarbeiten
+    if party_doc.gastgeberin and hasattr(party_doc, 'produktauswahl_für_gastgeberin') and party_doc.produktauswahl_für_gastgeberin:
+        frappe.log_error(f"Verarbeite Gastgeberin: {party_doc.gastgeberin}", "DEBUG: process_host")
+        
         produkte_gastgeberin = []
         total_gastgeberin = 0
         
-        for produkt in party_doc.produktauswahl_für_gastgeberin:
+        for idx_prod, produkt in enumerate(party_doc.produktauswahl_für_gastgeberin):
+            frappe.log_error(f"  Gastgeberin Zeile {idx_prod}: item_code={produkt.item_code}, qty={produkt.qty}, rate={produkt.rate}", "DEBUG: host_item")
             if produkt.item_code and produkt.qty and produkt.qty > 0:
+                frappe.log_error(f"  -> Gastgeberin Produkt akzeptiert: {produkt.item_code}", "DEBUG: host_accepted")
                 # WICHTIG: Übertrage ALLE Produktdaten, nicht nur die Basics!
                 product_dict = {
                     "item_code": produkt.item_code,
@@ -603,20 +613,17 @@ def calculate_shipping_costs_for_party(party_doc):
                     "delivery_date": getattr(produkt, 'delivery_date', frappe.utils.add_days(frappe.utils.nowdate(), 7))
                 }
                 
-                # KRITISCH: Übertrage auch die speziellen Markierungen für Aktionsartikel und Gutscheine
-                if hasattr(produkt, '_aktionsartikel') and produkt._aktionsartikel:
-                    product_dict['_aktionsartikel'] = True
-                if hasattr(produkt, '_gutschein_angewendet') and produkt._gutschein_angewendet:
-                    product_dict['_gutschein_angewendet'] = True
-                
                 produkte_gastgeberin.append(product_dict)
                 total_gastgeberin += flt(produkt.qty) * flt(produkt.rate or 0)
+                frappe.log_error(f"  -> Gastgeberin Produkt hinzugefügt, neue Summe: {total_gastgeberin}", "DEBUG: host_added")
         
         if produkte_gastgeberin:
             # Versandziel für Gastgeberin
             versand_ziel = getattr(party_doc, 'versand_gastgeberin', party_doc.gastgeberin)
             if not versand_ziel:
                 versand_ziel = party_doc.gastgeberin
+                
+            frappe.log_error(f"Gastgeberin ({party_doc.gastgeberin}) hat {len(produkte_gastgeberin)} Produkte, Total: {total_gastgeberin}", "DEBUG: host_order")
                 
             all_orders.append({
                 "customer": party_doc.gastgeberin,
@@ -625,24 +632,36 @@ def calculate_shipping_costs_for_party(party_doc):
                 "total": total_gastgeberin,
                 "order_type": "gastgeberin"
             })
+        else:
+            frappe.log_error(f"Gastgeberin: Keine gültigen Produkte gefunden", "DEBUG: host_no_products")
     
-    # Sammle Gäste-Bestellungen
+    # Gäste verarbeiten
+    frappe.log_error(f"Verarbeite {len(party_doc.kunden)} Gäste", "DEBUG: process_guests")
     for idx, kunde_row in enumerate(party_doc.kunden):
         if not kunde_row.kunde:
+            frappe.log_error(f"Gast {idx+1}: Kein Kunde angegeben - überspringe", "DEBUG: guest_no_customer")
             continue
             
         index = idx + 1
         field_name = f"produktauswahl_für_gast_{index}"
         versand_field = f"versand_gast_{index}"
         
+        frappe.log_error(f"=== Verarbeite Gast {index}: {kunde_row.kunde} ===", "DEBUG: guest_start")
+        
         if not hasattr(party_doc, field_name) or not getattr(party_doc, field_name):
+            frappe.log_error(f"Gast {index} ({kunde_row.kunde}): Keine Produkttabelle {field_name} gefunden", "DEBUG: no_product_table")
             continue
         
         produkte_gast = []
         total_gast = 0
         
-        for produkt in getattr(party_doc, field_name):
+        tabelle_inhalt = getattr(party_doc, field_name)
+        frappe.log_error(f"Gast {index} ({kunde_row.kunde}) - Anzahl Zeilen in {field_name}: {len(tabelle_inhalt)}", "DEBUG: table_check")
+        
+        for idx_prod, produkt in enumerate(getattr(party_doc, field_name)):
+            frappe.log_error(f"  Gast {index} Zeile {idx_prod}: item_code={produkt.item_code}, qty={produkt.qty}, rate={produkt.rate}", "DEBUG: guest_item")
             if produkt.item_code and produkt.qty and produkt.qty > 0:
+                frappe.log_error(f"  -> Gast {index} Produkt akzeptiert: {produkt.item_code}", "DEBUG: guest_accepted")
                 # WICHTIG: Übertrage ALLE Produktdaten, nicht nur die Basics!
                 product_dict = {
                     "item_code": produkt.item_code,
@@ -660,20 +679,17 @@ def calculate_shipping_costs_for_party(party_doc):
                     "delivery_date": getattr(produkt, 'delivery_date', frappe.utils.add_days(frappe.utils.nowdate(), 7))
                 }
                 
-                # KRITISCH: Übertrage auch die speziellen Markierungen für Aktionsartikel und Gutscheine
-                if hasattr(produkt, '_aktionsartikel') and produkt._aktionsartikel:
-                    product_dict['_aktionsartikel'] = True
-                if hasattr(produkt, '_gutschein_angewendet') and produkt._gutschein_angewendet:
-                    product_dict['_gutschein_angewendet'] = True
-                
                 produkte_gast.append(product_dict)
                 total_gast += flt(produkt.qty) * flt(produkt.rate or 0)
+                frappe.log_error(f"  -> Gast {index} Produkt hinzugefügt, neue Summe: {total_gast}", "DEBUG: guest_added")
         
         if produkte_gast:
             # Versandziel für Gast
             versand_ziel = getattr(party_doc, versand_field, kunde_row.kunde)
             if not versand_ziel:
                 versand_ziel = kunde_row.kunde
+                
+            frappe.log_error(f"Gast {index} ({kunde_row.kunde}) hat {len(produkte_gast)} Produkte, Total: {total_gast}", "DEBUG: guest_order")
                 
             all_orders.append({
                 "customer": kunde_row.kunde,
@@ -683,6 +699,8 @@ def calculate_shipping_costs_for_party(party_doc):
                 "order_type": "gast",
                 "guest_index": index
             })
+        else:
+            frappe.log_error(f"Gast {index} ({kunde_row.kunde}): Keine gültigen Produkte in {field_name} gefunden", "DEBUG: guest_no_products")
     
     # Gruppiere Bestellungen nach Versandziel
     shipping_groups = {}
@@ -691,6 +709,11 @@ def calculate_shipping_costs_for_party(party_doc):
         if target not in shipping_groups:
             shipping_groups[target] = []
         shipping_groups[target].append(order)
+    
+    frappe.log_error(f"=== SHIPPING GROUPS ERSTELLUNG ===", "DEBUG: shipping_groups")
+    frappe.log_error(f"Anzahl Orders vor Gruppierung: {len(all_orders)}", "DEBUG: orders_count")
+    for target, orders in shipping_groups.items():
+        frappe.log_error(f"Versandziel {target}: {len(orders)} Orders", "DEBUG: group_detail")
     
     # Berechne Versandkosten pro Gruppe
     for target, orders in shipping_groups.items():
@@ -710,6 +733,11 @@ def calculate_shipping_costs_for_party(party_doc):
             order["shipping_cost"] = shipping_cost_per_order
             order["shipping_note"] = shipping_note
     
+    frappe.log_error(f"=== ENDERGEBNIS calculate_shipping_costs_for_party ===", "DEBUG: shipping_calc_end")
+    frappe.log_error(f"FINALE Anzahl Orders: {len(all_orders)}", "DEBUG: orders_count")
+    for i, order in enumerate(all_orders):
+        frappe.log_error(f"Order {i+1}: Customer={order['customer']}, Produkte={len(order['products'])}, Total={order['total']}", "DEBUG: final_order")
+    frappe.log_error(f"SUCCESS: final_result", "SUCCESS: final_result")
     return all_orders
 
 @frappe.whitelist()
@@ -887,9 +915,13 @@ def create_invoices(party, from_submit=False, from_button=False):
         
         # NEUE VERSANDKOSTENLOGIK
         # Sammle alle Bestellungen mit ihren Versandzielen und berechne Versandkosten
+        frappe.log_error(f"=== AUFRUF calculate_shipping_costs_for_party ===", "DEBUG: before_calc")
         all_orders_with_shipping = calculate_shipping_costs_for_party(party_doc)
+        frappe.log_error(f"=== RÜCKKEHR von calculate_shipping_costs_for_party ===", "DEBUG: after_calc")
         
         frappe.log_error(f"Anzahl Orders mit Versandkosten: {len(all_orders_with_shipping)}", "DEBUG: orders_count")
+        for i, order in enumerate(all_orders_with_shipping):
+            frappe.log_error(f"Erhaltene Order {i+1}: Customer={order.get('customer')}, Products={len(order.get('products', []))}, Total={order.get('total')}", "DEBUG: received_order")
         
         if not all_orders_with_shipping:
             frappe.log_error("Keine Bestellungen gefunden - calculate_shipping_costs_for_party gab leere Liste zurück", "ERROR: no_orders_calculated")
@@ -951,7 +983,12 @@ def create_invoices(party, from_submit=False, from_button=False):
                     "customer": customer,
                     "transaction_date": today(),
                     "delivery_date": today(),
-                    "items": products,
+                    "items": [
+                        {
+                            **product,  # Alle Produktdaten übernehmen
+                            "doctype": "Sales Order Item"
+                        } for product in products
+                    ],
                     "customer_address": billing_address,  # Rechnungsadresse des Kunden
                     "shipping_address_name": shipping_address,  # Versandadresse (kann andere Person sein)
                     "remarks": f"Erstellt aus Party: {party} | Kunde: {customer} | Versand an: {shipping_target}",
@@ -1353,3 +1390,32 @@ def create_delivery_notes_for_party(party_doc, all_orders_with_shipping, created
 	except Exception as e:
 		frappe.log_error(f"Allgemeiner Fehler in create_delivery_notes_for_party: {str(e)}\n{frappe.get_traceback()}", "ERROR: dn_function_error")
 		return []
+
+# Warehouse-Hilfsfunktion hinzufügen
+@frappe.whitelist()
+def get_default_warehouse():
+	"""
+	Ermittelt das Standard-Warehouse flexibel für verschiedene Installationen
+	"""
+	# Versuche zuerst das Benutzer-Default-Warehouse
+	warehouse = frappe.defaults.get_user_default("Warehouse")
+	if warehouse:
+		return warehouse
+	
+	# Fallback: Erstes verfügbares nicht-Gruppen-Warehouse
+	warehouses = frappe.get_all("Warehouse", 
+		filters={"is_group": 0}, 
+		fields=["name"], 
+		limit=1
+	)
+	
+	if warehouses:
+		return warehouses[0].name
+	
+	# Letzter Fallback: Erstes verfügbares Warehouse überhaupt
+	all_warehouses = frappe.get_all("Warehouse", fields=["name"], limit=1)
+	if all_warehouses:
+		return all_warehouses[0].name
+	
+	# Wenn gar nichts gefunden wird, verwende einen Standard-Namen
+	return "Stores - Main"

@@ -647,33 +647,18 @@ function startAktionsSystem(frm, callback) {
 								frappe.model.set_value(neuer_eintrag.doctype, neuer_eintrag.name, 'base_rate', rate);
 								frappe.model.set_value(neuer_eintrag.doctype, neuer_eintrag.name, 'delivery_date', frappe.datetime.add_days(frappe.datetime.nowdate(), 7));
 								
-								// FLEXIBLES WAREHOUSE: Verwende Standard-Warehouse oder erstes verfügbares
-								let warehouse = frappe.defaults.get_user_default("Warehouse");
-								if (!warehouse) {
-									// Fallback: Verwende erstes verfügbares nicht-Gruppen-Warehouse
-									frappe.call({
-										method: "frappe.client.get_list",
-										args: {
-											doctype: "Warehouse",
-											filters: {"is_group": 0},
-											fields: ["name"],
-											limit: 1
-										},
-										async: false,
-										callback: function(wh_r) {
-											if (wh_r.message && wh_r.message.length > 0) {
-												warehouse = wh_r.message[0].name;
-											}
-										}
-									});
-								}
-								
-								if (warehouse) {
-									frappe.model.set_value(neuer_eintrag.doctype, neuer_eintrag.name, 'warehouse', warehouse);
-								}
+								// WAREHOUSE: Dynamisch über get_default_warehouse()
+								frappe.call({
+									method: "enjo_party.enjo_party.doctype.party.party.get_default_warehouse",
+									async: false,
+									callback: function(r) {
+										let warehouse = r.message || "Lagerräume - BM";
+										frappe.model.set_value(neuer_eintrag.doctype, neuer_eintrag.name, 'warehouse', warehouse);
+									}
+								});
 								
 								// Markierung für Aktionsartikel (als separates Feld falls nötig)
-								frappe.model.set_value(neuer_eintrag.doctype, neuer_eintrag.name, '_aktionsartikel', true);
+								// ENTFERNT: frappe.model.set_value(neuer_eintrag.doctype, neuer_eintrag.name, '_aktionsartikel', true);
 								
 								// Refresh das Feld, damit es sichtbar wird
 								frm.refresh_field(teilnehmer.produktfeld);
@@ -1097,13 +1082,19 @@ function validateAktionsartikel(frm) {
 						aktionsartikelGefunden++;
 						// Stelle sicher, dass wichtige Felder gesetzt sind
 						if (!item.qty) item.qty = 1;
-						if (!item.rate) item.rate = 0;
-						if (!item.amount) item.amount = 0;
 						if (!item.uom) item.uom = "Stk";
 						if (!item.stock_uom) item.stock_uom = "Stk";
 						if (!item.conversion_factor) item.conversion_factor = 1;
 						if (!item.delivery_date) item.delivery_date = frappe.datetime.add_days(frappe.datetime.nowdate(), 7);
-						if (!item.warehouse) item.warehouse = "Lagerräume - BM";
+						if (!item.warehouse) {
+							frappe.call({
+								method: "enjo_party.enjo_party.doctype.party.party.get_default_warehouse",
+								async: false,
+								callback: function(r) {
+									item.warehouse = r.message || "Lagerräume - BM";
+								}
+							});
+						}
 						console.log(`Aktionsartikel validiert: ${item.item_code} für Gastgeberin`);
 					}
 				});
@@ -1118,13 +1109,19 @@ function validateAktionsartikel(frm) {
 							aktionsartikelGefunden++;
 							// Stelle sicher, dass wichtige Felder gesetzt sind
 							if (!item.qty) item.qty = 1;
-							if (!item.rate) item.rate = 0;
-							if (!item.amount) item.amount = 0;
 							if (!item.uom) item.uom = "Stk";
 							if (!item.stock_uom) item.stock_uom = "Stk";
 							if (!item.conversion_factor) item.conversion_factor = 1;
 							if (!item.delivery_date) item.delivery_date = frappe.datetime.add_days(frappe.datetime.nowdate(), 7);
-							if (!item.warehouse) item.warehouse = "Lagerräume - BM";
+							if (!item.warehouse) {
+								frappe.call({
+									method: "enjo_party.enjo_party.doctype.party.party.get_default_warehouse",
+									async: false,
+									callback: function(r) {
+										item.warehouse = r.message || "Lagerräume - BM";
+									}
+								});
+							}
 							console.log(`Aktionsartikel validiert: ${item.item_code} für Gast ${i}`);
 						}
 					});
@@ -1144,9 +1141,37 @@ function erstelleAuftraegeDirectly(frm) {
 	// WICHTIG: Setze Schutz-Flag direkt im Dokument
 	frm.doc._skip_total_calculation = 1;
 	
-	// SKIP: Das Speichern verursacht Probleme - die API macht das automatisch
-	console.log("DEBUG: Überspringe Speichern - rufe API direkt auf");
-	callCreateInvoicesAPI();
+	// KRITISCH: ERST das Dokument speichern, damit Aktionsartikel in die DB geschrieben werden!
+	console.log("SPEICHERE DOKUMENT VOR API-AUFRUF...");
+	frm.save().then(() => {
+		console.log("DEBUG: Dokument erfolgreich gespeichert - rufe jetzt API auf");
+		
+		// WICHTIG: Preise für alle Artikel laden, BEVOR wir die API aufrufen!
+		console.log("Lade Preise für alle Artikel vor API-Aufruf...");
+		refresh_item_prices(frm);
+		
+		// Kurze Pause, damit die Preise geladen werden können
+		setTimeout(() => {
+			console.log("Preise geladen - rufe jetzt API auf");
+			callCreateInvoicesAPI();
+		}, 1000); // 1 Sekunde warten für Preis-Ladung
+	}).catch((error) => {
+		console.error("DEBUG: Fehler beim Speichern des Dokuments:", error);
+		// Screen wieder freigeben bei Fehler
+		frappe.freeze_screen = false;
+		
+		// Flags zurücksetzen
+		delete frm._skipTotalCalculation;
+		delete frm._skipPriceUpdates;
+		delete frm.doc._skip_total_calculation;
+		
+		frappe.msgprint({
+			title: __("Fehler"),
+			message: __("Dokument konnte nicht gespeichert werden. Bitte versuchen Sie es erneut."),
+			indicator: "red"
+		});
+		refreshButtons(frm);
+	});
 	
 	// ALTE PROBLEMATISCHE LOGIK (auskommentiert):
 	// KRITISCH: ERST das Dokument speichern, damit Aktionsartikel in die DB geschrieben werden!
@@ -2187,8 +2212,8 @@ function update_all_empty_prices(frm) {
 		const field_name = `produktauswahl_für_gast_${i}`;
 		if (frm.doc[field_name] && frm.doc[field_name].length > 0) {
 			frm.doc[field_name].forEach(function(item) {
-				// WICHTIG: Nicht überschreiben, wenn es ein Gutschein-reduzierter Artikel oder Aktionsartikel ist!
-				if (item.item_code && (!item.rate || item.rate == 0) && !item._gutschein_angewendet && !item._aktionsartikel) {
+				// WICHTIG: Nicht überschreiben, wenn es ein Gutschein-reduzierter Artikel ist!
+				if (item.item_code && (!item.rate || item.rate == 0) && !item._gutschein_angewendet) {
 					get_item_price(frm, item);
 				}
 			});
@@ -2198,8 +2223,8 @@ function update_all_empty_prices(frm) {
 	// Auch für die Gastgeberin-Tabelle
 	if (frm.doc.produktauswahl_für_gastgeberin && frm.doc.produktauswahl_für_gastgeberin.length > 0) {
 		frm.doc.produktauswahl_für_gastgeberin.forEach(function(item) {
-			// WICHTIG: Nicht überschreiben, wenn es ein Gutschein-reduzierter Artikel oder Aktionsartikel ist!
-			if (item.item_code && (!item.rate || item.rate == 0) && !item._gutschein_angewendet && !item._aktionsartikel) {
+			// WICHTIG: Nicht überschreiben, wenn es ein Gutschein-reduzierter Artikel ist!
+			if (item.item_code && (!item.rate || item.rate == 0) && !item._gutschein_angewendet) {
 				get_item_price(frm, item);
 			}
 		});
@@ -2314,5 +2339,13 @@ function enableRequiredFields(frm) {
 		}
 	}
 }
+
+// Neue Funktion zur Warehouse-Korrektur vor dem Speichern
+function fixAllWarehouses(frm) {
+	// Funktion nicht mehr benötigt - get_default_warehouse() wird direkt verwendet
+	console.log("fixAllWarehouses aufgerufen, aber nicht mehr benötigt");
+}
+
+// Validiere Aktionsartikel...
 
 
