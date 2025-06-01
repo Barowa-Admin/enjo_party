@@ -681,6 +681,9 @@ function startAktionsSystem(frm, callback) {
 function applyGutscheinSystem(frm, callback) {
 	console.log("applyGutscheinSystem gestartet");
 	
+	// Markiere, dass das Gutschein-System durchlaufen wird
+	frm._gutscheinSystemDurchlaufen = true;
+	
 	// Hole den Gutscheinwert des Gastgebers
 	let gutscheinWert = frm.doc.gastgeber_gutschein_wert || 0;
 	console.log("Verfügbarer Gutscheinwert:", gutscheinWert);
@@ -799,11 +802,11 @@ function wendeGutscheinAn(aktionsfaehigeGastgeberProdukte, verfuegbarerGutschein
 		}
 		
 		if (produktWert <= restGutschein) {
-			// Komplette Reduktion auf 0
+			// Komplette Reduktion auf 0€
 			let rabatt = produktWert;
 			verbrauchterGutschein += rabatt;
 			
-			// Setze Preis auf 0 und markiere als Gutschein-reduziert
+			// Setze Preis auf 0€ und markiere als Gutschein-reduziert
 			produkt.item.rate = 0;
 			produkt.item.amount = 0;
 			produkt.item._gutschein_angewendet = true; // WICHTIGE MARKIERUNG!
@@ -895,16 +898,16 @@ function zeigeRestbetragDialog(restbetrag, frm, callback) {
 			dialog.hide();
 			if (istVollbetrag) {
 				// Bei Vollbetrag: Zurück zur Bearbeitung (Produkte hinzufügen)
-				stelleOriginalPreiseWieder(frm);
+				stelleOriginalPreiseWieder(frm); // SICHERHEIT: Verhindert Missbrauch von reduzierten Preisen
 				refreshButtons(frm);
 			} else {
-				// Bei Restbetrag: Zurück zur Bearbeitung
-				stelleOriginalPreiseWieder(frm);
+				// Bei Restbetrag: Zurück zur Bearbeitung 
+				stelleOriginalPreiseWieder(frm); // SICHERHEIT: Verhindert Missbrauch von reduzierten Preisen
 				refreshButtons(frm);
 			}
 		},
 		secondary_action_label: istVollbetrag ? 'Gutschein verfallen lassen' : 'Restbetrag verfallen lassen',
-		secondary_action: function() {
+			secondary_action: function() {
 			dialog.hide();
 			if (istVollbetrag) {
 				// Bei Vollbetrag: Gutschein verfällt, aber Party wird trotzdem gebucht
@@ -1146,15 +1149,20 @@ function erstelleAuftraegeDirectly(frm) {
 	frm.save().then(() => {
 		console.log("DEBUG: Dokument erfolgreich gespeichert - rufe jetzt API auf");
 		
-		// WICHTIG: Preise für alle Artikel laden, BEVOR wir die API aufrufen!
-		console.log("Lade Preise für alle Artikel vor API-Aufruf...");
-		refresh_item_prices(frm);
-		
-		// Kurze Pause, damit die Preise geladen werden können
-		setTimeout(() => {
-			console.log("Preise geladen - rufe jetzt API auf");
+		// WICHTIG: Preise nur laden, wenn noch kein Gutschein angewendet wurde
+		if (!frm._gutscheinSystemDurchlaufen) {
+			console.log("Lade Preise für alle Artikel vor API-Aufruf...");
+			refresh_item_prices(frm);
+			
+			// Kurze Pause, damit die Preise geladen werden können
+			setTimeout(() => {
+				console.log("Preise geladen - rufe jetzt API auf");
+				callCreateInvoicesAPI();
+			}, 1000); // 1 Sekunde warten für Preis-Ladung
+		} else {
+			console.log("Gutschein-System bereits durchlaufen - überspringe Preis-Ladung");
 			callCreateInvoicesAPI();
-		}, 1000); // 1 Sekunde warten für Preis-Ladung
+		}
 	}).catch((error) => {
 		console.error("DEBUG: Fehler beim Speichern des Dokuments:", error);
 		// Screen wieder freigeben bei Fehler
@@ -1238,13 +1246,14 @@ function erstelleAuftraegeDirectly(frm) {
 			delete frm._skipPriceUpdates;
 			delete frm.doc._skip_total_calculation;
 			
-			// WICHTIG: Bei Fehlern Original-Preise wiederherstellen
-			stelleOriginalPreiseWieder(frm);
+			// ENTFERNT: Original-Preise NICHT bei API-Fehlern wiederherstellen!
+			// Die Gutschein-reduzierten Preise sollen erhalten bleiben
+			// stelleOriginalPreiseWieder(frm);
 			
 			// Bei API-Fehlern
 		frappe.msgprint({
 				title: __("Fehler"),
-				message: __("Es ist ein Fehler beim Erstellen der Aufträge aufgetreten. Die Original-Preise wurden wiederhergestellt. Bitte versuchen Sie es erneut."),
+				message: __("Es ist ein Fehler beim Erstellen der Aufträge aufgetreten. Bitte versuchen Sie es erneut."),
 			indicator: "red"
 		});
 			// Buttons wieder herstellen
@@ -2207,28 +2216,52 @@ function get_item_price(frm, row) {
 
 // Aktualisiere alle leeren Preise in allen Produkttabellen
 function update_all_empty_prices(frm) {
-	// Für jede Produkttabelle durchgehen
-	for (let i = 1; i <= 15; i++) {
-		const field_name = `produktauswahl_für_gast_${i}`;
-		if (frm.doc[field_name] && frm.doc[field_name].length > 0) {
-			frm.doc[field_name].forEach(function(item) {
-				// WICHTIG: Nicht überschreiben, wenn es ein Gutschein-reduzierter Artikel ist!
-				if (item.item_code && (!item.rate || item.rate == 0) && !item._gutschein_angewendet) {
-					get_item_price(frm, item);
-				}
-			});
-		}
-	}
-	
-	// Auch für die Gastgeberin-Tabelle
-	if (frm.doc.produktauswahl_für_gastgeberin && frm.doc.produktauswahl_für_gastgeberin.length > 0) {
-		frm.doc.produktauswahl_für_gastgeberin.forEach(function(item) {
-			// WICHTIG: Nicht überschreiben, wenn es ein Gutschein-reduzierter Artikel ist!
-			if (item.item_code && (!item.rate || item.rate == 0) && !item._gutschein_angewendet) {
-				get_item_price(frm, item);
+	// Lade Aktionseinstellungen dynamisch, um Aktionsartikel-Codes zu bekommen
+	frappe.call({
+		method: "enjo_party.enjo_party.doctype.enjo_aktionseinstellungen.enjo_aktionseinstellungen.get_aktionseinstellungen",
+		async: false,
+		callback: function(r) {
+			let aktionsCodes = [];
+			if (r.message) {
+				let settings = r.message;
+				aktionsCodes = [
+					settings.v1_code,
+					settings.v2_code,
+					settings.v3_code,
+					settings.v4_code,
+					settings.v5_code,
+					settings.v6_code,
+					settings.v7_code
+				].filter(code => code); // Filter leere Codes heraus
 			}
-		});
-	}
+			console.log("Schutz für Aktionsartikel-Codes:", aktionsCodes);
+			
+			// Für jede Produkttabelle durchgehen
+			for (let i = 1; i <= 15; i++) {
+				const field_name = `produktauswahl_für_gast_${i}`;
+				if (frm.doc[field_name] && frm.doc[field_name].length > 0) {
+					frm.doc[field_name].forEach(function(item) {
+						// WICHTIG: Nicht überschreiben, wenn es ein Gutschein-reduzierter Artikel oder Aktionsartikel ist!
+						let istAktionsartikel = aktionsCodes.includes(item.item_code);
+						if (item.item_code && (!item.rate || item.rate == 0) && !item._gutschein_angewendet && !istAktionsartikel) {
+							get_item_price(frm, item);
+						}
+					});
+				}
+			}
+			
+			// Auch für die Gastgeberin-Tabelle
+			if (frm.doc.produktauswahl_für_gastgeberin && frm.doc.produktauswahl_für_gastgeberin.length > 0) {
+				frm.doc.produktauswahl_für_gastgeberin.forEach(function(item) {
+					// WICHTIG: Nicht überschreiben, wenn es ein Gutschein-reduzierter Artikel oder Aktionsartikel ist!
+					let istAktionsartikel = aktionsCodes.includes(item.item_code);
+					if (item.item_code && (!item.rate || item.rate == 0) && !item._gutschein_angewendet && !istAktionsartikel) {
+						get_item_price(frm, item);
+					}
+				});
+			}
+		}
+	});
 }
 
 // Funktion zur Berechnung der Party-Gesamtsummen

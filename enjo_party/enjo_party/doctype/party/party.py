@@ -611,7 +611,9 @@ def calculate_shipping_costs_for_party(party_doc):
                     "base_amount": getattr(produkt, 'base_amount', produkt.amount or (flt(produkt.qty) * flt(produkt.rate or 0))),
                     "base_rate": getattr(produkt, 'base_rate', produkt.rate or 0),
                     "warehouse": getattr(produkt, 'warehouse', get_default_warehouse()),
-                    "delivery_date": getattr(produkt, 'delivery_date', frappe.utils.add_days(frappe.utils.nowdate(), 7))
+                    "delivery_date": getattr(produkt, 'delivery_date', frappe.utils.add_days(frappe.utils.nowdate(), 7)),
+                    # WICHTIG: Flag für Gutschein-reduzierte 0€-Artikel
+                    "_force_zero_rate": float(produkt.rate or 0) == 0.0
                 }
                 
                 produkte_gastgeberin.append(product_dict)
@@ -677,7 +679,9 @@ def calculate_shipping_costs_for_party(party_doc):
                     "base_amount": getattr(produkt, 'base_amount', produkt.amount or (flt(produkt.qty) * flt(produkt.rate or 0))),
                     "base_rate": getattr(produkt, 'base_rate', produkt.rate or 0),
                     "warehouse": getattr(produkt, 'warehouse', get_default_warehouse()),
-                    "delivery_date": getattr(produkt, 'delivery_date', frappe.utils.add_days(frappe.utils.nowdate(), 7))
+                    "delivery_date": getattr(produkt, 'delivery_date', frappe.utils.add_days(frappe.utils.nowdate(), 7)),
+                    # WICHTIG: Flag für Gutschein-reduzierte 0€-Artikel
+                    "_force_zero_rate": float(produkt.rate or 0) == 0.0
                 }
                 
                 produkte_gast.append(product_dict)
@@ -1012,6 +1016,36 @@ def create_invoices(party, from_submit=False, from_button=False):
                 
                 # Auftrag erstellen
                 order = frappe.get_doc(order_data)
+                
+                # WICHTIG: Nach der Erstellung die korrekten Preise aus dem Party-Dokument setzen
+                # um zu verhindern, dass Gutschein-reduzierte Preise überschrieben werden
+                for i, item in enumerate(order.items):
+                    original_product = products[i]
+                    
+                    # DEBUG: Zeige Flag-Status für jedes Produkt
+                    force_zero = original_product.get('_force_zero_rate', False)
+                    frappe.log_error(f"DEBUG: Item {item.item_code}, Rate: {original_product.get('rate', 'N/A')}, Force Zero: {force_zero}", "DEBUG: flag_check")
+                    
+                    # NEUE LOGIK: Prüfe das _force_zero_rate Flag für Gutschein-reduzierte 0€-Artikel
+                    if force_zero:
+                        frappe.log_error(f"Setze Gutschein-Preis für {item.item_code}: 0€ (Force Zero Flag)", "INFO: gutschein_price")
+                        # Setze alle preis-relevanten Felder explizit auf 0
+                        item.rate = 0
+                        item.price_list_rate = 0
+                        item.base_rate = 0
+                        item.base_price_list_rate = 0
+                        item.amount = 0
+                        item.base_amount = 0
+                        # Markiere, dass dies ein Gutschein-Artikel ist (falls Custom Field existiert)
+                        if hasattr(item, 'custom_gutschein_reduziert'):
+                            item.custom_gutschein_reduziert = 1
+                    else:
+                        # Für normale Artikel die Original-Preise verwenden
+                        if hasattr(original_product, 'rate') and original_product.rate is not None:
+                            item.rate = original_product.rate
+                            item.base_rate = original_product.rate
+                            item.amount = flt(item.qty) * flt(original_product.rate) 
+                            item.base_amount = item.amount
                 
                 # SAUBERE LÖSUNG: Nur spezifische Adress-Validierungen umgehen, 
                 # aber Sales Partner Provisionsberechnung NICHT beeinträchtigen
