@@ -77,14 +77,33 @@ function refreshButtons(frm) {
 // Hilfsfunktion zum Starten der Aufträge-Erstellung (ohne Button-Manipulation)
 function startAuftraegeErstellung(frm) {
 	console.log("startAuftraegeErstellung aufgerufen");
+	
+	// Aktiviere Pflichtfelder für die Validierung
+	enableRequiredFields(frm);
+	
 	// Erst prüfen, ob alle Teilnehmer Produkte haben
 	let teilnehmer_ohne_produkte = [];
+	
+	// Hilfsfunktion zum Abrufen des Kundennamens
+	function getCustomerName(customerId) {
+		let result = frappe.call({
+			method: "frappe.client.get_value",
+			args: {
+				doctype: "Customer",
+				filters: { name: customerId },
+				fieldname: "customer_name"
+			},
+			async: false
+		});
+		return result.message?.customer_name || customerId;
+	}
 	
 	// Prüfe Gastgeberin
 	if (frm.doc.gastgeberin) {
 		let hat_gastgeberin_produkte = false;
 		if (frm.doc.produktauswahl_für_gastgeberin && frm.doc.produktauswahl_für_gastgeberin.length > 0) {
 			for (let produkt of frm.doc.produktauswahl_für_gastgeberin) {
+				// Nur gefüllte Zeilen prüfen
 				if (produkt.item_code && produkt.qty && produkt.qty > 0) {
 					hat_gastgeberin_produkte = true;
 					break;
@@ -93,7 +112,7 @@ function startAuftraegeErstellung(frm) {
 		}
 		
 		if (!hat_gastgeberin_produkte) {
-			teilnehmer_ohne_produkte.push(`${frm.doc.gastgeberin} (Gastgeberin)`);
+			teilnehmer_ohne_produkte.push(`${getCustomerName(frm.doc.gastgeberin)} (Gastgeberin)`);
 		}
 	}
 	
@@ -107,6 +126,7 @@ function startAuftraegeErstellung(frm) {
 		
 		if (frm.doc[field_name] && frm.doc[field_name].length > 0) {
 			for (let produkt of frm.doc[field_name]) {
+				// Nur gefüllte Zeilen prüfen
 				if (produkt.item_code && produkt.qty && produkt.qty > 0) {
 					hat_produkte = true;
 					break;
@@ -115,7 +135,7 @@ function startAuftraegeErstellung(frm) {
 		}
 		
 		if (!hat_produkte) {
-			teilnehmer_ohne_produkte.push(kunde.kunde);
+			teilnehmer_ohne_produkte.push(getCustomerName(kunde.kunde));
 		}
 	}
 	
@@ -179,6 +199,7 @@ function startAuftraegeErstellung(frm) {
 					
 					if (frm.doc[field_name] && frm.doc[field_name].length > 0) {
 						for (let produkt of frm.doc[field_name]) {
+							// Nur gefüllte Zeilen prüfen
 							if (produkt.item_code && produkt.qty && produkt.qty > 0) {
 								hat_produkte = true;
 								break;
@@ -962,6 +983,9 @@ function stelleOriginalPreiseWieder(frm) {
 function erstelleAuftraege(frm) {
 	console.log("erstelleAuftraege aufgerufen");
 	
+	// Aktiviere Pflichtfelder für die finale Validierung
+	enableRequiredFields(frm);
+	
 	// WICHTIG: Setze Flags, um automatische Updates zu verhindern
 	frm._skipTotalCalculation = true;
 	frm._skipPriceUpdates = true;
@@ -1429,6 +1453,35 @@ function updateGastgeberinFilter(frm) {
 
 frappe.ui.form.on('Party', {
 	refresh(frm) {
+		// Deaktiviere Pflichtfelder für normales Speichern
+		disableRequiredFields(frm);
+
+		// Wenn das Dokument gebucht ist, zeige den Kundennamen statt der ID für die Gastgeberin
+		if (frm.doc.docstatus === 1 && frm.doc.gastgeberin) {
+			frappe.db.get_value('Customer', frm.doc.gastgeberin, 'customer_name')
+				.then(r => {
+					if (r.message && r.message.customer_name) {
+						// Finde das DOM-Element für die Gastgeberin
+						const gastgeberinField = frm.fields_dict['gastgeberin'];
+						if (gastgeberinField) {
+							const controlWrapper = $(gastgeberinField.wrapper);
+							const valueDisplay = controlWrapper.find('.control-value');
+
+							if (valueDisplay.length > 0) {
+								valueDisplay.text(r.message.customer_name);
+							} else {
+								const fieldInputAsDisplay = gastgeberinField.$input;
+								if (fieldInputAsDisplay && fieldInputAsDisplay.is('div') && fieldInputAsDisplay.hasClass('like-disabled-input')) {
+									fieldInputAsDisplay.text(r.message.customer_name);
+								}
+							}
+						}
+					}
+				});
+		}
+
+		// Rest des bestehenden refresh-Codes...
+
 		// Zeige die Produktauswahl-Tabellen für die Gäste erst nach dem Speichern
 		// Alle Gäste-Tabellen werden im Neu-Modus ausgeblendet
 		for (let i = 1; i <= 15; i++) {
@@ -1489,28 +1542,103 @@ frappe.ui.form.on('Party', {
 		if (frm.doc.gastgeberin) {
 			promises.push(
 				frappe.db.get_doc('Customer', frm.doc.gastgeberin).then(doc => {
-					optionen.push({ value: frm.doc.gastgeberin, label: doc.customer_name });
+					// Sicherstellen, dass doc und doc.customer_name existieren
+					if (doc && doc.customer_name) {
+						optionen.push({ value: frm.doc.gastgeberin, label: doc.customer_name });
+					} else {
+						optionen.push({ value: frm.doc.gastgeberin, label: frm.doc.gastgeberin }); // Fallback auf ID
+					}
+				}).catch(() => {
+					optionen.push({ value: frm.doc.gastgeberin, label: frm.doc.gastgeberin }); // Fallback bei Fehler
 				})
 			);
 		}
 		// Partnerin wird NICHT als Customer abgefragt!
 		// Die Partnerin kann als Versandziel nicht ausgewählt werden
 		if (frm.doc.kunden && frm.doc.kunden.length > 0) {
-			frm.doc.kunden.forEach(function(kunde) {
-				if (kunde.kunde) {
+			frm.doc.kunden.forEach(function(kunde_row) { // Renamed 'kunde' to 'kunde_row'
+				if (kunde_row.kunde) {
 					promises.push(
-						frappe.db.get_doc('Customer', kunde.kunde).then(doc => {
-							optionen.push({ value: kunde.kunde, label: doc.customer_name });
+						frappe.db.get_doc('Customer', kunde_row.kunde).then(doc => {
+							// Sicherstellen, dass doc und doc.customer_name existieren
+							if (doc && doc.customer_name) {
+								optionen.push({ value: kunde_row.kunde, label: doc.customer_name });
+							} else {
+								optionen.push({ value: kunde_row.kunde, label: kunde_row.kunde }); // Fallback auf ID
+							}
+						}).catch(() => {
+							optionen.push({ value: kunde_row.kunde, label: kunde_row.kunde }); // Fallback bei Fehler
 						})
 					);
 				}
 			});
 		}
 		Promise.all(promises).then(() => {
+			// Entferne Duplikate aus Optionen
+			const uniqueOptionen = optionen.filter((option, index, self) =>
+				index === self.findIndex((o) => (
+					o.value === option.value
+				))
+			);
+
 			for (let i = 1; i <= 15; i++) {
-				frm.set_df_property(`versand_gast_${i}`, 'options', optionen);
+				if (frm.fields_dict[`versand_gast_${i}`]) { // Nur wenn das Feld existiert
+					frm.set_df_property(`versand_gast_${i}`, 'options', uniqueOptionen);
+				}
 			}
-			frm.set_df_property('versand_gastgeberin', 'options', optionen);
+			if (frm.fields_dict['versand_gastgeberin']) { // Nur wenn das Feld existiert
+				frm.set_df_property('versand_gastgeberin', 'options', uniqueOptionen);
+			}
+
+			// NEUER TEIL: Wenn Dokument gebucht ist (docstatus === 1), zeige Namen statt IDs in Versand-Dropdowns
+			if (frm.doc.docstatus === 1) {
+				setTimeout(() => {
+					const felderZuPruefen = [];
+					if (frm.fields_dict['versand_gastgeberin'] && frm.doc.versand_gastgeberin) {
+						felderZuPruefen.push('versand_gastgeberin');
+					}
+					for (let k = 1; k <= 15; k++) {
+						const feldNameLoop = `versand_gast_${k}`;
+						// Prüfe, ob das Feld im Formular definiert ist UND einen Wert im Dokument hat
+						if (frm.fields_dict[feldNameLoop] && frm.doc[feldNameLoop]) {
+							felderZuPruefen.push(feldNameLoop);
+						}
+					}
+
+					felderZuPruefen.forEach(feldName => {
+						const kundenId = frm.doc[feldName];
+						// Sollte nicht passieren wegen der Prüfung oben, aber als Sicherheit
+						if (!kundenId) return; 
+						
+						let kundenName = kundenId; // Fallback
+
+						const passendeOption = uniqueOptionen.find(opt => opt.value === kundenId);
+						if (passendeOption && passendeOption.label) {
+							kundenName = passendeOption.label;
+						} else {
+							// Dieser Fall sollte selten sein, wenn uniqueOptionen aktuell ist
+							console.warn(`Konnte Kundennamen für ID ${kundenId} im Feld ${feldName} nicht in den Optionen finden. Anzeige bleibt ID.`);
+						}
+						
+						// Finde das DOM-Element, das den Wert des (nun schreibgeschützten) Select-Feldes anzeigt
+						const controlWrapper = $(frm.fields_dict[feldName].wrapper);
+						const valueDisplay = controlWrapper.find('.control-value');
+
+						if (valueDisplay.length > 0) {
+							valueDisplay.text(kundenName);
+						} else {
+							// Fallback, falls .control-value nicht existiert oder nicht das richtige Element ist.
+							// In manchen Fällen wird der Text direkt im $input Element angezeigt, wenn es ein Div ist.
+							const fieldInputAsDisplay = frm.fields_dict[feldName].$input;
+							if (fieldInputAsDisplay && fieldInputAsDisplay.is('div') && fieldInputAsDisplay.hasClass('like-disabled-input')) {
+								fieldInputAsDisplay.text(kundenName);
+							} else {
+								console.warn(`Konnte .control-value oder alternatives Anzeigeelement für Feld ${feldName} nicht finden, um Kundennamen anzuzeigen.`);
+							}
+						}
+					});
+				}, 800); // Verzögerung, um Rendering und read-only Status abzuwarten
+			}
 		});
 		
 		// Verstecke das Datum-Feld in allen Produktauswahl-Tabellen und setze Item-Filter
@@ -2139,4 +2267,52 @@ function calculate_gutschein_value(total_amount) {
 	
 	return gutschein_wert;
 }
+
+// Neue Hilfsfunktionen zum Aktivieren/Deaktivieren der Pflichtfelder
+function disableRequiredFields(frm) {
+	// Für Gastgeberin-Tabelle
+	if (frm.fields_dict["produktauswahl_für_gastgeberin"]) {
+		frm.fields_dict["produktauswahl_für_gastgeberin"].grid.update_docfield_property('item_code', 'reqd', 0);
+		frm.fields_dict["produktauswahl_für_gastgeberin"].grid.update_docfield_property('item_name', 'reqd', 0);
+		frm.fields_dict["produktauswahl_für_gastgeberin"].grid.update_docfield_property('qty', 'reqd', 0);
+		frm.fields_dict["produktauswahl_für_gastgeberin"].grid.update_docfield_property('uom', 'reqd', 0);
+		frm.fields_dict["produktauswahl_für_gastgeberin"].grid.update_docfield_property('conversion_factor', 'reqd', 0);
+	}
+
+	// Für alle Gäste-Tabellen
+	for (let i = 1; i <= 15; i++) {
+		let fieldName = `produktauswahl_für_gast_${i}`;
+		if (frm.fields_dict[fieldName]) {
+			frm.fields_dict[fieldName].grid.update_docfield_property('item_code', 'reqd', 0);
+			frm.fields_dict[fieldName].grid.update_docfield_property('item_name', 'reqd', 0);
+			frm.fields_dict[fieldName].grid.update_docfield_property('qty', 'reqd', 0);
+			frm.fields_dict[fieldName].grid.update_docfield_property('uom', 'reqd', 0);
+			frm.fields_dict[fieldName].grid.update_docfield_property('conversion_factor', 'reqd', 0);
+		}
+	}
+}
+
+function enableRequiredFields(frm) {
+	// Für Gastgeberin-Tabelle
+	if (frm.fields_dict["produktauswahl_für_gastgeberin"]) {
+		frm.fields_dict["produktauswahl_für_gastgeberin"].grid.update_docfield_property('item_code', 'reqd', 1);
+		frm.fields_dict["produktauswahl_für_gastgeberin"].grid.update_docfield_property('item_name', 'reqd', 1);
+		frm.fields_dict["produktauswahl_für_gastgeberin"].grid.update_docfield_property('qty', 'reqd', 1);
+		frm.fields_dict["produktauswahl_für_gastgeberin"].grid.update_docfield_property('uom', 'reqd', 1);
+		frm.fields_dict["produktauswahl_für_gastgeberin"].grid.update_docfield_property('conversion_factor', 'reqd', 1);
+	}
+
+	// Für alle Gäste-Tabellen
+	for (let i = 1; i <= 15; i++) {
+		let fieldName = `produktauswahl_für_gast_${i}`;
+		if (frm.fields_dict[fieldName]) {
+			frm.fields_dict[fieldName].grid.update_docfield_property('item_code', 'reqd', 1);
+			frm.fields_dict[fieldName].grid.update_docfield_property('item_name', 'reqd', 1);
+			frm.fields_dict[fieldName].grid.update_docfield_property('qty', 'reqd', 1);
+			frm.fields_dict[fieldName].grid.update_docfield_property('uom', 'reqd', 1);
+			frm.fields_dict[fieldName].grid.update_docfield_property('conversion_factor', 'reqd', 1);
+		}
+	}
+}
+
 
