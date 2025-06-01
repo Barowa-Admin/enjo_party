@@ -462,7 +462,7 @@ class Party(Document):
 	def validate_all_addresses(self):
 		"""
 		Prüft, ob alle benötigten Teilnehmer (Gastgeberin und Gäste) Adressen haben.
-		Wirft einen Fehler, wenn Adressen fehlen.
+		TEMPORÄR: Nur Warnung statt Fehler, um Speichern zu ermöglichen.
 		"""
 		if self.is_new():
 			return  # Überspringe Validierung für neue Dokumente
@@ -484,25 +484,22 @@ class Party(Document):
 				if not find_existing_address(kunde_row.kunde, "Billing"):
 					teilnehmer_ohne_adresse.append(f"Gast ({kunde_row.kunde})")
 		
-		# Wenn Teilnehmer ohne Adressen gefunden wurden, zeige eine klare Fehlermeldung
+		# Wenn Teilnehmer ohne Adressen gefunden wurden, zeige eine WARNUNG statt Fehler
 		if teilnehmer_ohne_adresse:
 			fehlende_adressen = ", ".join(teilnehmer_ohne_adresse)
 			
-			frappe.throw(
-				f"""Die folgenden Teilnehmer haben keine Adresse hinterlegt: {fehlende_adressen}
+			# NUR WARNUNG - KEIN frappe.throw() mehr!
+			frappe.msgprint(
+				f"""WARNUNG: Die folgenden Teilnehmer haben keine Adresse hinterlegt: {fehlende_adressen}
 				
-				Bitte füge zuerst die fehlenden Adressen bei den jeweiligen Kunden hinzu, bevor Du die Präsentation speicherst.
+				Bitte füge die fehlenden Adressen bei den jeweiligen Kunden hinzu, bevor Du Aufträge erstellst.
 				
-				Gehe dazu wie folgt vor:
-				1. Öffne den jeweiligen Kunden
-				2. Scrolle zum Abschnitt "Adresse und Kontakte"
-				3. Klicke auf "Adresse hinzufügen"
-				4. Fülle alle Pflichtfelder aus
-				5. Speichere die Adresse
-				6. Kehre zur Präsentation zurück
-				
-				WICHTIG: Es muss mindestens eine Rechnungsadresse (Billing) pro Kunde vorhanden sein."""
+				Die Party wird trotzdem gespeichert, aber für die Aufträge werden Adressen benötigt.""",
+				alert=True,
+				indicator="yellow"
 			)
+			
+			frappe.log_error(f"Adress-Warnung für Party {self.name}: {fehlende_adressen}", "WARNING: missing_addresses")
 
 # VERALTET: Diese Funktion erstellt automatisch Adressen - NICHT MEHR VERWENDEN!
 def get_or_create_address(customer_name, address_type="Billing"):
