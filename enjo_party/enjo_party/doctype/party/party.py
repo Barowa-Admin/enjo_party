@@ -550,6 +550,7 @@ def link_address_to_customer(address_name, customer_name):
 		link.insert(ignore_permissions=True)
 
 # Warehouse-Hilfsfunktion hinzufügen
+@frappe.whitelist()
 def get_default_warehouse():
 	"""
 	Ermittelt das Standard-Warehouse flexibel für verschiedene Installationen
@@ -1390,32 +1391,3 @@ def create_delivery_notes_for_party(party_doc, all_orders_with_shipping, created
 	except Exception as e:
 		frappe.log_error(f"Allgemeiner Fehler in create_delivery_notes_for_party: {str(e)}\n{frappe.get_traceback()}", "ERROR: dn_function_error")
 		return []
-
-# Warehouse-Hilfsfunktion hinzufügen
-@frappe.whitelist()
-def get_default_warehouse():
-	"""
-	Ermittelt das Standard-Warehouse flexibel für verschiedene Installationen
-	"""
-	# Versuche zuerst das Benutzer-Default-Warehouse
-	warehouse = frappe.defaults.get_user_default("Warehouse")
-	if warehouse:
-		return warehouse
-	
-	# Fallback: Erstes verfügbares nicht-Gruppen-Warehouse
-	warehouses = frappe.get_all("Warehouse", 
-		filters={"is_group": 0}, 
-		fields=["name"], 
-		limit=1
-	)
-	
-	if warehouses:
-		return warehouses[0].name
-	
-	# Letzter Fallback: Erstes verfügbares Warehouse überhaupt
-	all_warehouses = frappe.get_all("Warehouse", fields=["name"], limit=1)
-	if all_warehouses:
-		return all_warehouses[0].name
-	
-	# Wenn gar nichts gefunden wird, verwende einen Standard-Namen
-	return "Stores - Main"
