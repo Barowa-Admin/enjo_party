@@ -21,24 +21,46 @@ class Party(Document):
 		self.db_set("party_name", self.name, update_modified=False)
 		
 	def validate(self):
+		frappe.log_error(f"=== VALIDATE START für {self.name} - skip_flag: {getattr(self, 'skip_total_calculation', False)} ===", "DEBUG: validate_start")
+		
 		# Stelle sicher, dass UOM Conversion Factor in allen Produkttabellen gesetzt ist
+		frappe.log_error("Starte set_uom_conversion_factor", "DEBUG: validate_step")
 		self.set_uom_conversion_factor()
+		frappe.log_error("set_uom_conversion_factor abgeschlossen", "DEBUG: validate_step")
 		
 		# Berechne Gesamtumsatz und Gutscheinwert NUR wenn nicht in Aufträge-Erstellung
 		# (Schutz für Gutschrift-reduzierte Preise)
-		if not getattr(self, '_skip_total_calculation', False):
+		if not getattr(self, 'skip_total_calculation', False):
+			frappe.log_error("Starte calculate_totals", "DEBUG: validate_step")
 			self.calculate_totals()
+			frappe.log_error("calculate_totals abgeschlossen", "DEBUG: validate_step")
+		else:
+			frappe.log_error("calculate_totals übersprungen (skip_flag gesetzt)", "DEBUG: validate_step")
 		
 		# Prüfe, dass die Gastgeberin nicht auch als Gast in der Kundenliste steht
+		frappe.log_error("Starte validate_gastgeberin_not_in_kunden", "DEBUG: validate_step")
 		self.validate_gastgeberin_not_in_kunden()
+		frappe.log_error("validate_gastgeberin_not_in_kunden abgeschlossen", "DEBUG: validate_step")
 		
 		# NEUE ADRESSVALIDIERUNG: Prüfe alle Adressen VOR der Produktvalidierung
-		self.validate_all_addresses()
+		# ABER NUR wenn nicht in Aufträge-Erstellung (skip_total_calculation Flag)
+		if not getattr(self, 'skip_total_calculation', False):
+			frappe.log_error("Starte validate_all_addresses", "DEBUG: validate_step")
+			self.validate_all_addresses()
+			frappe.log_error("validate_all_addresses abgeschlossen", "DEBUG: validate_step")
+		else:
+			frappe.log_error("validate_all_addresses übersprungen (skip_flag gesetzt)", "DEBUG: validate_step")
 		
 		# Prüfe, dass alle Gäste Produkte ausgewählt haben (nur wenn nicht neu UND nicht in Aufträge-Erstellung)
 		# (Schutz für Aktionsartikel während der Aufträge-Erstellung)
-		if not self.is_new() and not getattr(self, '_skip_total_calculation', False):
+		if not self.is_new() and not getattr(self, 'skip_total_calculation', False):
+			frappe.log_error("Starte validate_all_guests_have_products", "DEBUG: validate_step")
 			self.validate_all_guests_have_products()
+			frappe.log_error("validate_all_guests_have_products abgeschlossen", "DEBUG: validate_step")
+		else:
+			frappe.log_error("validate_all_guests_have_products übersprungen (neu oder skip_flag gesetzt)", "DEBUG: validate_step")
+		
+		frappe.log_error(f"=== VALIDATE ENDE für {self.name} ===", "DEBUG: validate_end")
 	
 	def before_submit(self):
 		"""
@@ -798,7 +820,7 @@ def create_invoices(party, from_submit=False, from_button=False):
             # WICHTIG: Setze Schutz-Flag, um zu verhindern, dass calculate_totals() 
             # die Gutschrift-reduzierten Preise überschreibt
             if from_button:
-                party_doc._skip_total_calculation = True
+                party_doc.skip_total_calculation = True
                 
         except Exception as e:
             frappe.log_error(f"Party-Dokument konnte nicht geladen werden: {str(e)}", "ERROR: create_orders")

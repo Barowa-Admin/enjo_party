@@ -1141,8 +1141,8 @@ function erstelleAuftraegeDirectly(frm) {
 	console.log("DEBUG: erstelleAuftraegeDirectly aufgerufen - NEUE VERSION");
 	console.log("erstelleAuftraegeDirectly aufgerufen");
 	
-	// WICHTIG: Setze Schutz-Flag direkt im Dokument
-	frm.doc._skip_total_calculation = 1;
+	// WICHTIG: Setze Schutz-Flag direkt im Dokument (ohne Unterstrich, damit es übertragen wird!)
+	frm.doc.skip_total_calculation = 1;
 	
 	// KRITISCH: ERST das Dokument speichern, damit Aktionsartikel in die DB geschrieben werden!
 	console.log("SPEICHERE DOKUMENT VOR API-AUFRUF...");
@@ -1171,7 +1171,7 @@ function erstelleAuftraegeDirectly(frm) {
 		// Flags zurücksetzen
 		delete frm._skipTotalCalculation;
 		delete frm._skipPriceUpdates;
-		delete frm.doc._skip_total_calculation;
+		delete frm.doc.skip_total_calculation;
 		
 		frappe.msgprint({
 			title: __("Fehler"),
@@ -1212,7 +1212,7 @@ function erstelleAuftraegeDirectly(frm) {
 			// WICHTIG: Flags zurücksetzen, damit normale Funktionalität wiederhergestellt wird
 			delete frm._skipTotalCalculation;
 			delete frm._skipPriceUpdates;
-			delete frm.doc._skip_total_calculation;
+			delete frm.doc.skip_total_calculation;
 			
 				if (r.message && r.message.length > 0) {
 					frappe.msgprint({
@@ -1244,7 +1244,7 @@ function erstelleAuftraegeDirectly(frm) {
 			// WICHTIG: Flags zurücksetzen auch bei Fehlern
 			delete frm._skipTotalCalculation;
 			delete frm._skipPriceUpdates;
-			delete frm.doc._skip_total_calculation;
+			delete frm.doc.skip_total_calculation;
 			
 			// ENTFERNT: Original-Preise NICHT bei API-Fehlern wiederherstellen!
 			// Die Gutschein-reduzierten Preise sollen erhalten bleiben
