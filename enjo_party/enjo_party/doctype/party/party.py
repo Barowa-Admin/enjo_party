@@ -462,10 +462,14 @@ class Party(Document):
 	def validate_all_addresses(self):
 		"""
 		Prüft, ob alle benötigten Teilnehmer (Gastgeberin und Gäste) Adressen haben.
-		TEMPORÄR: Nur Warnung statt Fehler, um Speichern zu ermöglichen.
+		REDUZIERT: Weniger aggressive Warnungen
 		"""
 		if self.is_new():
 			return  # Überspringe Validierung für neue Dokumente
+		
+		# NUR PRÜFEN wenn der Status "Produkte" ist und wir kurz vor der Auftragserstellung stehen
+		if self.status != "Produkte":
+			return  # Überspringe Validierung in frühen Phasen
 		
 		teilnehmer_ohne_adresse = []
 		
@@ -484,22 +488,26 @@ class Party(Document):
 				if not find_existing_address(kunde_row.kunde, "Billing"):
 					teilnehmer_ohne_adresse.append(f"Gast ({kunde_row.kunde})")
 		
-		# Wenn Teilnehmer ohne Adressen gefunden wurden, zeige eine WARNUNG statt Fehler
-		if teilnehmer_ohne_adresse:
+		# REDUZIERT: Nur noch bei VIELEN fehlenden Adressen warnen, einzelne ignorieren
+		if len(teilnehmer_ohne_adresse) > 2:  # Mehr als 2 Teilnehmer ohne Adresse
 			fehlende_adressen = ", ".join(teilnehmer_ohne_adresse)
 			
-			# NUR WARNUNG - KEIN frappe.throw() mehr!
+			# REDUZIERTE WARNUNG - nur bei vielen fehlenden Adressen
 			frappe.msgprint(
-				f"""WARNUNG: Die folgenden Teilnehmer haben keine Adresse hinterlegt: {fehlende_adressen}
+				f"""INFO: {len(teilnehmer_ohne_adresse)} Teilnehmer haben möglicherweise unvollständige Adressen: {fehlende_adressen}
 				
-				Bitte füge die fehlenden Adressen bei den jeweiligen Kunden hinzu, bevor Du Aufträge erstellst.
+				Falls nötig, überprüfe die Adressen vor der Auftragserstellung.
 				
-				Die Party wird trotzdem gespeichert, aber für die Aufträge werden Adressen benötigt.""",
+				Die Party wird normal gespeichert.""",
 				alert=True,
-				indicator="yellow"
+				indicator="blue"
 			)
 			
-			frappe.log_error(f"Adress-Warnung für Party {self.name}: {fehlende_adressen}", "WARNING: missing_addresses")
+			frappe.log_error(f"Adress-Info für Party {self.name}: {fehlende_adressen}", "INFO: address_check")
+		else:
+			# Bei wenigen fehlenden Adressen: Nur stilles Logging
+			if teilnehmer_ohne_adresse:
+				frappe.log_error(f"Vereinzelte Adress-Hinweise für Party {self.name}: {', '.join(teilnehmer_ohne_adresse)}", "INFO: few_address_hints")
 
 # VERALTET: Diese Funktion erstellt automatisch Adressen - NICHT MEHR VERWENDEN!
 def get_or_create_address(customer_name, address_type="Billing"):
@@ -836,38 +844,8 @@ def create_invoices(party, from_submit=False, from_button=False):
         if not party_doc.gastgeberin:
             frappe.throw("Es wurde keine Gastgeberin angegeben.")
             
-        # NEUE ADRESSVALIDIERUNG: Prüfe ALLE Adressen bevor wir anfangen
-        teilnehmer_ohne_adresse = []
-        
-        # 1. Prüfe Gastgeberin
-        if not find_existing_address(party_doc.gastgeberin, "Billing"):
-            teilnehmer_ohne_adresse.append(f"Gastgeberin ({party_doc.gastgeberin})")
-        
-        # 2. Prüfe alle Gäste
-        for kunde_row in party_doc.kunden:
-            if not kunde_row.kunde:
-                continue
-            if not find_existing_address(kunde_row.kunde, "Billing"):
-                teilnehmer_ohne_adresse.append(f"Gast ({kunde_row.kunde})")
-        
-        # Wenn Teilnehmer ohne Adressen gefunden wurden, Erstellung abbrechen
-        if teilnehmer_ohne_adresse:
-            fehlende_adressen = ", ".join(teilnehmer_ohne_adresse)
-            frappe.throw(
-                f"""Die folgenden Teilnehmer haben keine Adresse hinterlegt: {fehlende_adressen}
-                
-                Bitte füge zuerst die fehlenden Adressen bei den jeweiligen Kunden hinzu, bevor Du die Aufträge erstellst.
-                
-                Gehe dazu wie folgt vor:
-                1. Öffne den jeweiligen Kunden
-                2. Scrolle zum Abschnitt "Adresse und Kontakte"
-                3. Klicke auf "Adresse hinzufügen"
-                4. Fülle alle Pflichtfelder aus
-                5. Speichere die Adresse
-                6. Kehre zur Präsentation zurück
-                
-                WICHTIG: Es muss mindestens eine Rechnungsadresse (Billing) pro Kunde vorhanden sein."""
-            )
+        # ENTFERNT: Aggressive Adressvalidierung vor Auftragserstellung (führte zu doppelten Fehlermeldungen)
+        # Die Adressen werden jetzt bei der individuellen Auftragserstellung geprüft.
         
         # Vollständige Produktvalidierung für alle Teilnehmer
         teilnehmer_ohne_produkte = []
@@ -1157,12 +1135,26 @@ def create_invoices(party, from_submit=False, from_button=False):
         
         frappe.db.commit()
         frappe.log_error(f"create_invoices beendet. Rückgabe: {created_orders}", "INFO: function_end")
+        
+        # WICHTIG: Räume das skip_total_calculation Flag auf, damit es nicht hängen bleibt
+        if hasattr(party_doc, 'skip_total_calculation'):
+            delattr(party_doc, 'skip_total_calculation')
+            frappe.log_error("skip_total_calculation Flag aufgeräumt", "INFO: flag_cleanup")
+        
         return created_orders
         
     except Exception as e:
         # Bei Fehlern Rollback und Fehlermeldung
         frappe.db.rollback()
         frappe.log_error(f"Allgemeiner Fehler: {str(e)}\n{frappe.get_traceback()}", f"ERROR: Auftragserstellung für Party {party}")
+        
+        # WICHTIG: Auch bei Fehlern das Flag aufräumen
+        try:
+            if hasattr(party_doc, 'skip_total_calculation'):
+                delattr(party_doc, 'skip_total_calculation')
+                frappe.log_error("skip_total_calculation Flag bei Fehler aufgeräumt", "INFO: error_flag_cleanup")
+        except:
+            pass  # Falls party_doc nicht existiert, ignoriere den Fehler
         
         # Wenn der Aufruf aus before_submit kommt, müssen wir den Fehler einfach weiterreichen
         if from_submit:
@@ -1226,6 +1218,7 @@ def find_existing_address(customer_name, preferred_type="Billing"):
     - preferred_type: "Billing" oder "Shipping" 
     - Falls preferred_type nicht gefunden wird, nimm andere verfügbare Adresse
     - NIEMALS neue Adressen erstellen!
+    - ERWEITERT: Sucht auch in Contact-verknüpften Adressen
     """
     try:
         # Prüfen, ob der Customer überhaupt existiert
@@ -1237,14 +1230,52 @@ def find_existing_address(customer_name, preferred_type="Billing"):
         customer_doc = frappe.get_doc("Customer", customer_name)
         display_name = customer_doc.customer_name or customer_name
         
-        # Finde alle Adressen für diesen Kunden
-        address_links = frappe.get_all(
+        # ERWEITERT: Finde alle Adressen für diesen Kunden (Customer + Contact Links)
+        address_links = []
+        
+        # 1. Direkte Customer-Links
+        customer_links = frappe.get_all(
             "Dynamic Link",
             filters={"link_doctype": "Customer", "link_name": customer_name},
             fields=["parent"]
         )
+        address_links.extend(customer_links)
         
-        if not address_links:
+        # 2. Contact-Links (Adressen die über Kontakte verknüpft sind)
+        try:
+            contact_links = frappe.get_all(
+                "Dynamic Link", 
+                filters={"link_doctype": "Contact"},
+                fields=["parent", "link_name"]
+            )
+            
+            # Prüfe welche Kontakte zu diesem Customer gehören
+            for contact_link in contact_links:
+                if contact_link.parent and frappe.db.exists("Contact", contact_link.link_name):
+                    # Prüfe, ob dieser Contact mit unserem Customer verknüpft ist
+                    contact_customer_links = frappe.get_all(
+                        "Dynamic Link",
+                        filters={
+                            "parent": contact_link.link_name,
+                            "parenttype": "Contact", 
+                            "link_doctype": "Customer",
+                            "link_name": customer_name
+                        },
+                        fields=["parent"]
+                    )
+                    
+                    if contact_customer_links:
+                        # Dieser Contact gehört zu unserem Customer, also verwende seine Adresse
+                        address_links.append({"parent": contact_link.parent})
+                        frappe.log_error(f"Contact-Adresse gefunden für '{display_name}': {contact_link.parent}", "INFO: contact_address_found")
+        except Exception as e:
+            frappe.log_error(f"Fehler beim Suchen von Contact-Adressen für '{display_name}': {str(e)}", "WARNING: contact_search_error")
+        
+        # Entferne Duplikate
+        unique_addresses = list({link["parent"]: link for link in address_links if link.get("parent")}.values())
+        
+        if not unique_addresses:
+            # NUR STILLES LOGGING, KEINE BENUTZER-WARNUNG MEHR
             frappe.log_error(f"Keine Adressen für Customer '{display_name}' gefunden", "WARNING: no_addresses")
             return None
         
@@ -1252,9 +1283,9 @@ def find_existing_address(customer_name, preferred_type="Billing"):
         preferred_addresses = []
         other_addresses = []
         
-        for link in address_links:
+        for link in unique_addresses:
             try:
-                addr = frappe.get_doc("Address", link.parent)
+                addr = frappe.get_doc("Address", link["parent"])
                 # Prüfe, ob die Adresse vollständig ist
                 if not addr.address_line1 or not addr.city or not addr.country:
                     frappe.log_error(f"Unvollständige Adresse für '{display_name}': {addr.name}", "WARNING: incomplete_address")
@@ -1265,7 +1296,7 @@ def find_existing_address(customer_name, preferred_type="Billing"):
                 else:
                     other_addresses.append(addr.name)
             except Exception as e:
-                frappe.log_error(f"Fehler beim Laden der Adresse {link.parent}: {str(e)}", "ERROR: load_address")
+                frappe.log_error(f"Fehler beim Laden der Adresse {link['parent']}: {str(e)}", "ERROR: load_address")
                 continue
         
         # Rückgabe-Logik
@@ -1276,7 +1307,8 @@ def find_existing_address(customer_name, preferred_type="Billing"):
             frappe.log_error(f"Fallback: Andere Adresse für '{display_name}': {other_addresses[0]} (kein {preferred_type} gefunden)", "INFO: address_fallback")
             return other_addresses[0]
         else:
-            frappe.log_error(f"Keine verwendbaren Adressen für '{display_name}' gefunden", "ERROR: no_usable_address")
+            # NUR STILLES LOGGING, KEINE BENUTZER-WARNUNG MEHR
+            frappe.log_error(f"Keine verwendbaren Adressen für '{display_name}' gefunden", "WARNING: no_usable_address")
             return None
             
     except Exception as e:
