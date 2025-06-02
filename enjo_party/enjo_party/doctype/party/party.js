@@ -1138,15 +1138,15 @@ function validateAktionsartikel(frm) {
 
 // Hilfsfunktion für direkten API-Aufruf
 function erstelleAuftraegeDirectly(frm) {
-	console.log("DEBUG: erstelleAuftraegeDirectly aufgerufen - NEUE VERSION");
-	console.log("erstelleAuftraegeDirectly aufgerufen");
+	console.log("DEBUG: erstelleAuftraegeDirectly aufgerufen");
 	
-	// WICHTIG: Setze Schutz-Flag direkt im Dokument (ohne Unterstrich, damit es übertragen wird!)
-	frm.doc.skip_total_calculation = 1;
+	// LÖSUNG: Setze die Skip Total Calculation Checkbox DIREKT
+	console.log("Setze Skip Total Calculation Checkbox auf 1");
+	frm.set_value('skip_total_calculation', 1);
 	
-	// WICHTIG: Entferne leere Zeilen aus allen Produkttabellen vor dem Speichern
-	console.log("Entferne leere Zeilen aus Produkttabellen...");
-	cleanEmptyRowsFromProductTables(frm);
+	// Zusätzlich: Setze auch lokale Flags als Backup
+	frm._skipTotalCalculation = true;
+	frm._skipPriceUpdates = true;
 	
 	// MINIMAL FIX: Kurze Pause damit UI sich aktualisiert
 	setTimeout(() => {
@@ -1174,10 +1174,10 @@ function erstelleAuftraegeDirectly(frm) {
 			// Screen wieder freigeben bei Fehler
 			frappe.freeze_screen = false;
 			
-			// Flags zurücksetzen
+			// Flags zurücksetzen (inklusive Checkbox!)
+			frm.set_value('skip_total_calculation', 0);
 			delete frm._skipTotalCalculation;
 			delete frm._skipPriceUpdates;
-			delete frm.doc.skip_total_calculation;
 			
 			frappe.msgprint({
 				title: __("Fehler"),
@@ -1186,7 +1186,7 @@ function erstelleAuftraegeDirectly(frm) {
 			});
 			refreshButtons(frm);
 		});
-	}, 50);
+	}, 100); // Etwas länger warten, damit set_value wirkt
 	
 	function callCreateInvoicesAPI() {
 		console.log("DEBUG: Starte API-Aufruf");
@@ -1204,9 +1204,9 @@ function erstelleAuftraegeDirectly(frm) {
 				frappe.freeze_screen = false;
 				
 				// WICHTIG: Flags zurücksetzen, damit normale Funktionalität wiederhergestellt wird
+				frm.set_value('skip_total_calculation', 0);
 				delete frm._skipTotalCalculation;
 				delete frm._skipPriceUpdates;
-				delete frm.doc.skip_total_calculation;
 				
 				if (r.message && r.message.length > 0) {
 					frappe.msgprint({
@@ -1225,36 +1225,32 @@ function erstelleAuftraegeDirectly(frm) {
 						message: __("Es wurden keine Aufträge erstellt. Bitte überprüfen Sie, ob Produkte ausgewählt wurden."),
 						indicator: "orange"
 					});
-				// Buttons wieder herstellen statt reload
-				console.log("Keine Aufträge erstellt - refreshButtons wird aufgerufen");
+					// Buttons wieder herstellen statt reload
+					console.log("Keine Aufträge erstellt - refreshButtons wird aufgerufen");
+					refreshButtons(frm);
+				}
+			},
+			error: function(r) {
+				console.log("DEBUG: API-Fehler aufgetreten:", r);
+				// Screen wieder freigeben
+				frappe.freeze_screen = false;
+				
+				// WICHTIG: Flags zurücksetzen auch bei Fehlern (inklusive Checkbox!)
+				frm.set_value('skip_total_calculation', 0);
+				delete frm._skipTotalCalculation;
+				delete frm._skipPriceUpdates;
+				
+				// Bei API-Fehlern
+				frappe.msgprint({
+					title: __("Fehler"),
+					message: __("Es ist ein Fehler beim Erstellen der Aufträge aufgetreten. Bitte versuchen Sie es erneut."),
+					indicator: "red"
+				});
+				// Buttons wieder herstellen
+				console.log("API-Fehler - refreshButtons wird aufgerufen");
 				refreshButtons(frm);
 			}
-		},
-		error: function(r) {
-			console.log("DEBUG: API-Fehler aufgetreten:", r);
-			// Screen wieder freigeben
-			frappe.freeze_screen = false;
-			
-			// WICHTIG: Flags zurücksetzen auch bei Fehlern
-			delete frm._skipTotalCalculation;
-			delete frm._skipPriceUpdates;
-			delete frm.doc.skip_total_calculation;
-			
-			// ENTFERNT: Original-Preise NICHT bei API-Fehlern wiederherstellen!
-			// Die Gutschein-reduzierten Preise sollen erhalten bleiben
-			// stelleOriginalPreiseWieder(frm);
-			
-			// Bei API-Fehlern
-		frappe.msgprint({
-				title: __("Fehler"),
-				message: __("Es ist ein Fehler beim Erstellen der Aufträge aufgetreten. Bitte versuchen Sie es erneut."),
-			indicator: "red"
 		});
-			// Buttons wieder herstellen
-			console.log("API-Fehler - refreshButtons wird aufgerufen");
-			refreshButtons(frm);
-		}
-	});
 	}
 }
 
@@ -1507,7 +1503,6 @@ frappe.ui.form.on('Party', {
 					}
 				});
 		}
-
 		// Rest des bestehenden refresh-Codes...
 
 		// Zeige die Produktauswahl-Tabellen für die Gäste erst nach dem Speichern
@@ -2366,7 +2361,6 @@ function enableRequiredFields(frm) {
 		}
 	}
 }
-
 // Neue Funktion zur Warehouse-Korrektur vor dem Speichern
 function fixAllWarehouses(frm) {
 	// Funktion nicht mehr benötigt - get_default_warehouse() wird direkt verwendet
@@ -2374,51 +2368,6 @@ function fixAllWarehouses(frm) {
 }
 
 // Validiere Aktionsartikel...
-
-// Funktion zum Entfernen leerer Zeilen aus allen Produkttabellen
-function cleanEmptyRowsFromProductTables(frm) {
-	let tabellen_gereinigt = 0;
-	let zeilen_entfernt = 0;
-	
-	// Gastgeberin-Tabelle reinigen
-	if (frm.doc.produktauswahl_für_gastgeberin) {
-		let urspruengliche_laenge = frm.doc.produktauswahl_für_gastgeberin.length;
-		frm.doc.produktauswahl_für_gastgeberin = frm.doc.produktauswahl_für_gastgeberin.filter(row => {
-			return row.item_code && row.item_code.trim() !== '';
-		});
-		let neue_laenge = frm.doc.produktauswahl_für_gastgeberin.length;
-		if (urspruengliche_laenge !== neue_laenge) {
-			tabellen_gereinigt++;
-			zeilen_entfernt += (urspruengliche_laenge - neue_laenge);
-			console.log(`Gastgeberin-Tabelle: ${urspruengliche_laenge - neue_laenge} leere Zeilen entfernt`);
-		}
-	}
-	
-	// Gäste-Tabellen reinigen (1-15)
-	for (let i = 1; i <= 15; i++) {
-		let field_name = `produktauswahl_für_gast_${i}`;
-		if (frm.doc[field_name]) {
-			let urspruengliche_laenge = frm.doc[field_name].length;
-			frm.doc[field_name] = frm.doc[field_name].filter(row => {
-				return row.item_code && row.item_code.trim() !== '';
-			});
-			let neue_laenge = frm.doc[field_name].length;
-			if (urspruengliche_laenge !== neue_laenge) {
-				tabellen_gereinigt++;
-				zeilen_entfernt += (urspruengliche_laenge - neue_laenge);
-				console.log(`Gast ${i} Tabelle: ${urspruengliche_laenge - neue_laenge} leere Zeilen entfernt`);
-			}
-		}
-	}
-	
-	if (zeilen_entfernt > 0) {
-		console.log(`Gesamt: ${zeilen_entfernt} leere Zeilen aus ${tabellen_gereinigt} Tabellen entfernt`);
-		// Refresh der Form, damit die UI aktualisiert wird
-		frm.refresh();
-	} else {
-		console.log("Keine leeren Zeilen gefunden - alle Tabellen sind sauber");
-	}
-}
 
 // Hilfsfunktion für direkten API-Aufruf
 function erstelleAuftraegeDirectly(frm) {
@@ -2428,46 +2377,46 @@ function erstelleAuftraegeDirectly(frm) {
 	// WICHTIG: Setze Schutz-Flag direkt im Dokument (ohne Unterstrich, damit es übertragen wird!)
 	frm.doc.skip_total_calculation = 1;
 	
-	// WICHTIG: Entferne leere Zeilen aus allen Produkttabellen vor dem Speichern
-	console.log("Entferne leere Zeilen aus Produkttabellen...");
-	cleanEmptyRowsFromProductTables(frm);
-	
-	// KRITISCH: ERST das Dokument speichern, damit Aktionsartikel in die DB geschrieben werden!
-	console.log("SPEICHERE DOKUMENT VOR API-AUFRUF...");
-	frm.save().then(() => {
-		console.log("DEBUG: Dokument erfolgreich gespeichert - rufe jetzt API auf");
-		
-		// WICHTIG: Preise nur laden, wenn noch kein Gutschein angewendet wurde
-		if (!frm._gutscheinSystemDurchlaufen) {
-			console.log("Lade Preise für alle Artikel vor API-Aufruf...");
-			refresh_item_prices(frm);
+	// MINIMAL FIX: Kurze Pause damit UI sich aktualisiert
+	setTimeout(() => {
+		// KRITISCH: ERST das Dokument speichern, damit Aktionsartikel in die DB geschrieben werden!
+		console.log("SPEICHERE DOKUMENT VOR API-AUFRUF...");
+		frm.save().then(() => {
+			console.log("DEBUG: Dokument erfolgreich gespeichert - rufe jetzt API auf");
 			
-			// Kurze Pause, damit die Preise geladen werden können
-			setTimeout(() => {
-				console.log("Preise geladen - rufe jetzt API auf");
+			// WICHTIG: Preise nur laden, wenn noch kein Gutschein angewendet wurde
+			if (!frm._gutscheinSystemDurchlaufen) {
+				console.log("Lade Preise für alle Artikel vor API-Aufruf...");
+				refresh_item_prices(frm);
+				
+				// Kurze Pause, damit die Preise geladen werden können
+				setTimeout(() => {
+					console.log("Preise geladen - rufe jetzt API auf");
+					callCreateInvoicesAPI();
+				}, 1000); // 1 Sekunde warten für Preis-Ladung
+			} else {
+				console.log("Gutschein-System bereits durchlaufen - überspringe Preis-Ladung");
 				callCreateInvoicesAPI();
-			}, 1000); // 1 Sekunde warten für Preis-Ladung
-		} else {
-			console.log("Gutschein-System bereits durchlaufen - überspringe Preis-Ladung");
-			callCreateInvoicesAPI();
-		}
-	}).catch((error) => {
-		console.error("DEBUG: Fehler beim Speichern des Dokuments:", error);
-		// Screen wieder freigeben bei Fehler
-		frappe.freeze_screen = false;
-		
-		// Flags zurücksetzen
-		delete frm._skipTotalCalculation;
-		delete frm._skipPriceUpdates;
-		delete frm.doc.skip_total_calculation;
-		
-		frappe.msgprint({
-			title: __("Fehler"),
-			message: __("Dokument konnte nicht gespeichert werden. Bitte versuchen Sie es erneut."),
-			indicator: "red"
+			}
+		}).catch((error) => {
+			console.error("DEBUG: Fehler beim Speichern des Dokuments:", error);
+			// Screen wieder freigeben bei Fehler
+			frappe.freeze_screen = false;
+			
+			// Flags zurücksetzen (inklusive Checkbox!)
+			frm.set_value('skip_total_calculation', 0);
+			delete frm._skipTotalCalculation;
+			delete frm._skipPriceUpdates;
+			delete frm.doc.skip_total_calculation;
+			
+			frappe.msgprint({
+				title: __("Fehler"),
+				message: __("Dokument konnte nicht gespeichert werden. Bitte versuchen Sie es erneut."),
+				indicator: "red"
+			});
+			refreshButtons(frm);
 		});
-		refreshButtons(frm);
-	});
+	}, 50);
 	
 	function callCreateInvoicesAPI() {
 		console.log("DEBUG: Starte API-Aufruf");
@@ -2516,7 +2465,7 @@ function erstelleAuftraegeDirectly(frm) {
 				// Screen wieder freigeben
 				frappe.freeze_screen = false;
 				
-				// WICHTIG: Flags zurücksetzen auch bei Fehlern
+				// WICHTIG: Flags zurücksetzen auch bei Fehlern (inklusive Checkbox!)
 				delete frm._skipTotalCalculation;
 				delete frm._skipPriceUpdates;
 				delete frm.doc.skip_total_calculation;
@@ -2534,51 +2483,3 @@ function erstelleAuftraegeDirectly(frm) {
 		});
 	}
 }
-
-// Funktion zum Entfernen leerer Zeilen aus allen Produkttabellen
-function cleanEmptyRowsFromProductTables(frm) {
-	let tabellen_gereinigt = 0;
-	let zeilen_entfernt = 0;
-	
-	// Gastgeberin-Tabelle reinigen
-	if (frm.doc.produktauswahl_für_gastgeberin) {
-		let urspruengliche_laenge = frm.doc.produktauswahl_für_gastgeberin.length;
-		frm.doc.produktauswahl_für_gastgeberin = frm.doc.produktauswahl_für_gastgeberin.filter(row => {
-			return row.item_code && row.item_code.trim() !== '';
-		});
-		let neue_laenge = frm.doc.produktauswahl_für_gastgeberin.length;
-		if (urspruengliche_laenge !== neue_laenge) {
-			tabellen_gereinigt++;
-			zeilen_entfernt += (urspruengliche_laenge - neue_laenge);
-			console.log(`Gastgeberin-Tabelle: ${urspruengliche_laenge - neue_laenge} leere Zeilen entfernt`);
-		}
-	}
-	
-	// Gäste-Tabellen reinigen (1-15)
-	for (let i = 1; i <= 15; i++) {
-		let field_name = `produktauswahl_für_gast_${i}`;
-		if (frm.doc[field_name]) {
-			let urspruengliche_laenge = frm.doc[field_name].length;
-			frm.doc[field_name] = frm.doc[field_name].filter(row => {
-				return row.item_code && row.item_code.trim() !== '';
-			});
-			let neue_laenge = frm.doc[field_name].length;
-			if (urspruengliche_laenge !== neue_laenge) {
-				tabellen_gereinigt++;
-				zeilen_entfernt += (urspruengliche_laenge - neue_laenge);
-				console.log(`Gast ${i} Tabelle: ${urspruengliche_laenge - neue_laenge} leere Zeilen entfernt`);
-			}
-		}
-	}
-	
-	if (zeilen_entfernt > 0) {
-		console.log(`Gesamt: ${zeilen_entfernt} leere Zeilen aus ${tabellen_gereinigt} Tabellen entfernt`);
-		// Refresh der Form, damit die UI aktualisiert wird
-		frm.refresh();
-	} else {
-		console.log("Keine leeren Zeilen gefunden - alle Tabellen sind sauber");
-	}
-}
-
-
-

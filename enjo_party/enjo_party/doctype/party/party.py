@@ -23,6 +23,11 @@ class Party(Document):
 	def validate(self):
 		frappe.log_error(f"=== VALIDATE START für {self.name} - skip_flag: {getattr(self, 'skip_total_calculation', False)} ===", "DEBUG: validate_start")
 		
+		# NEUE LOGIK: Prüfe globalen Flag über frappe.local.flags
+		# Dieser wird durch JavaScript-Speichern NICHT überschrieben
+		skip_calculation = getattr(self, 'skip_total_calculation', False) or frappe.local.flags.get('skip_party_total_calculation', False)
+		frappe.log_error(f"=== ERWEITERTE PRÜFUNG für {self.name} - dokument_flag: {getattr(self, 'skip_total_calculation', False)}, global_flag: {frappe.local.flags.get('skip_party_total_calculation', False)}, final_skip: {skip_calculation} ===", "DEBUG: validate_flags")
+		
 		# Stelle sicher, dass UOM Conversion Factor in allen Produkttabellen gesetzt ist
 		frappe.log_error("Starte set_uom_conversion_factor", "DEBUG: validate_step")
 		self.set_uom_conversion_factor()
@@ -30,7 +35,7 @@ class Party(Document):
 		
 		# Berechne Gesamtumsatz und Gutscheinwert NUR wenn nicht in Aufträge-Erstellung
 		# (Schutz für Gutschrift-reduzierte Preise)
-		if not getattr(self, 'skip_total_calculation', False):
+		if not skip_calculation:
 			frappe.log_error("Starte calculate_totals", "DEBUG: validate_step")
 			self.calculate_totals()
 			frappe.log_error("calculate_totals abgeschlossen", "DEBUG: validate_step")
@@ -44,7 +49,7 @@ class Party(Document):
 		
 		# NEUE ADRESSVALIDIERUNG: Prüfe alle Adressen VOR der Produktvalidierung
 		# ABER NUR wenn nicht in Aufträge-Erstellung (skip_total_calculation Flag)
-		if not getattr(self, 'skip_total_calculation', False):
+		if not skip_calculation:
 			frappe.log_error("Starte validate_all_addresses", "DEBUG: validate_step")
 			self.validate_all_addresses()
 			frappe.log_error("validate_all_addresses abgeschlossen", "DEBUG: validate_step")
@@ -53,7 +58,7 @@ class Party(Document):
 		
 		# Prüfe, dass alle Gäste Produkte ausgewählt haben (nur wenn nicht neu UND nicht in Aufträge-Erstellung)
 		# (Schutz für Aktionsartikel während der Aufträge-Erstellung)
-		if not self.is_new() and not getattr(self, 'skip_total_calculation', False):
+		if not self.is_new() and not skip_calculation:
 			frappe.log_error("Starte validate_all_guests_have_products", "DEBUG: validate_step")
 			self.validate_all_guests_have_products()
 			frappe.log_error("validate_all_guests_have_products abgeschlossen", "DEBUG: validate_step")
@@ -781,6 +786,11 @@ def create_invoices(party, from_submit=False, from_button=False):
     - from_button: Ob die Funktion vom "Aufträge erstellen"-Button aufgerufen wurde
     """
     try:
+        # WICHTIG: Setze globalen Flag SOFORT am Anfang um JavaScript-Überschreibung zu verhindern
+        if from_button:
+            frappe.local.flags.skip_party_total_calculation = True
+            frappe.log_error(f"GLOBALEN FLAG SOFORT gesetzt: skip_party_total_calculation = {frappe.local.flags.get('skip_party_total_calculation', False)}", "DEBUG: global_flag_immediate")
+        
         # Grundlegende Fehlerprotokollierung aktivieren
         frappe.log_error(f"Starte Auftragserstellung für Party {party} (from_submit={from_submit}, from_button={from_button})", "DEBUG: create_orders Start")
         
@@ -821,11 +831,6 @@ def create_invoices(party, from_submit=False, from_button=False):
         # Party-Dokument laden
         try:
             party_doc = frappe.get_doc("Party", party)
-            
-            # WICHTIG: Setze Schutz-Flag, um zu verhindern, dass calculate_totals() 
-            # die Gutschrift-reduzierten Preise überschreibt
-            if from_button:
-                party_doc.skip_total_calculation = True
                 
         except Exception as e:
             frappe.log_error(f"Party-Dokument konnte nicht geladen werden: {str(e)}", "ERROR: create_orders")

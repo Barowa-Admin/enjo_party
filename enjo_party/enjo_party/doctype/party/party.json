@@ -15,6 +15,7 @@
   "gesamtumsatz",
   "gastgeber_gutschein_wert",
   "status",
+  "skip_total_calculation",
   "section_break_gaeste",
   "kunden",
   "amended_from",
@@ -132,6 +133,12 @@
    "label": "Status",
    "options": "Gäste\nProdukte\nAbgeschlossen",
    "read_only": 1
+  },
+  {
+   "default": 0,
+   "fieldname": "skip_total_calculation",
+   "fieldtype": "Check",
+   "label": "Nur bei Problemen anhacken"
   },
   {
    "fieldname": "section_break_gaeste",
