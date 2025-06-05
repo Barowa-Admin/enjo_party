@@ -969,29 +969,42 @@ def create_invoices(party, from_submit=False, from_button=False):
                 billing_address = None
                 shipping_address = None
                 
+                frappe.log_error(f"=== ADRESS-DEBUG START für Customer: {customer}, Shipping_Target: {shipping_target} ===", "DEBUG: address_search")
+                
                 # 1. RECHNUNGSADRESSE: Immer vom Kunden der bestellt
+                frappe.log_error(f"Suche Billing-Adresse für Customer: '{customer}'", "DEBUG: billing_search")
                 billing_address = find_existing_address(customer, "Billing")
+                frappe.log_error(f"DEBUG: billing_address für {customer} = {billing_address} (Typ: {type(billing_address)})", "DEBUG: address_result")
+                
                 if not billing_address:
                     frappe.log_error(f"KRITISCH: Keine Adresse für Kunde '{customer}' gefunden", "ERROR: no_billing")
                     frappe.msgprint(f"Kunde {customer} hat keine Adresse hinterlegt. Auftrag wird übersprungen.", alert=True)
                     continue
                 
-                frappe.log_error(f"Billing-Adresse für Kunde '{customer}': {billing_address}", "INFO: billing_found")
+                frappe.log_error(f"✅ Billing-Adresse für Kunde '{customer}': {billing_address}", "INFO: billing_found")
                 
                 # 2. VERSANDADRESSE: Erst Shipping vom Versandziel, dann Billing vom Versandziel
+                frappe.log_error(f"Suche Shipping-Adresse für Versandziel: '{shipping_target}'", "DEBUG: shipping_search")
                 shipping_address = find_existing_address(shipping_target, "Shipping")
+                frappe.log_error(f"DEBUG: shipping_address (Shipping) für {shipping_target} = {shipping_address} (Typ: {type(shipping_address)})", "DEBUG: address_result")
+                
                 if not shipping_address:
                     # Fallback: Billing-Adresse vom Versandziel
+                    frappe.log_error(f"Suche Billing-Fallback für Versandziel: '{shipping_target}'", "DEBUG: shipping_fallback_search")
                     shipping_address = find_existing_address(shipping_target, "Billing")
+                    frappe.log_error(f"DEBUG: shipping_address (Billing Fallback) für {shipping_target} = {shipping_address} (Typ: {type(shipping_address)})", "DEBUG: address_result")
+                    
                     if shipping_address:
-                        frappe.log_error(f"Versand-Fallback: Billing-Adresse von '{shipping_target}': {shipping_address}", "INFO: shipping_fallback")
+                        frappe.log_error(f"✅ Versand-Fallback: Billing-Adresse von '{shipping_target}': {shipping_address}", "INFO: shipping_fallback")
                     else:
                         frappe.log_error(f"KRITISCH: Keine Adresse für Versandziel '{shipping_target}' gefunden", "ERROR: no_shipping")
                         frappe.msgprint(f"Versandziel {shipping_target} hat keine Adresse hinterlegt. Auftrag wird übersprungen.", alert=True)
                         continue
                 else:
-                    frappe.log_error(f"Shipping-Adresse für Versandziel '{shipping_target}': {shipping_address}", "INFO: shipping_found")
+                    frappe.log_error(f"✅ Shipping-Adresse für Versandziel '{shipping_target}': {shipping_address}", "INFO: shipping_found")
                 
+                frappe.log_error(f"=== FINALE ADRESSEN: Billing={billing_address}, Shipping={shipping_address} ===", "DEBUG: final_addresses")
+
                 # Auftragsdaten mit klarer Adress-Dokumentation
                 order_data = {
                     "doctype": "Sales Order",
@@ -1019,6 +1032,7 @@ def create_invoices(party, from_submit=False, from_button=False):
                     "custom_calculated_shipping_cost": shipping_cost,
                 }
                 
+                frappe.log_error(f"DEBUG: Order-Daten für {customer}: customer_address={billing_address}, shipping_address_name={shipping_address}", "DEBUG: order_data")
                 frappe.log_error(f"Erstelle Auftrag für '{customer}'", "INFO: creating_order")
                 
                 # Auftrag erstellen
@@ -1082,18 +1096,43 @@ def create_invoices(party, from_submit=False, from_button=False):
                 # Diese sind für Provisionsberechnung essentiell
                 
                 frappe.log_error(f"Führe order.insert() aus für '{customer}'...", "INFO: order_insert")
-                order.insert()
-                frappe.log_error(f"Order.insert() erfolgreich für '{customer}': {order.name}", "INFO: order_created")
                 
-                # Versuche den Auftrag einzureichen
+                # NEU: Einfache Message-Unterdrückung
+                original_msgprint = frappe.msgprint
+                
+                def filtered_msgprint(msg, *args, **kwargs):
+                    # Filtere nur spezifische Adress-Fehlermeldungen heraus
+                    if isinstance(msg, str) and (
+                        ("adresse" in msg.lower() and "nicht gefunden" in msg.lower()) or
+                        ("address" in msg.lower() and "not found" in msg.lower())
+                    ):
+                        frappe.log_error(f"UNTERDRÜCKT: {msg}", "INFO: suppressed_message")
+                        return  # Nachricht nicht anzeigen
+                    return original_msgprint(msg, *args, **kwargs)
+                
+                # Temporär den Message-Filter aktivieren
+                frappe.msgprint = filtered_msgprint
+                
                 try:
+                    order.insert()
+                    frappe.log_error(f"Order.insert() erfolgreich für '{customer}': {order.name}", "INFO: order_created")
+                    
+                    # Versuche den Auftrag einzureichen
                     frappe.log_error(f"Führe order.submit() aus für '{customer}'...", "INFO: order_submit")
                     order.submit()
                     frappe.log_error(f"Auftrag für {customer} eingereicht: {order.name}", "SUCCESS: order_complete")
+                    
                 except Exception as e:
-                    frappe.log_error(f"Submit-Fehler für {customer}: {str(e)}", "ERROR: order_submit")
-                    # Den Auftrag trotzdem zur Liste hinzufügen, da er erstellt wurde
-                    frappe.msgprint(f"Auftrag für {customer} wurde erstellt ({order.name}), konnte aber nicht eingereicht werden: {str(e)}", alert=True)
+                    frappe.log_error(f"Order-Fehler für {customer}: {str(e)}", "ERROR: order_error")
+                    # Den Auftrag trotzdem zur Liste hinzufügen wenn er erstellt wurde
+                    if hasattr(order, 'name') and order.name:
+                        frappe.msgprint(f"Auftrag für {customer} wurde erstellt ({order.name}), konnte aber nicht eingereicht werden: {str(e)}", alert=True)
+                    else:
+                        frappe.msgprint(f"Auftrag für {customer} konnte nicht erstellt werden: {str(e)}", alert=True)
+                        continue
+                finally:
+                    # Message-Funktion immer wiederherstellen
+                    frappe.msgprint = original_msgprint
                 
                 # Zur Liste der erstellten Aufträge hinzufügen
                 created_orders.append(order.name)
@@ -1220,36 +1259,46 @@ def find_existing_address(customer_name, preferred_type="Billing"):
     - NIEMALS neue Adressen erstellen!
     - ERWEITERT: Sucht auch in Contact-verknüpften Adressen
     """
+    frappe.log_error(f"=== find_existing_address START: Customer='{customer_name}', Type='{preferred_type}' ===", "DEBUG: find_address_start")
+    
     try:
         # Prüfen, ob der Customer überhaupt existiert
         if not frappe.db.exists("Customer", customer_name):
-            frappe.log_error(f"Customer '{customer_name}' existiert nicht!", "ERROR: find_address")
+            frappe.log_error(f"❌ Customer '{customer_name}' existiert nicht!", "ERROR: find_address")
             return None
+        
+        frappe.log_error(f"✅ Customer '{customer_name}' existiert", "DEBUG: customer_exists")
         
         # Hole den echten Kundennamen für bessere Fehlermeldungen
         customer_doc = frappe.get_doc("Customer", customer_name)
         display_name = customer_doc.customer_name or customer_name
+        frappe.log_error(f"Customer Display Name: '{display_name}'", "DEBUG: customer_name")
         
         # ERWEITERT: Finde alle Adressen für diesen Kunden (Customer + Contact Links)
         address_links = []
         
         # 1. Direkte Customer-Links
+        frappe.log_error(f"Suche direkte Customer-Links für '{customer_name}'...", "DEBUG: search_customer_links")
         customer_links = frappe.get_all(
             "Dynamic Link",
             filters={"link_doctype": "Customer", "link_name": customer_name},
             fields=["parent"]
         )
+        frappe.log_error(f"Gefunden: {len(customer_links)} direkte Customer-Links: {[link['parent'] for link in customer_links]}", "DEBUG: customer_links_found")
         address_links.extend(customer_links)
         
         # 2. Contact-Links (Adressen die über Kontakte verknüpft sind)
         try:
+            frappe.log_error(f"Suche Contact-Links für '{customer_name}'...", "DEBUG: search_contact_links")
             contact_links = frappe.get_all(
                 "Dynamic Link", 
                 filters={"link_doctype": "Contact"},
                 fields=["parent", "link_name"]
             )
+            frappe.log_error(f"Alle Contact-Links gefunden: {len(contact_links)}", "DEBUG: all_contacts")
             
             # Prüfe welche Kontakte zu diesem Customer gehören
+            contact_count = 0
             for contact_link in contact_links:
                 if contact_link.parent and frappe.db.exists("Contact", contact_link.link_name):
                     # Prüfe, ob dieser Contact mit unserem Customer verknüpft ist
@@ -1267,53 +1316,71 @@ def find_existing_address(customer_name, preferred_type="Billing"):
                     if contact_customer_links:
                         # Dieser Contact gehört zu unserem Customer, also verwende seine Adresse
                         address_links.append({"parent": contact_link.parent})
-                        frappe.log_error(f"Contact-Adresse gefunden für '{display_name}': {contact_link.parent}", "INFO: contact_address_found")
+                        contact_count += 1
+                        frappe.log_error(f"✅ Contact-Adresse #{contact_count} gefunden für '{display_name}': {contact_link.parent}", "INFO: contact_address_found")
+            
+            frappe.log_error(f"Gefunden: {contact_count} Contact-Adressen für '{customer_name}'", "DEBUG: contact_summary")
         except Exception as e:
-            frappe.log_error(f"Fehler beim Suchen von Contact-Adressen für '{display_name}': {str(e)}", "WARNING: contact_search_error")
+            frappe.log_error(f"❌ Fehler beim Suchen von Contact-Adressen für '{display_name}': {str(e)}", "WARNING: contact_search_error")
         
         # Entferne Duplikate
         unique_addresses = list({link["parent"]: link for link in address_links if link.get("parent")}.values())
+        frappe.log_error(f"Unique Adressen gefunden: {len(unique_addresses)} - {[link['parent'] for link in unique_addresses]}", "DEBUG: unique_addresses")
         
         if not unique_addresses:
-            # NUR STILLES LOGGING, KEINE BENUTZER-WARNUNG MEHR
-            frappe.log_error(f"Keine Adressen für Customer '{display_name}' gefunden", "WARNING: no_addresses")
+            frappe.log_error(f"❌ Keine Adressen für Customer '{display_name}' gefunden", "WARNING: no_addresses")
             return None
         
         # Sammle Adressen nach Typ
         preferred_addresses = []
         other_addresses = []
         
-        for link in unique_addresses:
+        frappe.log_error(f"Analysiere {len(unique_addresses)} Adressen nach Typ '{preferred_type}'...", "DEBUG: analyze_addresses")
+        
+        for i, link in enumerate(unique_addresses):
             try:
-                addr = frappe.get_doc("Address", link["parent"])
+                addr_name = link["parent"]
+                frappe.log_error(f"Lade Adresse #{i+1}: {addr_name}...", "DEBUG: load_address")
+                addr = frappe.get_doc("Address", addr_name)
+                
                 # Prüfe, ob die Adresse vollständig ist
                 if not addr.address_line1 or not addr.city or not addr.country:
-                    frappe.log_error(f"Unvollständige Adresse für '{display_name}': {addr.name}", "WARNING: incomplete_address")
+                    frappe.log_error(f"❌ Unvollständige Adresse #{i+1} für '{display_name}': {addr.name} (Line1: {bool(addr.address_line1)}, City: {bool(addr.city)}, Country: {bool(addr.country)})", "WARNING: incomplete_address")
                     continue
+                
+                frappe.log_error(f"✅ Vollständige Adresse #{i+1}: {addr.name}, Typ: {addr.address_type}", "DEBUG: complete_address")
                     
                 if addr.address_type == preferred_type:
                     preferred_addresses.append(addr.name)
+                    frappe.log_error(f"✅ {preferred_type}-Adresse gefunden: {addr.name}", "DEBUG: preferred_found")
                 else:
                     other_addresses.append(addr.name)
+                    frappe.log_error(f"📋 Andere Adresse gefunden: {addr.name} (Typ: {addr.address_type})", "DEBUG: other_found")
             except Exception as e:
-                frappe.log_error(f"Fehler beim Laden der Adresse {link['parent']}: {str(e)}", "ERROR: load_address")
+                frappe.log_error(f"❌ Fehler beim Laden der Adresse {link['parent']}: {str(e)}", "ERROR: load_address")
                 continue
         
         # Rückgabe-Logik
+        frappe.log_error(f"Adress-Analyse abgeschlossen: {len(preferred_addresses)} {preferred_type}, {len(other_addresses)} andere", "DEBUG: analysis_complete")
+        
         if preferred_addresses:
-            frappe.log_error(f"Gefunden: {preferred_type}-Adresse für '{display_name}': {preferred_addresses[0]}", "INFO: address_found")
-            return preferred_addresses[0]
+            result = preferred_addresses[0]
+            frappe.log_error(f"🎯 RÜCKGABE: {preferred_type}-Adresse für '{display_name}': {result}", "INFO: address_found")
+            return result
         elif other_addresses:
-            frappe.log_error(f"Fallback: Andere Adresse für '{display_name}': {other_addresses[0]} (kein {preferred_type} gefunden)", "INFO: address_fallback")
-            return other_addresses[0]
+            result = other_addresses[0]
+            frappe.log_error(f"🔄 RÜCKGABE: Fallback-Adresse für '{display_name}': {result} (kein {preferred_type} gefunden)", "INFO: address_fallback")
+            return result
         else:
-            # NUR STILLES LOGGING, KEINE BENUTZER-WARNUNG MEHR
-            frappe.log_error(f"Keine verwendbaren Adressen für '{display_name}' gefunden", "WARNING: no_usable_address")
+            frappe.log_error(f"❌ RÜCKGABE: None - Keine verwendbaren Adressen für '{display_name}' gefunden", "WARNING: no_usable_address")
             return None
             
     except Exception as e:
-        frappe.log_error(f"Fehler beim Suchen von Adressen für '{customer_name}': {str(e)}", "ERROR: find_address_error")
+        frappe.log_error(f"❌ Kritischer Fehler beim Suchen von Adressen für '{customer_name}': {str(e)}\n{frappe.get_traceback()}", "ERROR: find_address_error")
         return None
+    
+    finally:
+        frappe.log_error(f"=== find_existing_address ENDE für '{customer_name}' ===", "DEBUG: find_address_end")
 
 def create_delivery_notes_for_party(party_doc, all_orders_with_shipping, created_order_names):
 	"""
