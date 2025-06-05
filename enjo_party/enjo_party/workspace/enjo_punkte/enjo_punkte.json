@@ -1,0 +1,73 @@
+{
+ "charts": [],
+ "content": "[{\"id\":\"header_main\",\"type\":\"header\",\"data\":{\"text\":\"<span class=\\\"h4\\\"><b><i class=\\\"fa fa-star text-primary\\\"></i> ENJO Punkte System</b></span>\",\"col\":12}},{\"id\":\"overview_card\",\"type\":\"card\",\"data\":{\"card_name\":\"Punkte Übersicht\",\"card_type\":\"report\",\"report_name\":\"ENJO Punkte Uebersicht\",\"col\":6}},{\"id\":\"transactions_card\",\"type\":\"card\",\"data\":{\"card_name\":\"Transaktionen\",\"card_type\":\"doctype\",\"doctype\":\"ENJO Punkte Transaktion\",\"col\":6}},{\"id\":\"stats_header\",\"type\":\"header\",\"data\":{\"text\":\"<span class=\\\"h5\\\"><b>Schnellzugriff</b></span>\",\"col\":12}},{\"id\":\"new_transaction\",\"type\":\"shortcut\",\"data\":{\"shortcut_name\":\"Neue Transaktion\",\"color\":\"green\",\"format\":\"{} Neue\",\"link_to\":\"ENJO Punkte Transaktion\",\"type\":\"DocType\",\"col\":4}},{\"id\":\"all_transactions\",\"type\":\"shortcut\",\"data\":{\"shortcut_name\":\"Alle Transaktionen\",\"color\":\"blue\",\"format\":\"{} Übersicht\",\"link_to\":\"ENJO Punkte Transaktion\",\"type\":\"DocType\",\"col\":4}},{\"id\":\"points_report\",\"type\":\"shortcut\",\"data\":{\"shortcut_name\":\"Punkte Report\",\"color\":\"orange\",\"format\":\"{} Report\",\"link_to\":\"ENJO Punkte Uebersicht\",\"type\":\"Report\",\"col\":4}}]",
+ "creation": "2025-01-28 10:00:00.000000",
+ "custom_blocks": [],
+ "docstatus": 0,
+ "doctype": "Workspace",
+ "for_user": "",
+ "hide_custom": 0,
+ "icon": "star",
+ "idx": 0,
+ "is_hidden": 0,
+ "label": "ENJO Punkte",
+ "links": [
+  {
+   "hidden": 0,
+   "is_query_report": 1,
+   "label": "ENJO Punkte Uebersicht",
+   "link_count": 0,
+   "onboard": 0,
+   "type": "Link",
+   "link_to": "ENJO Punkte Uebersicht",
+   "link_type": "Report"
+  },
+  {
+   "hidden": 0,
+   "is_query_report": 0,
+   "label": "ENJO Punkte Transaktionen",
+   "link_count": 0,
+   "onboard": 0,
+   "type": "Link",
+   "link_to": "ENJO Punkte Transaktion",
+   "link_type": "DocType"
+  }
+ ],
+ "modified": "2025-01-28 10:00:00.000000",
+ "modified_by": "Administrator",
+ "module": "Enjo Party",
+ "name": "ENJO Punkte",
+ "owner": "Administrator",
+ "parent_page": "",
+ "public": 1,
+ "quick_lists": [],
+ "roles": [],
+ "sequence_id": 5.0,
+ "shortcuts": [
+  {
+   "color": "Blue",
+   "doc_view": "List",
+   "label": "Punkte Uebersicht",
+   "link_to": "ENJO Punkte Uebersicht",
+   "stats_filter": "{}",
+   "type": "Report"
+  },
+  {
+   "color": "Green", 
+   "doc_view": "List",
+   "label": "Transaktionen",
+   "link_to": "ENJO Punkte Transaktion",
+   "stats_filter": "{}",
+   "type": "DocType"
+  },
+  {
+   "color": "Orange",
+   "doc_view": "New",
+   "label": "Neue Transaktion",
+   "link_to": "ENJO Punkte Transaktion",
+   "stats_filter": "{}",
+   "type": "DocType"
+  }
+ ],
+ "title": "ENJO Punkte"
+} 

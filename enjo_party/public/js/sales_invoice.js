@@ -1,5 +1,5 @@
 frappe.ui.form.on('Sales Invoice', {
-    before_save: function(frm) {
+    before_submit: function(frm) {
         console.log("Before Save wird ausgeführt");
         console.log("Dokument Status:", frm.doc.docstatus);
         
@@ -287,9 +287,9 @@ frappe.ui.form.on('Sales Invoice', {
                         frm.doc.__from_dialog = true;
                         
                         setTimeout(function() {
-                            console.log("Speichere Dokument...");
+                            console.log("Speichere und buche Dokument...");
                             frappe.validated = true;
-                            cur_frm.save();
+                            frm.save('Submit');
                             
                             setTimeout(function() {
                                 delete frm.doc.__from_dialog;
