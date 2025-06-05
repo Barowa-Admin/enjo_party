@@ -410,19 +410,21 @@ class Party(Document):
 		"""
 		Zeigt einen Dialog mit der Gutschein-Warnung und gibt dem Benutzer die Wahl
 		"""
-		# Für jetzt verwenden wir frappe.throw mit einer informativen Nachricht
-		# In einer späteren Version könnte hier ein echter Dialog implementiert werden
-		frappe.throw(
+		# Echten Dialog verwenden statt frappe.throw
+		frappe.msgprint(
 			f"<div style='text-align: center; padding: 20px;'>"
 			f"<h3 style='color: #e74c3c; margin-bottom: 20px;'>{title}</h3>"
 			f"<p style='font-size: 16px; margin-bottom: 15px; color: #2c3e50;'>{description}</p>"
 			f"<p style='font-size: 18px; color: #e74c3c; font-weight: bold; margin-bottom: 20px;'>{warning}</p>"
 			f"<p style='font-size: 14px; color: #7f8c8d; margin-bottom: 20px;'>{question}</p>"
 			f"<p style='font-size: 12px; color: #95a5a6;'>"
-			f"Klicken Sie 'Abbrechen' um weitere Produkte hinzuzufügen, oder schließen Sie diesen Dialog um fortzufahren.</p>"
+			f"Klicken Sie 'OK' um fortzufahren.</p>"
 			f"</div>",
-			title=title
+			title=title,
+			indicator="blue",
+			raise_exception=False  # Wichtig: Keine Exception werfen!
 		)
+		return True  # Immer True zurückgeben, damit der Prozess fortgesetzt wird
 	
 	def apply_discount_to_products(self, products, discount_amount):
 		"""
@@ -785,12 +787,20 @@ def create_invoices(party, from_submit=False, from_button=False):
     - from_submit: Ob die Funktion vom Submit-Button aufgerufen wurde
     - from_button: Ob die Funktion vom "Aufträge erstellen"-Button aufgerufen wurde
     """
+    # BACKEND-SICHERUNG: Setze skip_total_calculation Flag falls vom Button aufgerufen
+    if from_button:
+        try:
+            party_doc = frappe.get_doc("Party", party)
+            if not getattr(party_doc, 'skip_total_calculation', False):
+                frappe.log_error(f"Backend-Sicherung: Setze skip_total_calculation für {party}", "INFO: backend_flag_set")
+                party_doc.skip_total_calculation = 1
+                party_doc.flags.ignore_permissions = True
+                party_doc.save()
+                frappe.db.commit()
+        except Exception as e:
+            frappe.log_error(f"Backend-Sicherung Fehler: {str(e)}", "WARNING: backend_flag_failed")
+    
     try:
-        # WICHTIG: Setze globalen Flag SOFORT am Anfang um JavaScript-Überschreibung zu verhindern
-        if from_button:
-            frappe.local.flags.skip_party_total_calculation = True
-            frappe.log_error(f"GLOBALEN FLAG SOFORT gesetzt: skip_party_total_calculation = {frappe.local.flags.get('skip_party_total_calculation', False)}", "DEBUG: global_flag_immediate")
-        
         # Grundlegende Fehlerprotokollierung aktivieren
         frappe.log_error(f"Starte Auftragserstellung für Party {party} (from_submit={from_submit}, from_button={from_button})", "DEBUG: create_orders Start")
         
@@ -831,6 +841,7 @@ def create_invoices(party, from_submit=False, from_button=False):
         # Party-Dokument laden
         try:
             party_doc = frappe.get_doc("Party", party)
+            party_doc.skip_total_calculation = 1  # <-- HIER!
                 
         except Exception as e:
             frappe.log_error(f"Party-Dokument konnte nicht geladen werden: {str(e)}", "ERROR: create_orders")
@@ -849,9 +860,6 @@ def create_invoices(party, from_submit=False, from_button=False):
         if not party_doc.gastgeberin:
             frappe.throw("Es wurde keine Gastgeberin angegeben.")
             
-        # ENTFERNT: Aggressive Adressvalidierung vor Auftragserstellung (führte zu doppelten Fehlermeldungen)
-        # Die Adressen werden jetzt bei der individuellen Auftragserstellung geprüft.
-        
         # Vollständige Produktvalidierung für alle Teilnehmer
         teilnehmer_ohne_produkte = []
         
@@ -932,7 +940,7 @@ def create_invoices(party, from_submit=False, from_button=False):
         
         if not all_orders_with_shipping:
             frappe.log_error("Keine Bestellungen gefunden - calculate_shipping_costs_for_party gab leere Liste zurück", "ERROR: no_orders_calculated")
-            frappe.msgprint("Keine Bestellungen gefunden. Bitte prüfe, ob Produkte ausgewählt wurden.", alert=True)
+            frappe.msgprint("Keine Bestellungen gefunden. Bitte prüfe die Logs und versuche es erneut.", alert=True)
             return []
         
         # Debug: Zeige Details der ersten Bestellung
@@ -1008,10 +1016,7 @@ def create_invoices(party, from_submit=False, from_button=False):
                     "sales_partner": party_doc.partnerin if party_doc.partnerin else None,
                     # Custom Fields für Versandinformationen
                     "custom_party_reference": party,
-                    # "custom_shipping_target": shipping_target,  
-                    # "custom_shipping_target_name": shipping_target,  
                     "custom_calculated_shipping_cost": shipping_cost,
-                    # "custom_shipping_note": shipping_note
                 }
                 
                 frappe.log_error(f"Erstelle Auftrag für '{customer}'", "INFO: creating_order")
@@ -1113,20 +1118,10 @@ def create_invoices(party, from_submit=False, from_button=False):
                 created_delivery_notes = []  # Fallback für Fehlerfälle
             
             # Status auf "Abgeschlossen" setzen
+            party_doc.set_status = lambda: None  # Überschreibe die Methode temporär
             party_doc.status = "Abgeschlossen"
-            
-            # Party-Dokument abschließen/einreichen (submit), aber nur wenn 
-            # die Funktion nicht aus before_submit aufgerufen wurde
-            if party_doc.docstatus == 0 and not from_submit:
-                try:
-                    # Party speichern und submitten
-                    party_doc.save()
-                    party_doc.submit()
-                    frappe.db.commit()
-                    frappe.msgprint("Party wurde erfolgreich abgeschlossen und eingereicht.", alert=True)
-                except Exception as e:
-                    frappe.log_error(f"Party konnte nicht eingereicht werden: {str(e)}", "ERROR: Party Submit")
-                    frappe.msgprint(f"Aufträge wurden erstellt, aber die Party konnte nicht eingereicht werden: {str(e)}", alert=True)
+            party_doc.save()
+            party_doc.submit()
             
             # Erfolgsmeldung anzeigen
             delivery_note_msg = f" und {len(created_delivery_notes)} Packlisten" if 'created_delivery_notes' in locals() and created_delivery_notes else ""

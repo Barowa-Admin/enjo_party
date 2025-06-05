@@ -1140,56 +1140,37 @@ function validateAktionsartikel(frm) {
 function erstelleAuftraegeDirectly(frm) {
 	console.log("DEBUG: erstelleAuftraegeDirectly aufgerufen");
 	
-	// LÖSUNG: Setze die Skip Total Calculation Checkbox DIREKT
-	console.log("Setze Skip Total Calculation Checkbox auf 1");
-	frm.set_value('skip_total_calculation', 1);
+	// NEUER ANSATZ: Setze Flag und rufe API direkt auf ohne vorheriges Speichern
+	console.log("Setze Skip Total Calculation Flag");
+	frm.doc.skip_total_calculation = 1;
 	
-	// Zusätzlich: Setze auch lokale Flags als Backup
-	frm._skipTotalCalculation = true;
-	frm._skipPriceUpdates = true;
+	// SOFORT den Screen "einfrieren" mit Frappe's Freeze-Mechanismus
+	frappe.freeze_screen = true;
+	frappe.show_alert({
+		message: __("Bereite Aufträge vor..."),
+		indicator: "blue"
+	});
 	
-	// MINIMAL FIX: Kurze Pause damit UI sich aktualisiert
+	// Sofort Button deaktivieren, um Doppelklicks zu verhindern
+	try {
+		if (frm && frm.page) {
+			if (frm.page.btn_primary) frm.page.btn_primary.hide();
+			if (frm.page.clear_primary_action) frm.page.clear_primary_action();
+			if (frm.page.clear_secondary_action) frm.page.clear_secondary_action();
+			if (frm.page.clear_custom_actions) frm.page.clear_custom_actions();
+		}
+	} catch (e) {
+		console.error("Fehler beim Deaktivieren der Buttons:", e);
+	}
+	
+	// Kurze Pause, dann API direkt aufrufen
 	setTimeout(() => {
-		// KRITISCH: ERST das Dokument speichern, damit Aktionsartikel in die DB geschrieben werden!
-		console.log("SPEICHERE DOKUMENT VOR API-AUFRUF...");
-		frm.save().then(() => {
-			console.log("DEBUG: Dokument erfolgreich gespeichert - rufe jetzt API auf");
-			
-			// WICHTIG: Preise nur laden, wenn noch kein Gutschein angewendet wurde
-			if (!frm._gutscheinSystemDurchlaufen) {
-				console.log("Lade Preise für alle Artikel vor API-Aufruf...");
-				refresh_item_prices(frm);
-				
-				// Kurze Pause, damit die Preise geladen werden können
-				setTimeout(() => {
-					console.log("Preise geladen - rufe jetzt API auf");
-					callCreateInvoicesAPI();
-				}, 1000); // 1 Sekunde warten für Preis-Ladung
-			} else {
-				console.log("Gutschein-System bereits durchlaufen - überspringe Preis-Ladung");
-				callCreateInvoicesAPI();
-			}
-		}).catch((error) => {
-			console.error("DEBUG: Fehler beim Speichern des Dokuments:", error);
-			// Screen wieder freigeben bei Fehler
-			frappe.freeze_screen = false;
-			
-			// Flags zurücksetzen (inklusive Checkbox!)
-			frm.set_value('skip_total_calculation', 0);
-			delete frm._skipTotalCalculation;
-			delete frm._skipPriceUpdates;
-			
-			frappe.msgprint({
-				title: __("Fehler"),
-				message: __("Dokument konnte nicht gespeichert werden. Bitte versuchen Sie es erneut."),
-				indicator: "red"
-			});
-			refreshButtons(frm);
-		});
-	}, 100); // Etwas länger warten, damit set_value wirkt
+		callCreateInvoicesAPI();
+	}, 100);
 	
 	function callCreateInvoicesAPI() {
 		console.log("DEBUG: Starte API-Aufruf");
+		
 		frappe.call({
 			method: "enjo_party.enjo_party.doctype.party.party.create_invoices",
 			args: {
@@ -1204,9 +1185,7 @@ function erstelleAuftraegeDirectly(frm) {
 				frappe.freeze_screen = false;
 				
 				// WICHTIG: Flags zurücksetzen, damit normale Funktionalität wiederhergestellt wird
-				frm.set_value('skip_total_calculation', 0);
-				delete frm._skipTotalCalculation;
-				delete frm._skipPriceUpdates;
+				frm.doc.skip_total_calculation = 0;
 				
 				if (r.message && r.message.length > 0) {
 					frappe.msgprint({
@@ -1235,10 +1214,8 @@ function erstelleAuftraegeDirectly(frm) {
 				// Screen wieder freigeben
 				frappe.freeze_screen = false;
 				
-				// WICHTIG: Flags zurücksetzen auch bei Fehlern (inklusive Checkbox!)
-				frm.set_value('skip_total_calculation', 0);
-				delete frm._skipTotalCalculation;
-				delete frm._skipPriceUpdates;
+				// WICHTIG: Flags zurücksetzen auch bei Fehlern
+				frm.doc.skip_total_calculation = 0;
 				
 				// Bei API-Fehlern
 				frappe.msgprint({
@@ -2368,118 +2345,3 @@ function fixAllWarehouses(frm) {
 }
 
 // Validiere Aktionsartikel...
-
-// Hilfsfunktion für direkten API-Aufruf
-function erstelleAuftraegeDirectly(frm) {
-	console.log("DEBUG: erstelleAuftraegeDirectly aufgerufen - NEUE VERSION");
-	console.log("erstelleAuftraegeDirectly aufgerufen");
-	
-	// WICHTIG: Setze Schutz-Flag direkt im Dokument (ohne Unterstrich, damit es übertragen wird!)
-	frm.doc.skip_total_calculation = 1;
-	
-	// MINIMAL FIX: Kurze Pause damit UI sich aktualisiert
-	setTimeout(() => {
-		// KRITISCH: ERST das Dokument speichern, damit Aktionsartikel in die DB geschrieben werden!
-		console.log("SPEICHERE DOKUMENT VOR API-AUFRUF...");
-		frm.save().then(() => {
-			console.log("DEBUG: Dokument erfolgreich gespeichert - rufe jetzt API auf");
-			
-			// WICHTIG: Preise nur laden, wenn noch kein Gutschein angewendet wurde
-			if (!frm._gutscheinSystemDurchlaufen) {
-				console.log("Lade Preise für alle Artikel vor API-Aufruf...");
-				refresh_item_prices(frm);
-				
-				// Kurze Pause, damit die Preise geladen werden können
-				setTimeout(() => {
-					console.log("Preise geladen - rufe jetzt API auf");
-					callCreateInvoicesAPI();
-				}, 1000); // 1 Sekunde warten für Preis-Ladung
-			} else {
-				console.log("Gutschein-System bereits durchlaufen - überspringe Preis-Ladung");
-				callCreateInvoicesAPI();
-			}
-		}).catch((error) => {
-			console.error("DEBUG: Fehler beim Speichern des Dokuments:", error);
-			// Screen wieder freigeben bei Fehler
-			frappe.freeze_screen = false;
-			
-			// Flags zurücksetzen (inklusive Checkbox!)
-			frm.set_value('skip_total_calculation', 0);
-			delete frm._skipTotalCalculation;
-			delete frm._skipPriceUpdates;
-			delete frm.doc.skip_total_calculation;
-			
-			frappe.msgprint({
-				title: __("Fehler"),
-				message: __("Dokument konnte nicht gespeichert werden. Bitte versuchen Sie es erneut."),
-				indicator: "red"
-			});
-			refreshButtons(frm);
-		});
-	}, 50);
-	
-	function callCreateInvoicesAPI() {
-		console.log("DEBUG: Starte API-Aufruf");
-		frappe.call({
-			method: "enjo_party.enjo_party.doctype.party.party.create_invoices",
-			args: {
-				party: frm.doc.name,
-				from_button: true  // Flag, um zu zeigen, dass der Aufruf vom Button kommt
-			},
-			freeze: true,
-			freeze_message: __("Erstelle und reiche Aufträge ein..."),
-			callback: function(r) {
-				console.log("DEBUG: API-Antwort erhalten:", r);
-				// Screen wieder freigeben
-				frappe.freeze_screen = false;
-				
-				// WICHTIG: Flags zurücksetzen, damit normale Funktionalität wiederhergestellt wird
-				delete frm._skipTotalCalculation;
-				delete frm._skipPriceUpdates;
-				delete frm.doc.skip_total_calculation;
-				
-				if (r.message && r.message.length > 0) {
-					frappe.msgprint({
-						title: __("Erfolg"),
-						message: __("Es wurden {0} Aufträge erstellt und eingereicht!", [r.message.length]),
-						indicator: "green"
-					});
-					// Vollständiges Neuladen der Seite, um den Status zu aktualisieren
-					setTimeout(function() {
-						location.reload();
-					}, 2000);
-				} else {
-					console.log("Keine Aufträge erstellt - refreshButtons wird aufgerufen");
-					frappe.msgprint({
-						title: __("Hinweis"),
-						message: __("Es wurden keine Aufträge erstellt. Bitte überprüfen Sie, ob Produkte ausgewählt wurden."),
-						indicator: "orange"
-					});
-					// Buttons wieder herstellen statt reload
-					console.log("Keine Aufträge erstellt - refreshButtons wird aufgerufen");
-					refreshButtons(frm);
-				}
-			},
-			error: function(r) {
-				console.log("DEBUG: API-Fehler aufgetreten:", r);
-				// Screen wieder freigeben
-				frappe.freeze_screen = false;
-				
-				// WICHTIG: Flags zurücksetzen auch bei Fehlern (inklusive Checkbox!)
-				delete frm._skipTotalCalculation;
-				delete frm._skipPriceUpdates;
-				delete frm.doc.skip_total_calculation;
-				
-				// Bei API-Fehlern
-				frappe.msgprint({
-					title: __("Fehler"),
-					message: __("Es ist ein Fehler beim Erstellen der Aufträge aufgetreten. Bitte versuchen Sie es erneut."),
-					indicator: "red"
-				});
-				// Buttons wieder herstellen
-				console.log("API-Fehler - refreshButtons wird aufgerufen");
-				refreshButtons(frm);
-			}
-		});
-	}
-}
