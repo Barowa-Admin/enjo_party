@@ -1161,6 +1161,28 @@ def create_invoices(party, from_submit=False, from_button=False):
             delattr(party_doc, 'skip_total_calculation')
             frappe.log_error("skip_total_calculation Flag aufgeräumt", "INFO: flag_cleanup")
         
+        # === FILTER FÜR STÖRENDE _SERVER_MESSAGES ===
+        # Entferne die störenden "Adresse -100539 nicht gefunden" Meldungen
+        # bevor sie an das Frontend gesendet werden
+        if hasattr(frappe.local, 'message_log') and frappe.local.message_log:
+            original_count = len(frappe.local.message_log)
+            frappe.local.message_log = [
+                msg for msg in frappe.local.message_log 
+                if not (
+                    isinstance(msg, dict) and 
+                    msg.get('message') and 
+                    isinstance(msg['message'], str) and
+                    (
+                        ('adresse' in msg['message'].lower() and 'nicht gefunden' in msg['message'].lower()) or
+                        ('address' in msg['message'].lower() and 'not found' in msg['message'].lower()) or
+                        (msg['message'].startswith('Adresse -') and 'nicht gefunden' in msg['message'])
+                    )
+                )
+            ]
+            filtered_count = original_count - len(frappe.local.message_log)
+            if filtered_count > 0:
+                frappe.log_error(f"FILTERED: {filtered_count} störende Adressmeldungen entfernt", "INFO: messages_filtered")
+        
         return created_orders
         
     except Exception as e:
