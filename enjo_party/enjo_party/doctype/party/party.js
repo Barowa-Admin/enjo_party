@@ -1,6 +1,70 @@
 // Copyright (c) 2025, Elia and contributors
 // For license information, please see license.txt
 
+// === STÖRENDE BENUTZER-MELDUNGEN AUSBLENDEN ===
+// Filtere nur Benutzer-sichtbare Meldungen, Console-Logs für Entwickler bleiben
+(function() {
+	try {
+		// Original frappe.msgprint sichern
+		const originalMsgprint = frappe.msgprint;
+		const originalThrow = frappe.throw;
+		const originalShowAlert = frappe.show_alert;
+		
+		// Überschreibe frappe.msgprint um störende Meldungen zu filtern
+		frappe.msgprint = function(message, title, indicator) {
+			// Prüfe ob es sich um eine störende Meldung handelt
+			let messageText = typeof message === 'string' ? message : 
+							 (message && message.message) ? message.message : '';
+			
+			if (
+				// Adress-Fehlermeldungen filtern
+				messageText.includes('Adresse') && messageText.includes('nicht gefunden') ||
+				messageText.includes('Address') && messageText.includes('not found') ||
+				// Source Map und Bundle-Fehlermeldungen
+				messageText.includes('Source Map') ||
+				messageText.includes('file_uploader.bundle') ||
+				messageText.includes('JSON Parse error') ||
+				// localStorage Meldungen
+				messageText.includes('localStorage quota exceeded')
+			) {
+				// Diese Meldungen nicht dem Benutzer zeigen
+				console.log("GEFILTERTE BENUTZER-MELDUNG:", messageText);
+				return;
+			}
+			
+			// Alle anderen Meldungen normal anzeigen
+			return originalMsgprint.apply(this, arguments);
+		};
+		
+		// Überschreibe frappe.show_alert um störende Alerts zu filtern
+		frappe.show_alert = function(message, seconds) {
+			let messageText = typeof message === 'string' ? message : 
+							 (message && message.message) ? message.message : '';
+			
+			if (
+				messageText.includes('Adresse') && messageText.includes('nicht gefunden') ||
+				messageText.includes('Address') && messageText.includes('not found') ||
+				messageText.includes('Source Map') ||
+				messageText.includes('file_uploader.bundle')
+			) {
+				// Diese Alerts nicht dem Benutzer zeigen
+				console.log("GEFILTERTER ALERT:", messageText);
+				return;
+			}
+			
+			// Alle anderen Alerts normal anzeigen
+			return originalShowAlert.apply(this, arguments);
+		};
+		
+		console.log("Benutzer-Meldungsfilter für störende Frappe-Fehler aktiviert");
+	} catch (e) {
+		// Falls das Filtern fehlschlägt, normal weiter
+		console.log("Benutzer-Meldungsfilter konnte nicht aktiviert werden:", e);
+	}
+})();
+
+// === ENDE MELDUNGSFILTER ===
+
 // frappe.ui.form.on("Party", {
 // 	refresh(frm) {
 
