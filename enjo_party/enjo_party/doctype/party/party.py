@@ -499,16 +499,16 @@ class Party(Document):
 		if len(teilnehmer_ohne_adresse) > 2:  # Mehr als 2 Teilnehmer ohne Adresse
 			fehlende_adressen = ", ".join(teilnehmer_ohne_adresse)
 			
-			# REDUZIERTE WARNUNG - nur bei vielen fehlenden Adressen
-			frappe.msgprint(
-				f"""INFO: {len(teilnehmer_ohne_adresse)} Teilnehmer haben möglicherweise unvollständige Adressen: {fehlende_adressen}
-				
-				Falls nötig, überprüfe die Adressen vor der Auftragserstellung.
-				
-				Die Party wird normal gespeichert.""",
-				alert=True,
-				indicator="blue"
-			)
+			# MELDUNG ENTFERNT: Störende Adressmeldung wird nicht mehr angezeigt
+			# frappe.msgprint(
+			# 	f"""INFO: {len(teilnehmer_ohne_adresse)} Teilnehmer haben möglicherweise unvollständige Adressen: {fehlende_adressen}
+			# 	
+			# 	Falls nötig, überprüfe die Adressen vor der Auftragserstellung.
+			# 	
+			# 	Die Party wird normal gespeichert.""",
+			# 	alert=True,
+			# 	indicator="blue"
+			# )
 			
 			frappe.log_error(f"Adress-Info für Party {self.name}: {fehlende_adressen}", "INFO: address_check")
 		else:
@@ -1097,22 +1097,6 @@ def create_invoices(party, from_submit=False, from_button=False):
                 
                 frappe.log_error(f"Führe order.insert() aus für '{customer}'...", "INFO: order_insert")
                 
-                # NEU: Einfache Message-Unterdrückung
-                original_msgprint = frappe.msgprint
-                
-                def filtered_msgprint(msg, *args, **kwargs):
-                    # Filtere nur spezifische Adress-Fehlermeldungen heraus
-                    if isinstance(msg, str) and (
-                        ("adresse" in msg.lower() and "nicht gefunden" in msg.lower()) or
-                        ("address" in msg.lower() and "not found" in msg.lower())
-                    ):
-                        frappe.log_error(f"UNTERDRÜCKT: {msg}", "INFO: suppressed_message")
-                        return  # Nachricht nicht anzeigen
-                    return original_msgprint(msg, *args, **kwargs)
-                
-                # Temporär den Message-Filter aktivieren
-                frappe.msgprint = filtered_msgprint
-                
                 try:
                     order.insert()
                     frappe.log_error(f"Order.insert() erfolgreich für '{customer}': {order.name}", "INFO: order_created")
@@ -1130,9 +1114,6 @@ def create_invoices(party, from_submit=False, from_button=False):
                     else:
                         frappe.msgprint(f"Auftrag für {customer} konnte nicht erstellt werden: {str(e)}", alert=True)
                         continue
-                finally:
-                    # Message-Funktion immer wiederherstellen
-                    frappe.msgprint = original_msgprint
                 
                 # Zur Liste der erstellten Aufträge hinzufügen
                 created_orders.append(order.name)
