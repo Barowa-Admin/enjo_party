@@ -286,7 +286,7 @@ function startAuftraegeErstellung(frm) {
 				}
 				
 				frm.refresh_field("kunden");
-				frappe.msgprint(`${gaeste_ohne_produkte.length} Gäste wurden entfernt.`, "Erfolgreich entfernt");
+				// ENTFERNT: frappe.msgprint(`${gaeste_ohne_produkte.length} Gäste wurden entfernt.`, "Erfolgreich entfernt");
 				
 				// WICHTIG: Auch hier das Gutschein-System durchlaufen, nicht direkt zum Aktions-System!
 				console.log("Starte Gutschein-System nach Gäste-Entfernung");
@@ -636,7 +636,7 @@ function startAktionsSystem(frm, callback) {
 									console.log("Fehler beim Refreshen nach Aktionsartikeln:", e);
 								}
 								
-								frappe.show_alert(`${aktionsartikelHinzugefuegt} Aktionsartikel wurden hinzugefügt!`, 5);
+								// ENTFERNT: frappe.show_alert(`${aktionsartikelHinzugefuegt} Aktionsartikel wurden hinzugefügt!`, 5);
 							}
 							
 							d.hide();
@@ -927,7 +927,7 @@ function wendeGutscheinAn(aktionsfaehigeGastgeberProdukte, verfuegbarerGutschein
 		zeigeRestbetragDialog(restbetrag, frm, callback);
 	} else {
 		// Kein Restbetrag - weiter zum nächsten Schritt
-		frappe.show_alert(`Gutschein vollständig angewendet: ${verbrauchterGutschein.toFixed(2)}€`, 3);
+		// ENTFERNT: frappe.show_alert(`Gutschein vollständig angewendet: ${verbrauchterGutschein.toFixed(2)}€`, 3);
 		// Original-Preise können gelöscht werden, da der Gutschein erfolgreich angewendet wurde
 		frm.originalPricesBackup = {};
 		callback();
@@ -976,13 +976,13 @@ function zeigeRestbetragDialog(restbetrag, frm, callback) {
 			if (istVollbetrag) {
 				// Bei Vollbetrag: Gutschein verfällt, aber Party wird trotzdem gebucht
 				console.log("DEBUG: Vollbetrag - Gutschein verfällt, rufe callback auf");
-				frappe.show_alert(`Gutschein von ${restbetrag.toFixed(2)}€ verfällt - fahre mit Bestellung fort`, 3);
+				// ENTFERNT: frappe.show_alert(`Gutschein von ${restbetrag.toFixed(2)}€ verfällt - fahre mit Bestellung fort`, 3);
 				callback(); // WICHTIG: Weiter zum Aktions-System!
 			} else {
 				// Bei Restbetrag: Verfallen lassen und fortfahren
 				console.log("DEBUG: Restbetrag - verfällt, rufe callback auf");
 				let nachricht = `Restbetrag von ${restbetrag.toFixed(2)}€ verfällt`;
-				frappe.show_alert(nachricht, 3);
+				// ENTFERNT: frappe.show_alert(nachricht, 3);
 				// Weiter zum nächsten Schritt
 				callback();
 			}
@@ -1028,7 +1028,7 @@ function stelleOriginalPreiseWieder(frm) {
 	calculate_party_totals(frm);
 	
 	console.log(`${wiederhergestellteProdukte} Produkte auf Original-Preise zurückgesetzt`);
-	frappe.show_alert(`${wiederhergestellteProdukte} Produkte auf Original-Preise zurückgesetzt`, 3);
+	// ENTFERNT: frappe.show_alert(`${wiederhergestellteProdukte} Produkte auf Original-Preise zurückgesetzt`, 3);
 }
 
 // Hilfsfunktion zum Erstellen der Aufträge
@@ -1044,10 +1044,10 @@ function erstelleAuftraege(frm) {
 	
 	// SOFORT den Screen "einfrieren" mit Frappe's Freeze-Mechanismus
 	frappe.freeze_screen = true;
-	frappe.show_alert({
-		message: __("Bereite Aufträge vor..."),
-		indicator: "blue"
-	});
+	// ENTFERNT: frappe.show_alert({
+	// 	message: __("Bereite Aufträge vor..."),
+	// 	indicator: "blue"
+	// });
 	
 	// Sofort Button deaktivieren, um Doppelklicks zu verhindern
 	try {
@@ -1100,10 +1100,10 @@ function erstelleAuftraege(frm) {
 	// Kurze Pause, damit alle Updates verarbeitet werden
 	setTimeout(() => {
 		// Direkt zur API ohne explizites Speichern (Frappe speichert automatisch vor API-Aufrufen)
-	frappe.show_alert({
-			message: __("Erstelle Aufträge..."),
-			indicator: "orange"
-		});
+	// ENTFERNT: frappe.show_alert({
+	// 		message: __("Erstelle Aufträge..."),
+	// 		indicator: "orange"
+	// 	});
 		
 		console.log("Rufe create_invoices API direkt auf...");
 		erstelleAuftraegeDirectly(frm);
@@ -1210,10 +1210,10 @@ function erstelleAuftraegeDirectly(frm) {
 	
 	// SOFORT den Screen "einfrieren" mit Frappe's Freeze-Mechanismus
 	frappe.freeze_screen = true;
-	frappe.show_alert({
-		message: __("Bereite Aufträge vor..."),
-		indicator: "blue"
-	});
+	// ENTFERNT: frappe.show_alert({
+	// 	message: __("Bereite Aufträge vor..."),
+	// 	indicator: "blue"
+	// });
 	
 	// Sofort Button deaktivieren, um Doppelklicks zu verhindern
 	try {
@@ -1253,14 +1253,15 @@ function erstelleAuftraegeDirectly(frm) {
 				
 				if (r.message && r.message.length > 0) {
 					frappe.msgprint({
-						title: __("Erfolg"),
-						message: __("Es wurden {0} Aufträge erstellt und eingereicht!", [r.message.length]),
+						title: __("Erfolgreich gebuchte Präsentation"),
+						message: __("{0} Aufträge wurden erfolgreich erstellt und eingereicht.", [r.message.length]),
 						indicator: "green"
 					});
 					// Vollständiges Neuladen der Seite, um den Status zu aktualisieren
+					// Delay erhöht, damit Benutzer die Erfolgsmeldung lesen können
 					setTimeout(function() {
 						location.reload();
-					}, 2000);
+					}, 4000); // 4 Sekunden statt 2
 				} else {
 					console.log("Keine Aufträge erstellt - refreshButtons wird aufgerufen");
 					frappe.msgprint({

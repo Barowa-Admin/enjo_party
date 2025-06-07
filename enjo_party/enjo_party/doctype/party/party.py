@@ -86,11 +86,8 @@ class Party(Document):
 		# Wenn bereits Aufträge existieren, keinen neuen erstellen
 		if existing_orders:
 			frappe.log_error(f"Party {self.name}: Bestehende Aufträge gefunden: {existing_orders}", "INFO: before_submit")
-			frappe.msgprint("Party hat bereits zugeordnete Aufträge. Es werden keine neuen erstellt.", alert=True)
 			return
 			
-		frappe.msgprint("Party wird eingereicht und Aufträge werden erstellt...", alert=True)
-		
 		# Aufträge erstellen beim Submit - aber ohne weitere Fehlerbehandlung
 		try:
 			orders = create_invoices(self.name, from_submit=True)
@@ -100,8 +97,6 @@ class Party(Document):
 					"Bitte prüfe, ob Produkte ausgewählt wurden und versuche es erneut."
 				)
 			
-			# Erfolgsmeldung
-			frappe.msgprint(f"Es wurden erfolgreich {len(orders)} Aufträge erstellt!", alert=True)
 		except Exception as e:
 			frappe.throw(str(e))  # Fehlermeldung einfach weiterreichen, ohne weitere Verarbeitung
 	
@@ -818,7 +813,7 @@ def create_invoices(party, from_submit=False, from_button=False):
         # Wenn es bereits Aufträge gibt und der Aufruf vom Button kommt, blockieren
         if existing_orders and from_button:
             frappe.log_error(f"Aufträge gefunden: {existing_orders}", "DEBUG: create_orders - Gefundene Aufträge")
-            frappe.msgprint("Diese Party hat bereits Aufträge. Es werden keine neuen Aufträge erstellt.", alert=True)
+            # ENTFERNT: frappe.msgprint("Diese Party hat bereits Aufträge. Es werden keine neuen Aufträge erstellt.", alert=True)
             return existing_orders
         
         # Wenn die Funktion sowohl von before_submit als auch vom Button aufgerufen wird, 
@@ -849,7 +844,7 @@ def create_invoices(party, from_submit=False, from_button=False):
         
         # Prüfen, ob die Party bereits abgeschlossen ist
         if party_doc.status == "Abgeschlossen" and party_doc.docstatus == 1:
-            frappe.msgprint("Diese Party ist bereits abgeschlossen und hat wahrscheinlich bereits Aufträge.", alert=True)
+            # ENTFERNT: frappe.msgprint("Diese Party ist bereits abgeschlossen und hat wahrscheinlich bereits Aufträge.", alert=True)
             return []
         
         # Gästeliste prüfen
@@ -940,7 +935,7 @@ def create_invoices(party, from_submit=False, from_button=False):
         
         if not all_orders_with_shipping:
             frappe.log_error("Keine Bestellungen gefunden - calculate_shipping_costs_for_party gab leere Liste zurück", "ERROR: no_orders_calculated")
-            frappe.msgprint("Keine Bestellungen gefunden. Bitte prüfe die Logs und versuche es erneut.", alert=True)
+            # ENTFERNT: frappe.msgprint("Keine Bestellungen gefunden. Bitte prüfe die Logs und versuche es erneut.", alert=True)
             return []
         
         # Debug: Zeige Details der ersten Bestellung
@@ -978,7 +973,7 @@ def create_invoices(party, from_submit=False, from_button=False):
                 
                 if not billing_address:
                     frappe.log_error(f"KRITISCH: Keine Adresse für Kunde '{customer}' gefunden", "ERROR: no_billing")
-                    frappe.msgprint(f"Kunde {customer} hat keine Adresse hinterlegt. Auftrag wird übersprungen.", alert=True)
+                    # ENTFERNT: frappe.msgprint(f"Kunde {customer} hat keine Adresse hinterlegt. Auftrag wird übersprungen.", alert=True)
                     continue
                 
                 frappe.log_error(f"✅ Billing-Adresse für Kunde '{customer}': {billing_address}", "INFO: billing_found")
@@ -998,7 +993,7 @@ def create_invoices(party, from_submit=False, from_button=False):
                         frappe.log_error(f"✅ Versand-Fallback: Billing-Adresse von '{shipping_target}': {shipping_address}", "INFO: shipping_fallback")
                     else:
                         frappe.log_error(f"KRITISCH: Keine Adresse für Versandziel '{shipping_target}' gefunden", "ERROR: no_shipping")
-                        frappe.msgprint(f"Versandziel {shipping_target} hat keine Adresse hinterlegt. Auftrag wird übersprungen.", alert=True)
+                        # ENTFERNT: frappe.msgprint(f"Versandziel {shipping_target} hat keine Adresse hinterlegt. Auftrag wird übersprungen.", alert=True)
                         continue
                 else:
                     frappe.log_error(f"✅ Shipping-Adresse für Versandziel '{shipping_target}': {shipping_address}", "INFO: shipping_found")
@@ -1110,9 +1105,10 @@ def create_invoices(party, from_submit=False, from_button=False):
                     frappe.log_error(f"Order-Fehler für {customer}: {str(e)}", "ERROR: order_error")
                     # Den Auftrag trotzdem zur Liste hinzufügen wenn er erstellt wurde
                     if hasattr(order, 'name') and order.name:
-                        frappe.msgprint(f"Auftrag für {customer} wurde erstellt ({order.name}), konnte aber nicht eingereicht werden: {str(e)}", alert=True)
+                        # ENTFERNT: frappe.msgprint(f"Auftrag für {customer} wurde erstellt ({order.name}), konnte aber nicht eingereicht werden: {str(e)}", alert=True)
+                        pass
                     else:
-                        frappe.msgprint(f"Auftrag für {customer} konnte nicht erstellt werden: {str(e)}", alert=True)
+                        # ENTFERNT: frappe.msgprint(f"Auftrag für {customer} konnte nicht erstellt werden: {str(e)}", alert=True)
                         continue
                 
                 # Zur Liste der erstellten Aufträge hinzufügen
@@ -1122,7 +1118,7 @@ def create_invoices(party, from_submit=False, from_button=False):
             except Exception as e:
                 frappe.log_error(f"Kritischer Fehler für {order_info.get('customer', 'Unbekannt')}: {str(e)}", "ERROR: critical_order_error")
                 # Bei kritischen Fehlern den Auftrag überspringen, aber weitermachen mit den anderen
-                frappe.msgprint(f"Auftrag für {order_info.get('customer', 'Unbekannt')} konnte nicht erstellt werden: {str(e)}", alert=True)
+                # ENTFERNT: frappe.msgprint(f"Auftrag für {order_info.get('customer', 'Unbekannt')} konnte nicht erstellt werden: {str(e)}", alert=True)
                 continue
         
         # Wenn mindestens ein Auftrag erstellt wurde, Party-Status aktualisieren
@@ -1134,7 +1130,7 @@ def create_invoices(party, from_submit=False, from_button=False):
                 frappe.log_error(f"Delivery Notes erstellt: {created_delivery_notes}", "INFO: delivery_notes_created")
             except Exception as e:
                 frappe.log_error(f"Fehler bei Delivery Note Erstellung: {str(e)}", "ERROR: delivery_note_creation")
-                frappe.msgprint(f"Aufträge wurden erstellt, aber Packlisten konnten nicht erstellt werden: {str(e)}", alert=True)
+                # ENTFERNT: frappe.msgprint(f"Aufträge wurden erstellt, aber Packlisten konnten nicht erstellt werden: {str(e)}", alert=True)
                 created_delivery_notes = []  # Fallback für Fehlerfälle
             
             # Status auf "Abgeschlossen" setzen
@@ -1145,13 +1141,17 @@ def create_invoices(party, from_submit=False, from_button=False):
             
             # Erfolgsmeldung anzeigen
             delivery_note_msg = f" und {len(created_delivery_notes)} Packlisten" if 'created_delivery_notes' in locals() and created_delivery_notes else ""
-            frappe.msgprint(f"Es wurden {len(created_orders)} Aufträge{delivery_note_msg} erfolgreich erstellt und eingereicht.", alert=True)
+            frappe.msgprint(
+                f"{len(created_orders)} Aufträge wurden erfolgreich erstellt und eingereicht.",
+                title="Erfolgreich gebuchte Präsentation",
+                indicator="green"
+            )
             frappe.log_error(f"ERFOLG: {len(created_orders)} Aufträge erstellt: {created_orders}", "SUCCESS: final_result")
         else:
             frappe.log_error(f"Keine Aufträge erstellt für Party {party}. Einträge: {len(all_orders_with_shipping)}", "ERROR: no_orders_created")
             if all_orders_with_shipping:
                 frappe.log_error(f"Fehlgeschlagene Kunden: {[order.get('customer', 'Unknown') for order in all_orders_with_shipping]}", "ERROR: failed_customers")
-            frappe.msgprint("Es wurden keine Aufträge erstellt. Bitte prüfe die Logs und versuche es erneut.", alert=True)
+            # ENTFERNT: frappe.msgprint("Es wurden keine Aufträge erstellt. Bitte prüfe die Logs und versuche es erneut.", alert=True)
         
         frappe.db.commit()
         frappe.log_error(f"create_invoices beendet. Rückgabe: {created_orders}", "INFO: function_end")
