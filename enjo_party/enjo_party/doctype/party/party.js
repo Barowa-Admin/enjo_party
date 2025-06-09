@@ -1204,9 +1204,8 @@ function validateAktionsartikel(frm) {
 function erstelleAuftraegeDirectly(frm) {
 	console.log("DEBUG: erstelleAuftraegeDirectly aufgerufen");
 	
-	// NEUER ANSATZ: Setze Flag und rufe API direkt auf ohne vorheriges Speichern
-	console.log("Setze Skip Total Calculation Flag");
-	frm.doc.skip_total_calculation = 1;
+	// Flag wurde bereits vor dem Speichern gesetzt, daher hier nicht erneut setzen
+	// frm.doc.skip_total_calculation = 1; // ENTFERNT
 	
 	// SOFORT den Screen "einfrieren" mit Frappe's Freeze-Mechanismus
 	frappe.freeze_screen = true;
@@ -1229,7 +1228,20 @@ function erstelleAuftraegeDirectly(frm) {
 	
 	// Kurze Pause, dann API direkt aufrufen
 	setTimeout(() => {
-		callCreateInvoicesAPI();
+		// WICHTIG: Setze skip_total_calculation Flag VOR dem Speichern
+		// damit calculate_totals() nicht die Gutschrift und Aktionsartikel überschreibt
+		frm.doc.skip_total_calculation = 1;
+		
+		// DANN speichern mit gesetztem Flag
+		frm.save().then(() => {
+			callCreateInvoicesAPI();
+		}).catch((error) => {
+			console.error("Fehler beim Speichern vor API-Aufruf:", error);
+			frappe.freeze_screen = false;
+			// Flag zurücksetzen bei Fehler
+			frm.doc.skip_total_calculation = 0;
+			frappe.msgprint("Fehler beim Speichern der Änderungen. Bitte versuche es erneut.");
+		});
 	}, 100);
 	
 	function callCreateInvoicesAPI() {
