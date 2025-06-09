@@ -45,7 +45,8 @@ required_apps = ["frappe", "erpnext"]
 # include js in doctype views
 doctype_js = {
 	"Party": "enjo_party/doctype/party/party.js",
-	"Sales Invoice": "public/js/sales_invoice.js"
+	"Sales Invoice": "public/js/sales_invoice.js",
+    "Sales Order": "public/js/sales_order.js"
 }
 doctype_list_js = {"Party" : "enjo_party/doctype/party/party_list.js"}
 # doctype_tree_js = {"doctype" : "public/js/doctype_tree.js"}

@@ -1261,7 +1261,7 @@ function erstelleAuftraegeDirectly(frm) {
 					// Delay erhöht, damit Benutzer die Erfolgsmeldung lesen können
 					setTimeout(function() {
 						location.reload();
-					}, 4000); // 4 Sekunden statt 2
+					}, 3500); // 3.5 Sekunden statt 2
 				} else {
 					console.log("Keine Aufträge erstellt - refreshButtons wird aufgerufen");
 					frappe.msgprint({
