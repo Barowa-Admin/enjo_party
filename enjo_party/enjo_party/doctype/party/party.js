@@ -2382,6 +2382,8 @@ function calculate_party_totals(frm) {
 	let total_amount = 0.0;
 	
 	// Berechne Gesamtumsatz aus allen Produkttabellen
+	// HINWEIS: Versandkosten werden NICHT hier berechnet, sondern automatisch 
+	// beim Erstellen der Aufträge basierend auf der neuen 7-Artikel-Versandlogik hinzugefügt
 	for (let i = 1; i <= 15; i++) {
 		const field_name = `produktauswahl_für_gast_${i}`;
 		if (frm.doc[field_name] && frm.doc[field_name].length > 0) {

@@ -610,6 +610,7 @@ def get_default_warehouse():
 def calculate_shipping_costs_for_party(party_doc):
     """
     Berechnet Versandkosten für eine Party und erstellt Order-Informationen
+    NEUE LOGIK: Verwendet 7 verschiedene Versandartikel statt ERPNext Versandregeln
     """
     all_orders = []
     
@@ -749,23 +750,98 @@ def calculate_shipping_costs_for_party(party_doc):
     for target, orders in shipping_groups.items():
         frappe.log_error(f"Versandziel {target}: {len(orders)} Orders", "DEBUG: group_detail")
     
-    # Berechne Versandkosten pro Gruppe
+    # NEUE VERSANDLOGIK: Berechne Versandkosten pro Gruppe und füge Versandartikel hinzu
     for target, orders in shipping_groups.items():
         total_value_for_target = sum(order["total"] for order in orders)
+        num_orders = len(orders)
+        
+        frappe.log_error(f"Versandziel {target}: {num_orders} Aufträge, Gesamtwert: {total_value_for_target}€", "DEBUG: shipping_calculation")
         
         if total_value_for_target >= 200:
             # Versandkostenfrei für alle Bestellungen an dieses Ziel
             shipping_cost_per_order = 0.0
+            shipping_item_code = None
             shipping_note = f"Versandkostenfrei (Gesamtwert: {total_value_for_target:.2f}€ >= 200€)"
+            frappe.log_error(f"Versandkostenfrei für {target}", "DEBUG: shipping_free")
         else:
-            # 7€ Versandkosten aufteilen
-            shipping_cost_per_order = round(7.0 / len(orders), 2)
-            shipping_note = f"Versandkosten aufgeteilt: {len(orders)} Bestellung(en) à {shipping_cost_per_order:.2f}€ (Gesamtwert: {total_value_for_target:.2f}€ < 200€)"
+            # 7€ Versandkosten aufteilen - bestimme den richtigen Versandartikel
+            shipping_cost_per_order = round(7.0 / num_orders, 2)
+            
+            # Bestimme Versandartikel basierend auf Anzahl der Aufträge
+            shipping_items = {
+                1: "shipping-7",      # 7€ für 1 Person
+                2: "shipping-3.5",    # 3.5€ für 2 Personen
+                3: "shipping-2.33",   # 2.33€ für 3 Personen
+                4: "shipping-1.75",   # 1.75€ für 4 Personen
+                5: "shipping-1.4",    # 1.4€ für 5 Personen
+                6: "shipping-1.17",   # 1.17€ für 6 Personen
+                7: "shipping-1"       # 1€ für 7 Personen
+            }
+            
+            # Fallback für mehr als 7 Personen - verwende shipping-1
+            shipping_item_code = shipping_items.get(num_orders, "shipping-1")
+            
+            shipping_note = f"Versandkosten aufgeteilt: {num_orders} Bestellung(en) à {shipping_cost_per_order:.2f}€ (Gesamtwert: {total_value_for_target:.2f}€ < 200€) - Artikel: {shipping_item_code}"
+            frappe.log_error(f"Versandkosten für {target}: {shipping_item_code} à {shipping_cost_per_order}€", "DEBUG: shipping_charged")
         
         # Versandkosten zu jeder Bestellung hinzufügen
         for order in orders:
             order["shipping_cost"] = shipping_cost_per_order
             order["shipping_note"] = shipping_note
+            order["shipping_item_code"] = shipping_item_code  # Neues Feld für Versandartikel
+            
+            # Versandartikel zu den Produkten hinzufügen, wenn Versandkosten anfallen
+            if shipping_cost_per_order > 0 and shipping_item_code:
+                # Hole Versandartikel-Details
+                try:
+                    shipping_item_doc = frappe.get_doc("Item", shipping_item_code)
+                    
+                    shipping_product = {
+                        "item_code": shipping_item_code,
+                        "item_name": shipping_item_doc.item_name or "Versand",
+                        "qty": 1,
+                        "rate": shipping_cost_per_order,
+                        "amount": shipping_cost_per_order,
+                        "uom": shipping_item_doc.stock_uom or "Stk",
+                        "stock_uom": shipping_item_doc.stock_uom or "Stk",
+                        "conversion_factor": 1.0,
+                        "stock_qty": 1.0,
+                        "base_amount": shipping_cost_per_order,
+                        "base_rate": shipping_cost_per_order,
+                        "warehouse": get_default_warehouse(),
+                        "delivery_date": frappe.utils.add_days(frappe.utils.nowdate(), 7),
+                        "_force_zero_rate": False,
+                        "_shipping_item": True  # Markierung als Versandartikel
+                    }
+                    
+                    # Versandartikel zu den Produkten hinzufügen
+                    order["products"].append(shipping_product)
+                    order["total"] += shipping_cost_per_order  # Gesamtsumme des Auftrags aktualisieren
+                    
+                    frappe.log_error(f"Versandartikel {shipping_item_code} hinzugefügt zu {order['customer']}: {shipping_cost_per_order}€", "DEBUG: shipping_item_added")
+                    
+                except Exception as e:
+                    frappe.log_error(f"Fehler beim Laden des Versandartikels {shipping_item_code}: {str(e)}", "ERROR: shipping_item_error")
+                    # Fallback: Verwende Standard-Versandartikel-Daten
+                    shipping_product = {
+                        "item_code": shipping_item_code,
+                        "item_name": "Versand",
+                        "qty": 1,
+                        "rate": shipping_cost_per_order,
+                        "amount": shipping_cost_per_order,
+                        "uom": "Stk",
+                        "stock_uom": "Stk",
+                        "conversion_factor": 1.0,
+                        "stock_qty": 1.0,
+                        "base_amount": shipping_cost_per_order,
+                        "base_rate": shipping_cost_per_order,
+                        "warehouse": get_default_warehouse(),
+                        "delivery_date": frappe.utils.add_days(frappe.utils.nowdate(), 7),
+                        "_force_zero_rate": False,
+                        "_shipping_item": True
+                    }
+                    order["products"].append(shipping_product)
+                    order["total"] += shipping_cost_per_order
     
     frappe.log_error(f"=== ENDERGEBNIS calculate_shipping_costs_for_party ===", "DEBUG: shipping_calc_end")
     frappe.log_error(f"FINALE Anzahl Orders: {len(all_orders)}", "DEBUG: orders_count")
