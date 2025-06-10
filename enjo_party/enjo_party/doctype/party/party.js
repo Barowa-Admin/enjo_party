@@ -453,6 +453,8 @@ function startAktionsSystem(frm, callback) {
 						showAktionsDialog(aktionsberechtigteTeilnehmer);
 					} else {
 						console.log("Keine aktionsberechtigten Teilnehmer gefunden - fahre direkt mit Aufträge-Erstellung fort");
+						// WICHTIG: Markiere dass KEINE Aktionsartikel hinzugefügt wurden
+						frm._keineAktionsartikelHinzugefuegt = true;
 						// WICHTIG: Auch wenn keine Aktion verfügbar ist, müssen die Aufträge erstellt werden!
 						callback();
 					}
@@ -975,12 +977,14 @@ function zeigeRestbetragDialog(restbetrag, frm, callback) {
 			dialog.hide();
 			if (istVollbetrag) {
 				// Bei Vollbetrag: Gutschein verfällt, aber Party wird trotzdem gebucht
-				console.log("DEBUG: Vollbetrag - Gutschein verfällt, rufe callback auf");
+				console.log("Vollbetrag-Gutschein verfällt - fahre mit Aufträge-Erstellung fort");
+				// WICHTIG: Markiere dass KEIN Gutschein angewendet wurde
+				frm._keinGutscheinAngewendet = true;
 				// ENTFERNT: frappe.show_alert(`Gutschein von ${restbetrag.toFixed(2)}€ verfällt - fahre mit Bestellung fort`, 3);
 				callback(); // WICHTIG: Weiter zum Aktions-System!
 			} else {
 				// Bei Restbetrag: Verfallen lassen und fortfahren
-				console.log("DEBUG: Restbetrag - verfällt, rufe callback auf");
+				console.log("Restbetrag-Gutschein verfällt - fahre fort");
 				let nachricht = `Restbetrag von ${restbetrag.toFixed(2)}€ verfällt`;
 				// ENTFERNT: frappe.show_alert(nachricht, 3);
 				// Weiter zum nächsten Schritt
@@ -1038,9 +1042,20 @@ function erstelleAuftraege(frm) {
 	// Aktiviere Pflichtfelder für die finale Validierung
 	enableRequiredFields(frm);
 	
-	// WICHTIG: Setze Flags, um automatische Updates zu verhindern
-	frm._skipTotalCalculation = true;
-	frm._skipPriceUpdates = true;
+	// WICHTIG: Setze Flags nur wenn tatsächlich Gutscheine oder Aktionsartikel angewendet wurden
+	// Wenn KEIN Gutschein angewendet UND KEINE Aktionsartikel hinzugefügt wurden, 
+	// dann KEINE skip-Flags setzen (normale Berechnung soll stattfinden)
+	let sollteSkipFlagsSetzen = !frm._keinGutscheinAngewendet && !frm._keineAktionsartikelHinzugefuegt;
+	
+	if (sollteSkipFlagsSetzen) {
+		console.log("Setze skip-Flags (Gutschein oder Aktionsartikel wurden angewendet)");
+		frm._skipTotalCalculation = true;
+		frm._skipPriceUpdates = true;
+	} else {
+		console.log("Setze KEINE skip-Flags (kein Gutschein und keine Aktionsartikel angewendet)");
+		frm._skipTotalCalculation = false;
+		frm._skipPriceUpdates = false;
+	}
 	
 	// SOFORT den Screen "einfrieren" mit Frappe's Freeze-Mechanismus
 	frappe.freeze_screen = true;
@@ -1202,17 +1217,10 @@ function validateAktionsartikel(frm) {
 
 // Hilfsfunktion für direkten API-Aufruf
 function erstelleAuftraegeDirectly(frm) {
-	console.log("DEBUG: erstelleAuftraegeDirectly aufgerufen");
-	
-	// Flag wurde bereits vor dem Speichern gesetzt, daher hier nicht erneut setzen
-	// frm.doc.skip_total_calculation = 1; // ENTFERNT
+	console.log("Starte Aufträge-Erstellung via API");
 	
 	// SOFORT den Screen "einfrieren" mit Frappe's Freeze-Mechanismus
 	frappe.freeze_screen = true;
-	// ENTFERNT: frappe.show_alert({
-	// 	message: __("Bereite Aufträge vor..."),
-	// 	indicator: "blue"
-	// });
 	
 	// Sofort Button deaktivieren, um Doppelklicks zu verhindern
 	try {
@@ -1227,25 +1235,79 @@ function erstelleAuftraegeDirectly(frm) {
 	}
 	
 	// Kurze Pause, dann API direkt aufrufen
-	setTimeout(() => {
-		// WICHTIG: Setze skip_total_calculation Flag VOR dem Speichern
-		// damit calculate_totals() nicht die Gutschrift und Aktionsartikel überschreibt
-		frm.doc.skip_total_calculation = 1;
+	// ENTFERNT: setTimeout da es bei eingefrorenem Screen nicht funktioniert
+	// setTimeout(() => {
+		// WICHTIG: Setze skip_total_calculation Backend-Flag nur wenn Frontend-Flags gesetzt sind
+		// damit calculate_totals() nur übersprungen wird wenn tatsächlich Gutschrift/Aktionsartikel angewendet wurden
+		if (frm._skipTotalCalculation) {
+			console.log("Setze Backend skip_total_calculation Flag");
+			frm.doc.skip_total_calculation = 1;
+		} else {
+			console.log("Setze KEIN Backend skip_total_calculation Flag - normale Berechnung");
+			frm.doc.skip_total_calculation = 0;
+		}
 		
-		// DANN speichern mit gesetztem Flag
+		// DEBUG: Zeige aktuellen Dokument-Status
+		console.log("DEBUG: Vor dem Speichern - docstatus:", frm.doc.docstatus, "is_dirty:", frm.is_dirty());
+		
+		// WICHTIG: Wenn das Dokument nicht dirty ist, gibt es nichts zu speichern
+		// Das passiert wenn keine Gutscheine angewendet und keine Aktionsartikel hinzugefügt wurden
+		if (!frm.is_dirty()) {
+			console.log("Dokument unverändert - springe direkt zur Aufträge-Erstellung");
+			callCreateInvoicesAPI();
+			return;
+		}
+		
+		// DANN speichern mit gesetztem Flag - aber mit besserem Error Handling
+		console.log("Speichere Änderungen vor Aufträge-Erstellung...");
+		
+		// Timeout für das Speichern - falls es hängt
+		let saveTimeout = setTimeout(() => {
+			console.error("TIMEOUT: Speichern dauert zu lange!");
+			frappe.freeze_screen = false;
+			frappe.msgprint({
+				title: "Timeout",
+				message: "Das Speichern dauert zu lange. Bitte versuche es erneut oder prüfe die Server-Logs.",
+				indicator: "orange"
+			});
+			refreshButtons(frm);
+		}, 10000); // 10 Sekunden Timeout
+		
 		frm.save().then(() => {
+			clearTimeout(saveTimeout); // Timeout löschen wenn erfolgreich
+			console.log("Speichern erfolgreich - starte Aufträge-Erstellung");
 			callCreateInvoicesAPI();
 		}).catch((error) => {
-			console.error("Fehler beim Speichern vor API-Aufruf:", error);
+			clearTimeout(saveTimeout); // Timeout löschen auch bei Fehler
+			console.error("Fehler beim Speichern:", error);
+			// Screen wieder freigeben
+			
 			frappe.freeze_screen = false;
 			// Flag zurücksetzen bei Fehler
 			frm.doc.skip_total_calculation = 0;
-			frappe.msgprint("Fehler beim Speichern der Änderungen. Bitte versuche es erneut.");
+			
+			// Detaillierte Fehlermeldung
+			let errorMessage = "Fehler beim Speichern der Änderungen.";
+			if (error && error.message) {
+				errorMessage += "\n\nDetails: " + error.message;
+			}
+			if (error && error.exc) {
+				errorMessage += "\n\nTechnische Details: " + error.exc;
+			}
+			
+			frappe.msgprint({
+				title: "Speicherfehler",
+				message: errorMessage,
+				indicator: "red"
+			});
+			
+			// Buttons wieder herstellen
+			refreshButtons(frm);
 		});
-	}, 100);
+	// }, 100);
 	
 	function callCreateInvoicesAPI() {
-		console.log("DEBUG: Starte API-Aufruf");
+		console.log("Rufe Aufträge-API auf...");
 		
 		frappe.call({
 			method: "enjo_party.enjo_party.doctype.party.party.create_invoices",
@@ -1253,10 +1315,10 @@ function erstelleAuftraegeDirectly(frm) {
 				party: frm.doc.name,
 				from_button: true  // Flag, um zu zeigen, dass der Aufruf vom Button kommt
 			},
-			freeze: true,
+			freeze: true, // Screen-Freeze wieder aktiviert da Debugging abgeschlossen
 			freeze_message: __("Erstelle und reiche Aufträge ein..."),
 			callback: function(r) {
-				console.log("DEBUG: API-Antwort erhalten:", r);
+				console.log("API-Antwort erhalten - verarbeite Ergebnis");
 				// Screen wieder freigeben
 				frappe.freeze_screen = false;
 				
@@ -1266,7 +1328,7 @@ function erstelleAuftraegeDirectly(frm) {
 				if (r.message && r.message.length > 0) {
 					frappe.msgprint({
 						title: __("Erfolgreich gebuchte Präsentation"),
-						message: __("{0} Aufträge wurden erfolgreich erstellt und eingereicht.", [r.message.length]),
+						message: __("{0} Aufträge wurden erfolgreich erstellt und eingereicht.<br><br>Das Fenster wird gleich automatisch neu geladen, um den aktuellen Status anzuzeigen.", [r.message.length]),
 						indicator: "green"
 					});
 					// Vollständiges Neuladen der Seite, um den Status zu aktualisieren
@@ -1287,17 +1349,25 @@ function erstelleAuftraegeDirectly(frm) {
 				}
 			},
 			error: function(r) {
-				console.log("DEBUG: API-Fehler aufgetreten:", r);
+				console.error("API-Fehler bei Aufträge-Erstellung:", r);
 				// Screen wieder freigeben
 				frappe.freeze_screen = false;
 				
 				// WICHTIG: Flags zurücksetzen auch bei Fehlern
 				frm.doc.skip_total_calculation = 0;
 				
-				// Bei API-Fehlern
+				// Bei API-Fehlern - zeige vollständige Fehlermeldung
+				let errorMessage = "Es ist ein Fehler beim Erstellen der Aufträge aufgetreten.";
+				if (r && r.message) {
+					errorMessage += "\n\nFehlermeldung: " + r.message;
+				}
+				if (r && r.exc) {
+					errorMessage += "\n\nTechnische Details: " + r.exc;
+				}
+				
 				frappe.msgprint({
 					title: __("Fehler"),
-					message: __("Es ist ein Fehler beim Erstellen der Aufträge aufgetreten. Bitte versuchen Sie es erneut."),
+					message: errorMessage,
 					indicator: "red"
 				});
 				// Buttons wieder herstellen

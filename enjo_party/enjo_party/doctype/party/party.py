@@ -1142,7 +1142,7 @@ def create_invoices(party, from_submit=False, from_button=False):
             # Erfolgsmeldung anzeigen
             delivery_note_msg = f" und {len(created_delivery_notes)} Packlisten" if 'created_delivery_notes' in locals() and created_delivery_notes else ""
             frappe.msgprint(
-                f"{len(created_orders)} Aufträge wurden erfolgreich erstellt und eingereicht.",
+                f"{len(created_orders)} Aufträge wurden erfolgreich erstellt und eingereicht.<br><br>Das Fenster wird gleich automatisch neu geladen, um den aktuellen Status anzuzeigen.",
                 title="Erfolgreich gebuchte Präsentation",
                 indicator="green"
             )
