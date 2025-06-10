@@ -711,7 +711,8 @@ function startAktionsSystem(frm, callback) {
 								frappe.model.set_value(neuer_eintrag.doctype, neuer_eintrag.name, 'stock_qty', 1.0);
 								frappe.model.set_value(neuer_eintrag.doctype, neuer_eintrag.name, 'base_amount', rate * 1);
 								frappe.model.set_value(neuer_eintrag.doctype, neuer_eintrag.name, 'base_rate', rate);
-								frappe.model.set_value(neuer_eintrag.doctype, neuer_eintrag.name, 'delivery_date', frappe.datetime.add_days(frappe.datetime.nowdate(), 7));
+								// Setze delivery_date - Backend normalisiert das Format automatisch
+								frappe.model.set_value(neuer_eintrag.doctype, neuer_eintrag.name, 'delivery_date', frappe.datetime.add_days(frappe.datetime.get_today(), 7));
 								
 								// WAREHOUSE: Dynamisch über get_default_warehouse()
 								frappe.call({

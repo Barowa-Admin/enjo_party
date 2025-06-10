@@ -245,6 +245,21 @@ class Party(Document):
 						if not item.item_name:
 							item.item_name = item_doc.item_name or item.item_code
 						
+						# WICHTIG: Normalisiere delivery_date Format für Datenbank-Kompatibilität
+						if hasattr(item, 'delivery_date') and item.delivery_date:
+							try:
+								# Konvertiere ISO-String zu Date-Objekt falls nötig
+								if isinstance(item.delivery_date, str):
+									# Parse ISO-String und konvertiere zu Date
+									item.delivery_date = frappe.utils.getdate(item.delivery_date)
+								else:
+									# Stelle sicher, dass es ein Date-Objekt ist
+									item.delivery_date = frappe.utils.getdate(item.delivery_date)
+							except Exception as e:
+								# Fallback bei Parse-Fehlern
+								frappe.log_error(f"Delivery Date Parse Fehler für {item.item_code}: {str(e)}", "WARNING: delivery_date_parse")
+								item.delivery_date = frappe.utils.getdate(frappe.utils.add_days(frappe.utils.today(), 7))
+						
 						# Weitere erforderliche Standardfelder für Sales Order Item setzen
 						if not item.conversion_factor:
 							item.conversion_factor = 1.0
@@ -271,6 +286,21 @@ class Party(Document):
 					# Falls Item Name fehlt
 					if not item.item_name:
 						item.item_name = item_doc.item_name or item.item_code
+					
+					# WICHTIG: Normalisiere delivery_date Format für Datenbank-Kompatibilität
+					if hasattr(item, 'delivery_date') and item.delivery_date:
+						try:
+							# Konvertiere ISO-String zu Date-Objekt falls nötig
+							if isinstance(item.delivery_date, str):
+								# Parse ISO-String und konvertiere zu Date
+								item.delivery_date = frappe.utils.getdate(item.delivery_date)
+							else:
+								# Stelle sicher, dass es ein Date-Objekt ist
+								item.delivery_date = frappe.utils.getdate(item.delivery_date)
+						except Exception as e:
+							# Fallback bei Parse-Fehlern
+							frappe.log_error(f"Delivery Date Parse Fehler für {item.item_code}: {str(e)}", "WARNING: delivery_date_parse")
+							item.delivery_date = frappe.utils.getdate(frappe.utils.add_days(frappe.utils.today(), 7))
 					
 					# Weitere erforderliche Standardfelder für Sales Order Item setzen
 					if not item.conversion_factor:
@@ -641,7 +671,7 @@ def calculate_shipping_costs_for_party(party_doc):
                     "base_amount": getattr(produkt, 'base_amount', produkt.amount or (flt(produkt.qty) * flt(produkt.rate or 0))),
                     "base_rate": getattr(produkt, 'base_rate', produkt.rate or 0),
                     "warehouse": getattr(produkt, 'warehouse', get_default_warehouse()),
-                    "delivery_date": getattr(produkt, 'delivery_date', frappe.utils.add_days(frappe.utils.nowdate(), 7)),
+                    "delivery_date": frappe.utils.getdate(getattr(produkt, 'delivery_date', frappe.utils.add_days(frappe.utils.today(), 7))),
                     # WICHTIG: Flag für Gutschein-reduzierte 0€-Artikel
                     "_force_zero_rate": float(produkt.rate or 0) == 0.0
                 }
@@ -709,7 +739,7 @@ def calculate_shipping_costs_for_party(party_doc):
                     "base_amount": getattr(produkt, 'base_amount', produkt.amount or (flt(produkt.qty) * flt(produkt.rate or 0))),
                     "base_rate": getattr(produkt, 'base_rate', produkt.rate or 0),
                     "warehouse": getattr(produkt, 'warehouse', get_default_warehouse()),
-                    "delivery_date": getattr(produkt, 'delivery_date', frappe.utils.add_days(frappe.utils.nowdate(), 7)),
+                    "delivery_date": frappe.utils.getdate(getattr(produkt, 'delivery_date', frappe.utils.add_days(frappe.utils.today(), 7))),
                     # WICHTIG: Flag für Gutschein-reduzierte 0€-Artikel
                     "_force_zero_rate": float(produkt.rate or 0) == 0.0
                 }
@@ -809,7 +839,7 @@ def calculate_shipping_costs_for_party(party_doc):
                         "base_amount": shipping_cost_per_order,
                         "base_rate": shipping_cost_per_order,
                         "warehouse": get_default_warehouse(),
-                        "delivery_date": frappe.utils.add_days(frappe.utils.nowdate(), 7),
+                        "delivery_date": frappe.utils.getdate(frappe.utils.add_days(frappe.utils.today(), 7)),
                         "_force_zero_rate": False,
                         "_shipping_item": True  # Markierung als Versandartikel
                     }
@@ -836,7 +866,7 @@ def calculate_shipping_costs_for_party(party_doc):
                         "base_amount": shipping_cost_per_order,
                         "base_rate": shipping_cost_per_order,
                         "warehouse": get_default_warehouse(),
-                        "delivery_date": frappe.utils.add_days(frappe.utils.nowdate(), 7),
+                        "delivery_date": frappe.utils.getdate(frappe.utils.add_days(frappe.utils.today(), 7)),
                         "_force_zero_rate": False,
                         "_shipping_item": True
                     }
@@ -1114,6 +1144,11 @@ def create_invoices(party, from_submit=False, from_button=False):
                 for i, item in enumerate(order.items):
                     original_product = products[i]
                     
+                    # DEBUG: Spezifisches Logging für Aktionsartikel + Versandartikel Kombination
+                    is_shipping = original_product.get('_shipping_item', False)
+                    item_code = original_product.get('item_code', 'Unknown')
+                    frappe.log_error(f"DEBUG COMBO: Item {i}: {item_code}, Shipping: {is_shipping}, Rate: {original_product.get('rate', 'N/A')}", "DEBUG: combo_check")
+                    
                     # DEBUG: Zeige Flag-Status für jedes Produkt
                     force_zero = original_product.get('_force_zero_rate', False)
                     frappe.log_error(f"DEBUG: Item {item.item_code}, Rate: {original_product.get('rate', 'N/A')}, Force Zero: {force_zero}", "DEBUG: flag_check")
@@ -1138,6 +1173,11 @@ def create_invoices(party, from_submit=False, from_button=False):
                             item.base_rate = original_product.rate
                             item.amount = flt(item.qty) * flt(original_product.rate) 
                             item.base_amount = item.amount
+                
+                # DEBUG: Zeige finale Order-Daten vor dem Insert
+                frappe.log_error(f"DEBUG FINAL ORDER: Customer={order.customer}, Items={len(order.items)}", "DEBUG: final_order_data")
+                for i, item in enumerate(order.items):
+                    frappe.log_error(f"  Item {i}: {item.item_code}, Qty: {item.qty}, Rate: {item.rate}, Amount: {item.amount}", "DEBUG: final_item_data")
                 
                 # SAUBERE LÖSUNG: Nur spezifische Adress-Validierungen umgehen, 
                 # aber Sales Partner Provisionsberechnung NICHT beeinträchtigen
@@ -1178,7 +1218,7 @@ def create_invoices(party, from_submit=False, from_button=False):
                     frappe.log_error(f"Auftrag für {customer} eingereicht: {order.name}", "SUCCESS: order_complete")
                     
                 except Exception as e:
-                    frappe.log_error(f"Order-Fehler für {customer}: {str(e)}", "ERROR: order_error")
+                    frappe.log_error(f"KRITISCHER FEHLER bei Order für {customer}: {str(e)}\nTraceback: {frappe.get_traceback()}", "ERROR: order_error_detailed")
                     # Den Auftrag trotzdem zur Liste hinzufügen wenn er erstellt wurde
                     if hasattr(order, 'name') and order.name:
                         # ENTFERNT: frappe.msgprint(f"Auftrag für {customer} wurde erstellt ({order.name}), konnte aber nicht eingereicht werden: {str(e)}", alert=True)
