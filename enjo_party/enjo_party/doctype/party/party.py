@@ -1318,16 +1318,6 @@ def create_invoices(party, from_submit=False, from_button=False):
         
         # Wenn mindestens ein Auftrag erstellt wurde, Party-Status aktualisieren
         if created_orders:
-            # NEU: Erstelle Delivery Notes (Packlisten) nach Versandzielen gruppiert
-            try:
-                frappe.log_error(f"Starte Delivery Note Erstellung für {len(created_orders)} Aufträge", "INFO: delivery_note_start")
-                created_delivery_notes = create_delivery_notes_for_party(party_doc, all_orders_with_shipping, created_orders)
-                frappe.log_error(f"Delivery Notes erstellt: {created_delivery_notes}", "INFO: delivery_notes_created")
-            except Exception as e:
-                frappe.log_error(f"Fehler bei Delivery Note Erstellung: {str(e)}", "ERROR: delivery_note_creation")
-                # ENTFERNT: frappe.msgprint(f"Aufträge wurden erstellt, aber Packlisten konnten nicht erstellt werden: {str(e)}", alert=True)
-                created_delivery_notes = []  # Fallback für Fehlerfälle
-            
             # Status auf "Abgeschlossen" setzen
             party_doc.set_status = lambda: None  # Überschreibe die Methode temporär
             party_doc.status = "Abgeschlossen"
@@ -1335,13 +1325,11 @@ def create_invoices(party, from_submit=False, from_button=False):
             party_doc.submit()
             
             # Erfolgsmeldung anzeigen
-            delivery_note_msg = f" und {len(created_delivery_notes)} Packlisten" if 'created_delivery_notes' in locals() and created_delivery_notes else ""
             frappe.msgprint(
-                f"{len(created_orders)} Aufträge und die dazugehörigen Ausgangsrechnungen wurden erfolgreich erstellt und gebucht{delivery_note_msg}.<br><br>Das Fenster wird gleich automatisch neu geladen, um den aktuellen Status anzuzeigen.",
+                f"{len(created_orders)} Aufträge wurden erfolgreich erstellt und gebucht.<br><br>Das Fenster wird gleich automatisch neu geladen, um den aktuellen Status anzuzeigen.",
                 title="Erfolgreich gebuchte Präsentation",
                 indicator="green"
             )
-            frappe.log_error(f"ERFOLG: {len(created_orders)} Aufträge erstellt: {created_orders}", "SUCCESS: final_result")
         else:
             frappe.log_error(f"Keine Aufträge erstellt für Party {party}. Einträge: {len(all_orders_with_shipping)}", "ERROR: no_orders_created")
             if all_orders_with_shipping:
@@ -1580,164 +1568,3 @@ def find_existing_address(customer_name, preferred_type="Billing"):
     finally:
         frappe.log_error(f"=== find_existing_address ENDE für '{customer_name}' ===", "DEBUG: find_address_end")
 
-def create_delivery_notes_for_party(party_doc, all_orders_with_shipping, created_order_names):
-	"""
-	Erstellt Delivery Notes (Packlisten) gruppiert nach Versandziel
-	
-	Args:
-		party_doc: Das Party-Dokument
-		all_orders_with_shipping: Liste der Order-Infos mit Versandziel
-		created_order_names: Liste der tatsächlich erstellten Sales Order Namen
-	
-	Returns:
-		Liste der erstellten Delivery Note Namen
-	"""
-	try:
-		frappe.log_error(f"create_delivery_notes_for_party gestartet", "INFO: delivery_note_function")
-		
-		# Gruppiere nach Versandziel
-		shipping_groups = {}
-		sales_orders_by_customer = {}
-		
-		# Erstelle ein Mapping von Customer zu Sales Order Name
-		for order_info in all_orders_with_shipping:
-			customer = order_info["customer"]
-			shipping_target = order_info["shipping_target"]
-			
-			# Finde den entsprechenden Sales Order Namen
-			sales_order_name = None
-			for order_name in created_order_names:
-				try:
-					order_doc = frappe.get_doc("Sales Order", order_name)
-					if order_doc.customer == customer:
-						sales_order_name = order_name
-						break
-				except:
-					continue
-			
-			if sales_order_name:
-				sales_orders_by_customer[customer] = sales_order_name
-				
-				if shipping_target not in shipping_groups:
-					shipping_groups[shipping_target] = []
-				shipping_groups[shipping_target].append(order_info)
-		
-		frappe.log_error(f"Shipping Groups: {list(shipping_groups.keys())}", "INFO: shipping_groups")
-		
-		created_delivery_notes = []
-		
-		# Erstelle eine Delivery Note pro Versandziel
-		for shipping_target, orders_for_target in shipping_groups.items():
-			try:
-				frappe.log_error(f"Erstelle Delivery Note für Versandziel: {shipping_target}", "INFO: creating_dn")
-				
-				# Sammle alle Artikel für dieses Versandziel
-				all_items_for_target = []
-				all_sales_orders_for_target = []
-				
-				for order_info in orders_for_target:
-					customer = order_info["customer"]
-					sales_order_name = sales_orders_by_customer.get(customer)
-					
-					if sales_order_name:
-						all_sales_orders_for_target.append(sales_order_name)
-						
-						# Füge alle Produkte dieses Kunden hinzu (OHNE Sales Order Verknüpfung)
-						for product in order_info["products"]:
-							# Konvertiere zu Delivery Note Item Format (ohne SO-Verknüpfung)
-							dn_item = {
-								"item_code": product["item_code"],
-								"item_name": product["item_name"],
-								"qty": product["qty"],
-								"rate": product["rate"],
-								"amount": product["amount"],
-								"uom": product.get("uom", "Stk"),
-								"stock_uom": product.get("stock_uom", "Stk"),
-								"conversion_factor": product.get("conversion_factor", 1.0),
-								"stock_qty": product.get("stock_qty", product["qty"]),
-								"warehouse": product.get("warehouse", get_default_warehouse()),
-								# KEINE Sales Order Verknüpfung für reine Packliste!
-								# "against_sales_order": sales_order_name,
-								# "so_detail": so_detail
-							}
-							all_items_for_target.append(dn_item)
-							
-							frappe.log_error(f"DN Item erstellt: {product['item_code']} für Versandziel {shipping_target} (ohne SO-Verknüpfung)", "INFO: dn_item_created")
-				
-				if not all_items_for_target:
-					frappe.log_error(f"Keine Items für Versandziel {shipping_target} gefunden", "WARNING: no_items")
-					continue
-				
-				# Bestimme den Customer für die Delivery Note (Versandziel)
-				delivery_customer = shipping_target  # Das Versandziel wird der Customer der Delivery Note
-				
-				# Finde Adressen für die Delivery Note
-				customer_address = find_existing_address(delivery_customer, "Billing")
-				shipping_address = find_existing_address(shipping_target, "Shipping")
-				if not shipping_address:
-					shipping_address = find_existing_address(shipping_target, "Billing")
-				
-				if not customer_address or not shipping_address:
-					frappe.log_error(f"Adressen fehlen für Delivery Note - Customer: {customer_address}, Shipping: {shipping_address}", "ERROR: missing_addresses")
-					continue
-				
-				# Delivery Note Daten
-				dn_data = {
-					"doctype": "Delivery Note",
-					"customer": delivery_customer,  # Das Versandziel ist der Customer
-					"posting_date": frappe.utils.today(),
-					"posting_time": frappe.utils.nowtime(),
-					"items": all_items_for_target,
-					"customer_address": customer_address,
-					"shipping_address_name": shipping_address,
-					"remarks": f"Sammel-Packliste für Party: {party_doc.name} | Versandziel: {shipping_target} | Aufträge: {', '.join(all_sales_orders_for_target)}",
-					"company": frappe.defaults.get_user_default("Company"),
-					"currency": frappe.defaults.get_user_default("Currency"),
-					"status": "Draft"
-				}
-				
-				frappe.log_error(f"Erstelle Delivery Note für {shipping_target} mit {len(all_items_for_target)} Items", "INFO: dn_creation")
-				
-				# Erstelle Delivery Note
-				delivery_note = frappe.get_doc(dn_data)
-				
-				# Ähnliche Validierung-Umgehung wie bei Sales Orders
-				import types
-				
-				def safe_validate_party_address_dn(self, *args, **kwargs):
-					frappe.log_error(f"Überspringe DN party_address für {self.customer}", "INFO: skip_dn_validation")
-					pass
-				
-				def safe_validate_shipping_address_dn(self, *args, **kwargs):
-					frappe.log_error(f"Überspringe DN shipping_address für {self.customer}", "INFO: skip_dn_validation")
-					pass
-				
-				# Deaktiviere nur die problematischen Adress-Validierungen
-				delivery_note.validate_party_address = types.MethodType(safe_validate_party_address_dn, delivery_note)
-				delivery_note.validate_shipping_address = types.MethodType(safe_validate_shipping_address_dn, delivery_note)
-				
-				# Erstelle die Delivery Note
-				delivery_note.insert()
-				frappe.log_error(f"Delivery Note erstellt: {delivery_note.name}", "SUCCESS: dn_created")
-				
-				# DEAKTIVIERT: Submit wegen Warehouse-Account-Setup-Problemen
-				# Delivery Note wird nur erstellt, kann später manuell eingereicht werden
-				# try:
-				# 	delivery_note.submit()
-				# 	frappe.log_error(f"Delivery Note eingereicht: {delivery_note.name}", "SUCCESS: dn_submitted")
-				# except Exception as e:
-				# 	frappe.log_error(f"Delivery Note konnte nicht eingereicht werden: {str(e)}", "WARNING: dn_submit_failed")
-				# 	# Trotzdem weitermachen
-				
-				created_delivery_notes.append(delivery_note.name)
-				
-			except Exception as e:
-				frappe.log_error(f"Fehler beim Erstellen der Delivery Note für {shipping_target}: {str(e)}", "ERROR: dn_creation_error")
-				continue
-		
-		frappe.log_error(f"Delivery Notes erstellt: {created_delivery_notes}", "SUCCESS: all_dns_created")
-		return created_delivery_notes
-		
-	except Exception as e:
-		frappe.log_error(f"Allgemeiner Fehler in create_delivery_notes_for_party: {str(e)}\n{frappe.get_traceback()}", "ERROR: dn_function_error")
-		return []
