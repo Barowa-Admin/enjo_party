@@ -146,7 +146,10 @@ doc_events = {
 		"before_validate": "enjo_party.enjo_party.utils.sales_invoice_hooks.before_validate_sales_invoice",
 		"before_save": "enjo_party.enjo_party.utils.sales_invoice_hooks.add_shipping_to_sales_invoice",
 		"after_save": "enjo_party.enjo_party.utils.sales_invoice_hooks.after_save_sales_invoice",
-		"on_submit": "enjo_party.enjo_party.server_scripts.enjo_punkte_vergabe.award_points_on_invoice_submit",
+		"on_submit": [
+			"enjo_party.enjo_party.server_scripts.enjo_punkte_vergabe.award_points_on_invoice_submit",
+			"enjo_party.enjo_party.utils.sales_invoice_hooks.auto_create_picklist_from_invoice"
+		],
 		"on_cancel": "enjo_party.enjo_party.server_scripts.enjo_punkte_vergabe.cancel_points_on_invoice_cancel"
 	},
 	"Sales Order": {

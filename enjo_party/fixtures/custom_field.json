@@ -40,5 +40,16 @@
   "label": "Versandkosten Berechnung",
   "read_only": 1,
   "insert_after": "custom_calculated_shipping_cost"
+ },
+ {
+  "doctype": "Custom Field",
+  "name": "Pick List-custom_invoice_references",
+  "dt": "Pick List",
+  "fieldname": "custom_invoice_references",
+  "fieldtype": "Text",
+  "label": "Rechnungsreferenzen",
+  "description": "Liste der zugehörigen Ausgangsrechnungen",
+  "read_only": 1,
+  "insert_after": "customer"
  }
 ] 

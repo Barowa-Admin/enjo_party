@@ -1253,7 +1253,16 @@ def create_invoices(party, from_submit=False, from_button=False):
                             
                             # Sichere Behandlung von custom fields
                             if hasattr(order, 'custom_party_reference') and order.custom_party_reference:
-                                invoice_data["custom_party_reference"] = order.custom_party_reference
+                                # Prüfe ob die Party noch aktiv ist (nicht cancelled)
+                                try:
+                                    party_ref_doc = frappe.get_doc("Party", order.custom_party_reference)
+                                    if party_ref_doc.docstatus != 2:  # Nicht cancelled
+                                        invoice_data["custom_party_reference"] = order.custom_party_reference
+                                    else:
+                                        frappe.log_error(f"Party {order.custom_party_reference} ist cancelled - überspringe Referenz", "WARNING: cancelled_party_in_invoice")
+                                except Exception as e:
+                                    frappe.log_error(f"Fehler beim Laden der Party {order.custom_party_reference}: {str(e)}", "WARNING: party_ref_load_error")
+                                    
                             if hasattr(order, 'custom_calculated_shipping_cost') and order.custom_calculated_shipping_cost:
                                 invoice_data["custom_calculated_shipping_cost"] = order.custom_calculated_shipping_cost
                             
@@ -1301,14 +1310,16 @@ def create_invoices(party, from_submit=False, from_button=False):
                     # Den Auftrag trotzdem zur Liste hinzufügen wenn er erstellt wurde
                     if hasattr(order, 'name') and order.name:
                         # ENTFERNT: frappe.msgprint(f"Auftrag für {customer} wurde erstellt ({order.name}), konnte aber nicht eingereicht werden: {str(e)}", alert=True)
-                        pass
+                        created_orders.append(order.name)  # WICHTIG: Auch fehlerhafte Orders hinzufügen!
+                        frappe.log_error(f"Fehlerhafter Auftrag {order.name} trotzdem hinzugefügt. Anzahl: {len(created_orders)}", "INFO: error_order_added")
                     else:
                         # ENTFERNT: frappe.msgprint(f"Auftrag für {customer} konnte nicht erstellt werden: {str(e)}", alert=True)
                         continue
                 
-                # Zur Liste der erstellten Aufträge hinzufügen
-                created_orders.append(order.name)
-                frappe.log_error(f"Auftrag {order.name} hinzugefügt. Anzahl: {len(created_orders)}", "INFO: order_added")
+                # Zur Liste der erstellten Aufträge hinzufügen (nur wenn nicht schon bei Fehler hinzugefügt)
+                if not (hasattr(order, 'name') and order.name in created_orders):
+                    created_orders.append(order.name)
+                    frappe.log_error(f"Auftrag {order.name} hinzugefügt. Anzahl: {len(created_orders)}", "INFO: order_added")
                 
             except Exception as e:
                 frappe.log_error(f"Kritischer Fehler für {order_info.get('customer', 'Unbekannt')}: {str(e)}", "ERROR: critical_order_error")
@@ -1318,6 +1329,15 @@ def create_invoices(party, from_submit=False, from_button=False):
         
         # Wenn mindestens ein Auftrag erstellt wurde, Party-Status aktualisieren
         if created_orders:
+            # NEU: Erstelle Picklists (Auswahllisten) nach Versandzielen gruppiert
+            try:
+                frappe.log_error(f"Starte Picklist Erstellung für {len(created_orders)} Aufträge", "INFO: picklist_start")
+                created_picklists = create_picklists_for_party(party_doc, all_orders_with_shipping, created_orders)
+                frappe.log_error(f"Picklists erstellt: {created_picklists}", "INFO: picklists_created")
+            except Exception as e:
+                frappe.log_error(f"Fehler bei Picklist Erstellung: {str(e)}", "ERROR: picklist_creation")
+                created_picklists = []  # Fallback für Fehlerfälle
+            
             # Status auf "Abgeschlossen" setzen
             party_doc.set_status = lambda: None  # Überschreibe die Methode temporär
             party_doc.status = "Abgeschlossen"
@@ -1325,6 +1345,7 @@ def create_invoices(party, from_submit=False, from_button=False):
             party_doc.submit()
             
             # Erfolgsmeldung anzeigen
+            picklist_msg = f" und {len(created_picklists)} Auswahllisten" if created_picklists else ""
             frappe.msgprint(
                 f"{len(created_orders)} Aufträge wurden erfolgreich erstellt und gebucht.<br><br>Das Fenster wird gleich automatisch neu geladen, um den aktuellen Status anzuzeigen.",
                 title="Erfolgreich gebuchte Präsentation",
@@ -1567,4 +1588,208 @@ def find_existing_address(customer_name, preferred_type="Billing"):
     
     finally:
         frappe.log_error(f"=== find_existing_address ENDE für '{customer_name}' ===", "DEBUG: find_address_end")
+
+def create_picklists_for_party(party_doc, all_orders_with_shipping, created_order_names):
+	"""
+	Erstellt Picklists (Auswahllisten) gruppiert nach Versandziel
+	WICHTIG: Aufträge werden NICHT vermischt - jeder Sales Order behält seine eigenen Items
+	NEU: Zeigt Rechnungsnummern im Header an
+	
+	Args:
+		party_doc: Das Party-Dokument
+		all_orders_with_shipping: Liste der Order-Infos mit Versandziel
+		created_order_names: Liste der tatsächlich erstellten Sales Order Namen
+	
+	Returns:
+		Liste der erstellten Picklist Namen
+	"""
+	try:
+		frappe.log_error(f"🎯 create_picklists_for_party gestartet", "INFO: picklist_function")
+		
+		# Gruppiere nach Versandziel
+		shipping_groups = {}
+		
+		# Erstelle ein Mapping von Customer zu Sales Order Name
+		for order_info in all_orders_with_shipping:
+			customer = order_info["customer"]
+			shipping_target = order_info["shipping_target"]
+			
+			# Finde den entsprechenden Sales Order Namen
+			sales_order_name = None
+			for order_name in created_order_names:
+				try:
+					order_doc = frappe.get_doc("Sales Order", order_name)
+					if order_doc.customer == customer:
+						sales_order_name = order_name
+						break
+				except:
+					continue
+			
+			if sales_order_name:
+				if shipping_target not in shipping_groups:
+					shipping_groups[shipping_target] = []
+				shipping_groups[shipping_target].append({
+					"customer": customer,
+					"sales_order": sales_order_name,
+					"order_info": order_info
+				})
+		
+		frappe.log_error(f"📦 Picklist Shipping Groups: {list(shipping_groups.keys())}", "INFO: picklist_groups")
+		
+		created_picklists = []
+		
+		# Erstelle eine Picklist pro Versandziel
+		for shipping_target, orders_for_target in shipping_groups.items():
+			try:
+				frappe.log_error(f"🏭 Erstelle Picklist für Versandziel: {shipping_target}", "INFO: creating_picklist")
+				
+				# Sammle alle Items für dieses Versandziel (OHNE Vermischung!)
+				all_picklist_items = []
+				invoice_data = []  # Ändere zu Liste mit Customer-Info
+				order_numbers = []
+				
+				for order_data in orders_for_target:
+					customer = order_data["customer"]
+					sales_order_name = order_data["sales_order"]
+					order_info = order_data["order_info"]
+					
+					order_numbers.append(sales_order_name)
+					
+					# Finde Sales Invoices für diesen Sales Order
+					try:
+						frappe.log_error(f"🔍 Suche Sales Invoices für SO: {sales_order_name}", "DEBUG: invoice_search_start")
+						current_invoices = frappe.get_all(
+							"Sales Invoice",
+							filters={
+								"sales_order": sales_order_name,
+								"docstatus": 1  # Nur eingereichte Rechnungen
+							},
+							fields=["name"]  # order_by entfernt - verursacht SQL Fehler
+						)
+						
+						frappe.log_error(f"📋 Gefundene Invoices für SO {sales_order_name}: {len(current_invoices)} - {[inv.name for inv in current_invoices]}", "DEBUG: invoice_search_result")
+						
+						for inv in current_invoices:
+							# Sammle Invoice mit Kundenname
+							customer_name = customer
+							try:
+								customer_doc = frappe.get_doc("Customer", customer)
+								customer_display_name = customer_doc.customer_name or customer
+							except:
+								customer_display_name = customer
+							
+							invoice_with_customer = f"{inv.name} ({customer_display_name})"
+							invoice_data.append(invoice_with_customer)
+							frappe.log_error(f"💳 Sales Invoice für SO {sales_order_name} gefunden: {invoice_with_customer}", "INFO: invoice_found_for_picklist")
+							
+					except Exception as e:
+						frappe.log_error(f"⚠️ Fehler beim Finden der Sales Invoice für {sales_order_name}: {str(e)}", "WARNING: invoice_search")
+					
+					# Hole den Sales Order für Warehouse-Info
+					try:
+						so_doc = frappe.get_doc("Sales Order", sales_order_name)
+					except:
+						frappe.log_error(f"❌ Sales Order {sales_order_name} nicht gefunden", "ERROR: so_not_found")
+						continue
+					
+					# Füge alle Produkte dieses Kunden hinzu (OHNE Vermischung mit anderen!)
+					for product in order_info["products"]:
+						# Überspringe Versandartikel für die Picklist (nur echte Produkte)
+						if product.get("_shipping_item", False):
+							frappe.log_error(f"📦 Versandartikel übersprungen für Picklist: {product['item_code']}", "INFO: shipping_item_skipped")
+							continue
+						
+						# Finde das entsprechende SO Item für Warehouse
+						so_warehouse = product.get("warehouse", get_default_warehouse())
+						so_item_name = None
+						for so_item in so_doc.items:
+							if so_item.item_code == product["item_code"] and so_item.qty == product["qty"]:
+								so_warehouse = so_item.warehouse or get_default_warehouse()
+								so_item_name = so_item.name  # Wichtig: Sales Order Item Reference!
+								break
+						
+						picklist_item = {
+							"doctype": "Pick List Item",  # WICHTIG: DocType
+							"item_code": product["item_code"],
+							"item_name": product["item_name"],
+							"qty": float(product["qty"]),  # WICHTIG: Als Float!
+							"stock_qty": float(product.get("stock_qty", product["qty"])),
+							"picked_qty": 0.0,  # Standardwert
+							"stock_reserved_qty": 0.0,  # Standardwert  
+							"uom": product.get("uom", "Stk"),
+							"stock_uom": product.get("stock_uom", "Stk"),
+							"conversion_factor": float(product.get("conversion_factor", 1.0)),
+							"warehouse": so_warehouse,
+							"sales_order": sales_order_name,
+							"sales_order_item": so_item_name,  # WICHTIG: SO Item Reference
+							"batch_no": None,
+							"serial_no": None,
+							"use_serial_batch_fields": 0,  # Standardwert
+							"serial_and_batch_bundle": None,  # Standardwert
+							"product_bundle_item": None,  # Standardwert
+							"material_request": None,  # Standardwert
+							"material_request_item": None  # Standardwert
+						}
+						
+						all_picklist_items.append(picklist_item)
+						frappe.log_error(f"✅ Picklist Item hinzugefügt: {product['item_code']} (SO: {sales_order_name}, SO-Item: {so_item_name}, Customer: {customer})", "INFO: picklist_item_added")
+				
+				if not all_picklist_items:
+					frappe.log_error(f"⚠️ Keine Items für Versandziel {shipping_target} gefunden", "WARNING: no_picklist_items")
+					continue
+				
+				# Entferne Duplikate und sortiere
+				invoice_data = list(set(invoice_data))
+				order_numbers = list(set(order_numbers))
+				
+				# Erstelle Header-Bemerkung mit Rechnungsnummern im Fokus
+				if invoice_data:
+					invoice_text = "\n".join(sorted(invoice_data))  # Zeilenumbruch statt Komma
+					# Einfache remarks - Details stehen im Custom Field
+					remarks = f"Party: {party_doc.name} | {len(invoice_data)} Rechnungen"
+					frappe.log_error(f"✅ Picklist mit {len(invoice_data)} Rechnungen erstellt", "INFO: picklist_created_with_invoices")
+				else:
+					# Fallback falls keine Rechnungen gefunden
+					order_text = ", ".join(sorted(order_numbers))
+					remarks = f"Party: {party_doc.name} | {len(order_numbers)} Aufträge"
+					frappe.log_error(f"⚠️ Picklist ohne Rechnungen - {len(order_numbers)} Aufträge", "WARNING: picklist_no_invoices")
+				
+				# Picklist Daten
+				picklist_data = {
+					"doctype": "Pick List",
+					"purpose": "Delivery",
+					"company": frappe.defaults.get_user_default("Company"),
+					"customer": shipping_target,  # Das Versandziel als Customer
+					"custom_invoice_references": "\n".join(sorted(invoice_data)) if invoice_data else None,  # Zeilenumbruch statt Komma!
+					"remarks": remarks,  # Zusätzlich in Bemerkungen
+					"locations": all_picklist_items  # DIREKT verwenden!
+				}
+				
+				frappe.log_error(f"🎯 Erstelle Picklist für {shipping_target} mit {len(all_picklist_items)} Items", "INFO: picklist_creation")
+				
+				# Erstelle Picklist
+				picklist = frappe.get_doc(picklist_data)
+				picklist.insert()
+				frappe.log_error(f"✅ Picklist erstellt: {picklist.name}", "SUCCESS: picklist_created")
+				
+				# Reiche die Picklist ein
+				try:
+					picklist.submit()
+					frappe.log_error(f"🎉 Picklist eingereicht: {picklist.name}", "SUCCESS: picklist_submitted")
+				except Exception as e:
+					frappe.log_error(f"⚠️ Picklist konnte nicht eingereicht werden: {str(e)}", "WARNING: picklist_submit_failed")
+					# Trotzdem weitermachen - Picklist ist erstellt
+				
+				created_picklists.append(picklist.name)
+				
+			except Exception as e:
+				frappe.log_error(f"❌ Fehler beim Erstellen der Picklist für {shipping_target}: {str(e)}", "ERROR: picklist_creation_error")
+				continue
+		
+		frappe.log_error(f"🎉 Picklists erstellt: {created_picklists}", "SUCCESS: all_picklists_created")
+		return created_picklists
+		
+	except Exception as e:
+		frappe.log_error(f"💥 Allgemeiner Fehler in create_picklists_for_party: {str(e)}\n{frappe.get_traceback()}", "ERROR: picklist_function_error")
+		return []
 

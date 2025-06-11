@@ -50,7 +50,19 @@ def auto_create_and_submit_sales_invoice(doc, method):
         
         # Sichere Behandlung von custom fields
         if hasattr(doc, 'custom_party_reference') and doc.custom_party_reference:
-            invoice_data["custom_party_reference"] = doc.custom_party_reference
+            # Prüfe ob die Party noch aktiv ist (nicht cancelled)
+            try:
+                party_doc = frappe.get_doc("Party", doc.custom_party_reference)
+                if party_doc.docstatus != 2:  # Nicht cancelled
+                    invoice_data["custom_party_reference"] = doc.custom_party_reference
+                    frappe.log_error(f"Party Referenz hinzugefügt: {doc.custom_party_reference}", "DEBUG: party_ref_added")
+                else:
+                    frappe.log_error(f"Party {doc.custom_party_reference} ist cancelled - überspringe Referenz", "WARNING: cancelled_party")
+            except Exception as e:
+                frappe.log_error(f"Fehler beim Laden der Party {doc.custom_party_reference}: {str(e)}", "WARNING: party_load_error")
+        else:
+            frappe.log_error("Kein custom_party_reference gefunden - normaler Sales Order", "DEBUG: no_party_ref")
+                
         if hasattr(doc, 'custom_calculated_shipping_cost') and doc.custom_calculated_shipping_cost:
             invoice_data["custom_calculated_shipping_cost"] = doc.custom_calculated_shipping_cost
         
