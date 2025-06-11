@@ -116,3 +116,68 @@ def auto_create_and_submit_sales_invoice(doc, method):
             title="Warnung",
             indicator="orange"
         ) 
+
+
+@frappe.whitelist()
+def create_invoice_from_sales_order(sales_order_name):
+    """
+    Erstellt eine Sales Invoice für einen Sales Order (für Client Scripts)
+    """
+    try:
+        frappe.log_error(f"Client Script: Starting invoice creation for Sales Order: {sales_order_name}", "INFO: client_auto_invoice_start")
+        
+        # Lade den Sales Order
+        doc = frappe.get_doc("Sales Order", sales_order_name)
+        
+        # Prüfe ob bereits eine Sales Invoice für diesen Sales Order existiert
+        existing_invoices = frappe.get_all(
+            "Sales Invoice",
+            filters={
+                "docstatus": ["!=", 2],
+                "sales_order": doc.name
+            },
+            fields=["name"],
+            limit=1
+        )
+        
+        if existing_invoices:
+            return {
+                "success": False,
+                "message": f"Sales Invoice existiert bereits: {existing_invoices[0]['name']}",
+                "invoice_name": existing_invoices[0]['name']
+            }
+        
+        # Erstelle Sales Invoice (verwende die gleiche Logik wie der Hook)
+        auto_create_and_submit_sales_invoice(doc, "manual")
+        
+        # Finde die erstellte Sales Invoice
+        created_invoices = frappe.get_all(
+            "Sales Invoice",
+            filters={
+                "docstatus": ["!=", 2],
+                "sales_order": doc.name
+            },
+            fields=["name"],
+            limit=1
+        )
+        
+        if created_invoices:
+            return {
+                "success": True,
+                "message": f"Sales Invoice {created_invoices[0]['name']} wurde automatisch erstellt",
+                "invoice_name": created_invoices[0]['name']
+            }
+        else:
+            return {
+                "success": False,
+                "message": "Sales Invoice konnte nicht erstellt werden",
+                "invoice_name": None
+            }
+        
+    except Exception as e:
+        frappe.log_error(f"Client Script Error for {sales_order_name}: {str(e)}\n{frappe.get_traceback()}", "ERROR: client_auto_invoice_failed")
+        return {
+            "success": False,
+            "message": f"Fehler: {str(e)}",
+            "invoice_name": None
+        } 
