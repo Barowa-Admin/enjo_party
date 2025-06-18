@@ -1,12 +1,21 @@
 import frappe
 from frappe import _
 
+# === AUTO SALES INVOICE TEMPORÄR DEAKTIVIERT ===
+# Schalter für automatische Rechnungserstellung über Hooks (True = aktiv, False = deaktiviert)
+ENABLE_AUTO_SALES_INVOICE_HOOKS = False  # Wieder aktivieren, sobald gewünscht!
+
 
 def auto_create_and_submit_sales_invoice(doc, method):
     """
     Hook für Sales Order on_submit
     Erstellt automatisch eine Sales Invoice und reicht sie ein
     """
+    # TEMPORÄR DEAKTIVIERT: Automatische Rechnungserstellung über Hooks
+    if not ENABLE_AUTO_SALES_INVOICE_HOOKS:
+        frappe.log_error("AUTO SALES INVOICE HOOKS ist aktuell deaktiviert (ENABLE_AUTO_SALES_INVOICE_HOOKS = False)", "INFO: auto_invoice_hooks_deactivated")
+        return
+    
     try:
         frappe.log_error(f"Starting auto invoice creation for Sales Order: {doc.name}", "INFO: auto_invoice_start")
         
@@ -135,6 +144,14 @@ def create_invoice_from_sales_order(sales_order_name):
     """
     Erstellt eine Sales Invoice für einen Sales Order (für Client Scripts)
     """
+    # TEMPORÄR DEAKTIVIERT: Auch die manuelle Client-Script Funktion deaktivieren
+    if not ENABLE_AUTO_SALES_INVOICE_HOOKS:
+        return {
+            "success": False,
+            "message": "Automatische Rechnungserstellung ist derzeit deaktiviert (ENABLE_AUTO_SALES_INVOICE_HOOKS = False)",
+            "invoice_name": None
+        }
+    
     try:
         frappe.log_error(f"Client Script: Starting invoice creation for Sales Order: {sales_order_name}", "INFO: client_auto_invoice_start")
         

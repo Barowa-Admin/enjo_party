@@ -1253,93 +1253,7 @@ def create_invoices(party, from_submit=False, from_button=False):
                     order.submit()
                     frappe.log_error(f"Auftrag für {customer} eingereicht: {order.name}", "SUCCESS: order_complete")
                     
-                    # ========== NEU: AUTOMATISCHE SALES INVOICE ERSTELLUNG ==========
-                    try:
-                        frappe.log_error(f"Starte automatische Sales Invoice Erstellung für Sales Order: {order.name}", "INFO: auto_invoice_start")
-                        
-                        # Prüfe ob bereits eine Sales Invoice für diesen Sales Order existiert
-                        existing_invoices = frappe.get_all(
-                            "Sales Invoice",
-                            filters={
-                                "docstatus": ["!=", 2],
-                                "sales_order": order.name  # Prüfe nur auf diesen spezifischen Sales Order
-                            },
-                            fields=["name", "customer"],
-                            limit=1
-                        )
-                        
-                        if not existing_invoices:
-                            # Erstelle Sales Invoice basierend auf Sales Order
-                            invoice_data = {
-                                "doctype": "Sales Invoice",
-                                "customer": order.customer,
-                                "posting_date": frappe.utils.today(),
-                                "due_date": frappe.utils.today(),
-                                "customer_address": order.customer_address,
-                                "shipping_address_name": order.shipping_address_name,
-                                "po_no": order.po_no,
-                                "po_date": order.transaction_date,
-                                "company": order.company,
-                                "currency": order.currency,
-                                "selling_price_list": order.selling_price_list,
-                                "sales_partner": order.sales_partner,
-                                "remarks": f"Automatisch erstellt aus Sales Order: {order.name}",
-                                "items": []
-                            }
-                            
-                            # Sichere Behandlung von custom fields
-                            if hasattr(order, 'custom_party_reference') and order.custom_party_reference:
-                                # Prüfe ob die Party noch aktiv ist (nicht cancelled)
-                                try:
-                                    party_ref_doc = frappe.get_doc("Party", order.custom_party_reference)
-                                    if party_ref_doc.docstatus != 2:  # Nicht cancelled
-                                        invoice_data["custom_party_reference"] = order.custom_party_reference
-                                    else:
-                                        frappe.log_error(f"Party {order.custom_party_reference} ist cancelled - überspringe Referenz", "WARNING: cancelled_party_in_invoice")
-                                except Exception as e:
-                                    frappe.log_error(f"Fehler beim Laden der Party {order.custom_party_reference}: {str(e)}", "WARNING: party_ref_load_error")
-                                    
-                            if hasattr(order, 'custom_calculated_shipping_cost') and order.custom_calculated_shipping_cost:
-                                invoice_data["custom_calculated_shipping_cost"] = order.custom_calculated_shipping_cost
-                            
-                            # Kopiere alle Items vom Sales Order
-                            for item in order.items:
-                                invoice_item = {
-                                    "doctype": "Sales Invoice Item",
-                                    "item_code": item.item_code,
-                                    "item_name": item.item_name,
-                                    "description": item.description,
-                                    "qty": item.qty,
-                                    "rate": item.rate,
-                                    "amount": item.amount,
-                                    "uom": item.uom,
-                                    "conversion_factor": item.conversion_factor,
-                                    "warehouse": item.warehouse,
-                                    "cost_center": item.cost_center,
-                                    "income_account": item.income_account,
-                                    "sales_order": order.name,
-                                    "so_detail": item.name
-                                }
-                                invoice_data["items"].append(invoice_item)
-                            
-                            # Erstelle die Sales Invoice
-                            invoice = frappe.get_doc(invoice_data)
-                            invoice.insert()
-                            frappe.log_error(f"Sales Invoice erstellt: {invoice.name}", "INFO: invoice_created")
-                            
-                            # Reiche die Sales Invoice ein
-                            invoice.submit()
-                            frappe.log_error(f"Sales Invoice eingereicht: {invoice.name}", "SUCCESS: invoice_submitted")
-                            
-                            frappe.log_error(f"✅ Automatische Rechnung für {customer} erstellt: {invoice.name}", "SUCCESS: auto_invoice_complete")
-                            
-                        else:
-                            frappe.log_error(f"Sales Invoice existiert bereits für Sales Order {order.name}: {existing_invoices[0]['name']}", "INFO: invoice_already_exists")
-                            
-                    except Exception as invoice_error:
-                        frappe.log_error(f"❌ Fehler bei automatischer Rechnungserstellung für {order.name}: {str(invoice_error)}\n{frappe.get_traceback()}", "ERROR: auto_invoice_failed")
-                        # Fehler nicht weiterwerfen - Sales Order soll trotzdem erfolgreich sein
-                    # ========== ENDE: AUTOMATISCHE SALES INVOICE ERSTELLUNG ==========
+                    # Sales Invoice wird automatisch über den Hook in sales_order_hooks.py erstellt
                     
                 except Exception as e:
                     frappe.log_error(f"KRITISCHER FEHLER bei Order für {customer}: {str(e)}\nTraceback: {frappe.get_traceback()}", "ERROR: order_error_detailed")
@@ -1828,4 +1742,6 @@ def create_picklists_for_party(party_doc, all_orders_with_shipping, created_orde
 	except Exception as e:
 		frappe.log_error(f"💥 Allgemeiner Fehler in create_picklists_for_party: {str(e)}\n{frappe.get_traceback()}", "ERROR: picklist_function_error")
 		return []
+
+
 

@@ -21,51 +21,67 @@
   "amended_from",
   "produktauswahl_für_gast_1_section",
   "produktauswahl_für_gast_1",
+  "summe_gast_1",
   "versand_gast_1",
   "produktauswahl_für_gast_2_section",
   "produktauswahl_für_gast_2",
+  "summe_gast_2",
   "versand_gast_2",
   "produktauswahl_für_gast_3_section",
   "produktauswahl_für_gast_3",
+  "summe_gast_3",
   "versand_gast_3",
   "produktauswahl_für_gast_4_section",
   "produktauswahl_für_gast_4",
+  "summe_gast_4",
   "versand_gast_4",
   "produktauswahl_für_gast_5_section",
   "produktauswahl_für_gast_5",
+  "summe_gast_5",
   "versand_gast_5",
   "produktauswahl_für_gast_6_section",
   "produktauswahl_für_gast_6",
+  "summe_gast_6",
   "versand_gast_6",
   "produktauswahl_für_gast_7_section",
   "produktauswahl_für_gast_7",
+  "summe_gast_7",
   "versand_gast_7",
   "produktauswahl_für_gast_8_section",
   "produktauswahl_für_gast_8",
+  "summe_gast_8",
   "versand_gast_8",
   "produktauswahl_für_gast_9_section",
   "produktauswahl_für_gast_9",
+  "summe_gast_9",
   "versand_gast_9",
   "produktauswahl_für_gast_10_section",
   "produktauswahl_für_gast_10",
+  "summe_gast_10",
   "versand_gast_10",
   "produktauswahl_für_gast_11_section",
   "produktauswahl_für_gast_11",
+  "summe_gast_11",
   "versand_gast_11",
   "produktauswahl_für_gast_12_section",
   "produktauswahl_für_gast_12",
+  "summe_gast_12",
   "versand_gast_12",
   "produktauswahl_für_gast_13_section",
   "produktauswahl_für_gast_13",
+  "summe_gast_13",
   "versand_gast_13",
   "produktauswahl_für_gast_14_section",
   "produktauswahl_für_gast_14",
+  "summe_gast_14",
   "versand_gast_14",
   "produktauswahl_für_gast_15_section",
   "produktauswahl_für_gast_15",
+  "summe_gast_15",
   "versand_gast_15",
   "produktauswahl_für_gastgeberin_section",
   "produktauswahl_für_gastgeberin",
+  "summe_gastgeberin",
   "versand_gastgeberin"
  ],
  "fields": [
@@ -391,6 +407,86 @@
    "fieldname": "versand_gastgeberin",
    "fieldtype": "Select",
    "label": "Versand Gastgeberin"
+  },
+  {
+   "fieldname": "summe_gast_1",
+   "fieldtype": "HTML",
+   "label": "Summe"
+  },
+  {
+   "fieldname": "summe_gast_2",
+   "fieldtype": "HTML",
+   "label": "Summe"
+  },
+  {
+   "fieldname": "summe_gast_3",
+   "fieldtype": "HTML",
+   "label": "Summe"
+  },
+  {
+   "fieldname": "summe_gast_4",
+   "fieldtype": "HTML",
+   "label": "Summe"
+  },
+  {
+   "fieldname": "summe_gast_5",
+   "fieldtype": "HTML",
+   "label": "Summe"
+  },
+  {
+   "fieldname": "summe_gast_6",
+   "fieldtype": "HTML",
+   "label": "Summe"
+  },
+  {
+   "fieldname": "summe_gast_7",
+   "fieldtype": "HTML",
+   "label": "Summe"
+  },
+  {
+   "fieldname": "summe_gast_8",
+   "fieldtype": "HTML",
+   "label": "Summe"
+  },
+  {
+   "fieldname": "summe_gast_9",
+   "fieldtype": "HTML",
+   "label": "Summe"
+  },
+  {
+   "fieldname": "summe_gast_10",
+   "fieldtype": "HTML",
+   "label": "Summe"
+  },
+  {
+   "fieldname": "summe_gast_11",
+   "fieldtype": "HTML",
+   "label": "Summe"
+  },
+  {
+   "fieldname": "summe_gast_12",
+   "fieldtype": "HTML",
+   "label": "Summe"
+  },
+  {
+   "fieldname": "summe_gast_13",
+   "fieldtype": "HTML",
+   "label": "Summe"
+  },
+  {
+   "fieldname": "summe_gast_14",
+   "fieldtype": "HTML",
+   "label": "Summe"
+  },
+  {
+   "fieldname": "summe_gast_15",
+   "fieldtype": "HTML",
+   "label": "Summe"
+  },
+  {
+   "fieldname": "summe_gastgeberin",
+   "fieldtype": "HTML",
+   "label": "Summe"
   }
  ],
  "grid_page_length": 50,

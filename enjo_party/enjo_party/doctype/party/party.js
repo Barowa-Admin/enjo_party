@@ -455,6 +455,10 @@ function startAktionsSystem(frm, callback) {
 						console.log("Keine aktionsberechtigten Teilnehmer gefunden - fahre direkt mit Aufträge-Erstellung fort");
 						// WICHTIG: Markiere dass KEINE Aktionsartikel hinzugefügt wurden
 						frm._keineAktionsartikelHinzugefuegt = true;
+						// Cleanup der Backup-Variablen auch wenn keine Aktion verfügbar
+						delete frm._originalGesamtumsatz;
+						delete frm._originalProductAmounts;
+						console.log("Keine Aktionen verfügbar - Backup-Variablen aufgeräumt");
 						// WICHTIG: Auch wenn keine Aktion verfügbar ist, müssen die Aufträge erstellt werden!
 						callback();
 					}
@@ -513,8 +517,14 @@ function startAktionsSystem(frm, callback) {
 						callback: function(r) {
 							if (r.message && r.message.custom_considered_for_action) {
 								actionItems.push(item);
-								total += item.amount || 0;
-								console.log(`${teilnehmer_obj.displayName}: Item ${item.item_code} aktionsfähig (${item.amount || 0} EUR)`);
+								
+								// WICHTIG: Für Aktionsberechnung ursprünglichen Betrag verwenden (vor Gutschein-Reduktion)
+								let key = `${teilnehmer_obj.produktfeld}_${itemIndex}`;
+								let originalAmount = frm._originalProductAmounts?.[key];
+								let amountForAction = originalAmount || item.amount || 0;
+								
+								total += amountForAction;
+								console.log(`${teilnehmer_obj.displayName}: Item ${item.item_code} aktionsfähig (Original: ${originalAmount || 'n/a'}, Aktuell: ${item.amount || 0}, Für Aktion: ${amountForAction} EUR)`);
 							}
 							
 							checkItemsForAction(items, itemIndex + 1, actionItems, total, teilnehmer_obj);
@@ -642,12 +652,20 @@ function startAktionsSystem(frm, callback) {
 							}
 							
 							d.hide();
+							// Cleanup der Backup-Variablen nach erfolgreichem Aktions-System
+							delete frm._originalGesamtumsatz;
+							delete frm._originalProductAmounts;
+							console.log("Aktions-System erfolgreich - Backup-Variablen aufgeräumt");
 							callback();
 						}).catch((error) => {
 							console.error("Fehler beim Hinzufügen der Aktionsartikel:", error);
 							// Entferne die Fehlermeldung, da die Artikel trotzdem hinzugefügt wurden
 							console.log("Artikel wurden trotz Fehler hinzugefügt - fahre fort");
 							d.hide();
+							// Cleanup auch bei Fehlern
+							delete frm._originalGesamtumsatz;
+							delete frm._originalProductAmounts;
+							console.log("Aktions-System mit Fehlern - Backup-Variablen aufgeräumt");
 							callback(); // Auch bei Fehlern fortfahren
 						});
 					},
@@ -655,6 +673,10 @@ function startAktionsSystem(frm, callback) {
 					secondary_action: function() {
 						console.log("Alle Aktionen abgelehnt");
 						d.hide();
+						// Cleanup der Backup-Variablen auch bei Ablehnung
+						delete frm._originalGesamtumsatz;
+						delete frm._originalProductAmounts;
+						console.log("Aktions-System abgelehnt - Backup-Variablen aufgeräumt");
 						callback();
 					}
 				});
@@ -751,6 +773,11 @@ function applyGutscheinSystem(frm, callback) {
 	// Markiere, dass das Gutschein-System durchlaufen wird
 	frm._gutscheinSystemDurchlaufen = true;
 	
+	// WICHTIG: Sichere den ursprünglichen Gesamtumsatz für spätere Wiederherstellung
+	frm._originalGesamtumsatz = frm.doc.gesamtumsatz;
+	frm._originalProductAmounts = {}; // Für Aktionsberechnung
+	console.log("Ursprünglicher Gesamtumsatz gesichert:", frm._originalGesamtumsatz);
+	
 	// Hole den Gutscheinwert des Gastgebers
 	let gutscheinWert = frm.doc.gastgeber_gutschein_wert || 0;
 	console.log("Verfügbarer Gutscheinwert:", gutscheinWert);
@@ -804,8 +831,15 @@ function applyGutscheinSystem(frm, callback) {
 			return;
 		}
 		
-		// Wende Gutschein nur auf Gastgeber-Produkte an (Gastgeber-Benefit!)
-		wendeGutscheinAn(aktionsfaehigeGastgeberProdukte, gutscheinWert, frm, callback);
+			// Sichere ursprüngliche Produktbeträge BEVOR Gutschein angewendet wird (für Aktionsberechnung)
+	aktionsfaehigeGastgeberProdukte.forEach((produkt, index) => {
+		let key = `${produkt.produktfeld}_${produkt.index}`;
+		frm._originalProductAmounts[key] = produkt.originalAmount;
+		console.log(`Original-Betrag gesichert für Aktions-System: ${produkt.item.item_code} = ${produkt.originalAmount}€`);
+	});
+	
+	// Wende Gutschein nur auf Gastgeber-Produkte an (Gastgeber-Benefit!)
+	wendeGutscheinAn(aktionsfaehigeGastgeberProdukte, gutscheinWert, frm, callback);
 	});
 }
 
@@ -919,8 +953,12 @@ function wendeGutscheinAn(aktionsfaehigeGastgeberProdukte, verfuegbarerGutschein
 		frm.refresh_field(tabelle);
 	});
 	
-	// Berechne Gesamtsummen neu
-	calculate_party_totals(frm);
+	// WICHTIG: Stelle ursprünglichen Gesamtumsatz wieder her (nicht neu berechnen!)
+	// Der Gutschein reduziert nur die Preise für die Aufträge, aber nicht den Party-Gesamtumsatz
+	if (frm._originalGesamtumsatz) {
+		frm.set_value('gesamtumsatz', frm._originalGesamtumsatz);
+		console.log("Ursprünglicher Gesamtumsatz wiederhergestellt:", frm._originalGesamtumsatz);
+	}
 	
 	let restbetrag = verfuegbarerGutschein - verbrauchterGutschein;
 	console.log("Gutschein angewendet - Verbraucht:", verbrauchterGutschein, "Restbetrag:", restbetrag);
@@ -933,6 +971,8 @@ function wendeGutscheinAn(aktionsfaehigeGastgeberProdukte, verfuegbarerGutschein
 		// ENTFERNT: frappe.show_alert(`Gutschein vollständig angewendet: ${verbrauchterGutschein.toFixed(2)}€`, 3);
 		// Original-Preise können gelöscht werden, da der Gutschein erfolgreich angewendet wurde
 		frm.originalPricesBackup = {};
+		// Cleanup der Backup-Variablen da Gutschein erfolgreich angewendet
+		console.log("Gutschein-System erfolgreich - Backup-Variablen werden beibehalten für Aktions-System");
 		callback();
 	}
 }
@@ -1029,8 +1069,14 @@ function stelleOriginalPreiseWieder(frm) {
 	// Aktualisiere alle betroffenen Tabellen
 	frm.refresh_field("produktauswahl_für_gastgeberin");
 	
-	// Berechne Gesamtsummen neu
-	calculate_party_totals(frm);
+	// WICHTIG: Stelle ursprünglichen Gesamtumsatz wieder her (falls er durch Gutschein verändert wurde)
+	if (frm._originalGesamtumsatz) {
+		frm.set_value('gesamtumsatz', frm._originalGesamtumsatz);
+		console.log("Gesamtumsatz nach Preiswiederherstellung korrigiert:", frm._originalGesamtumsatz);
+	} else {
+		// Fallback: Neu berechnen falls kein Original-Wert vorhanden
+		calculate_party_totals(frm);
+	}
 	
 	console.log(`${wiederhergestellteProdukte} Produkte auf Original-Preise zurückgesetzt`);
 	// ENTFERNT: frappe.show_alert(`${wiederhergestellteProdukte} Produkte auf Original-Preise zurückgesetzt`, 3);
@@ -1101,6 +1147,9 @@ function erstelleAuftraege(frm) {
 	} catch (e) {
 		console.log("Fehler beim Refreshen der Tabellen:", e);
 	}
+	
+	// Aktualisiere auch die Summen-Anzeigen
+	updateAllSummenAnzeigen(frm);
 	
 	// SKIP: Berechne Gesamtsummen NICHT neu (wichtig nach Aktionsartikeln und Gutschrift)
 	// try {
@@ -1671,6 +1720,10 @@ frappe.ui.form.on('Party', {
 		// Kundennamen in Überschriften einfügen (nach DOM-Rendering)
 		setTimeout(() => {
 			updateCustomHeaders(frm);
+			// Summen initial anzeigen
+			updateAllSummenAnzeigen(frm);
+			// DIREKTE CSS-Regeln einfügen (robusteste Lösung)
+			addPermanentColumnHideCSS();
 		}, 500);
 		
 		// Verstecke das Datum-Feld auch in der Gastgeberin-Tabelle
@@ -1809,10 +1862,7 @@ frappe.ui.form.on('Party', {
 					$(frm.wrapper).find(`[data-fieldname="${fieldName}"] .grid-body .data-row .col[data-fieldname="warehouse"]`).hide();
 					$(frm.wrapper).find(`[data-fieldname="${fieldName}"] .grid-heading-row .col[data-fieldname="delivery_date"]`).hide();
 					$(frm.wrapper).find(`[data-fieldname="${fieldName}"] .grid-heading-row .col[data-fieldname="warehouse"]`).hide();
-					
-					// Mache die Artikel-Code Spalte breiter
-					// $(frm.wrapper).find(`[data-fieldname="${fieldName}"] .grid-heading-row .col[data-fieldname="item_code"]`).css('width', '300px');
-					// $(frm.wrapper).find(`[data-fieldname="${fieldName}"] .grid-body .data-row .col[data-fieldname="item_code"]`).css('width', '300px');
+				
 				}, 500);
 				
 				// Setze Standard-Spaltenbreiten wie in der manuellen Konfiguration
@@ -2143,6 +2193,10 @@ frappe.ui.form.on('Party', {
 			// Berechne auch die Gesamtsummen neu
 			calculate_party_totals(frm);
 		}
+		// Aktualisiere die Summen-Anzeigen nach dem Speichern
+		setTimeout(() => {
+			updateAllSummenAnzeigen(frm);
+		}, 500);
 	},
 	
 	// Aktualisiere auch wenn Kunden hinzugefügt oder entfernt werden
@@ -2245,6 +2299,11 @@ frappe.ui.form.on('Sales Order Item', {
 		if (row.item_code) {
 			get_item_price(frm, row);
 		}
+		
+		// Aktualisiere die Summen-Anzeigen nach Artikel-Auswahl
+		setTimeout(() => {
+			updateAllSummenAnzeigen(frm);
+		}, 500);
 	},
 	qty: function(frm, cdt, cdn) {
 		let row = locals[cdt][cdn];
@@ -2255,6 +2314,8 @@ frappe.ui.form.on('Sales Order Item', {
 			frm.refresh_field(row.parentfield);
 			// Berechne auch die Gesamtsummen neu
 			calculate_party_totals(frm);
+			// Aktualisiere die Summen-Anzeigen
+			updateAllSummenAnzeigen(frm);
 		}
 	},
 	rate: function(frm, cdt, cdn) {
@@ -2266,6 +2327,8 @@ frappe.ui.form.on('Sales Order Item', {
 			frm.refresh_field(row.parentfield);
 			// Berechne auch die Gesamtsummen neu
 			calculate_party_totals(frm);
+			// Aktualisiere die Summen-Anzeigen
+			updateAllSummenAnzeigen(frm);
 		}
 	}
 });
@@ -2493,5 +2556,75 @@ function fixAllWarehouses(frm) {
 	// Funktion nicht mehr benötigt - get_default_warehouse() wird direkt verwendet
 	console.log("fixAllWarehouses aufgerufen, aber nicht mehr benötigt");
 }
+
+// === CSS-REGELN FÜR SPALTEN-VERSTECKEN ===
+
+// Funktion zum Einfügen permanenter CSS-Regeln die Spalten verstecken
+function addPermanentColumnHideCSS() {
+	// Prüfe ob die CSS-Regeln schon existieren
+	if (document.getElementById('party-column-hide-css')) {
+		return; // Bereits eingefügt
+	}
+	
+	// Erstelle CSS-Regeln zum Verstecken der delivery_date und warehouse Spalten
+	let css = `
+		/* Verstecke delivery_date und warehouse Spalten in allen Party-Produkttabellen */
+		[data-fieldname*="produktauswahl_für_gast"] .grid-heading-row .col[data-fieldname="delivery_date"],
+		[data-fieldname*="produktauswahl_für_gast"] .grid-body .data-row .col[data-fieldname="delivery_date"],
+		[data-fieldname*="produktauswahl_für_gast"] .grid-heading-row .col[data-fieldname="warehouse"],
+		[data-fieldname*="produktauswahl_für_gast"] .grid-body .data-row .col[data-fieldname="warehouse"],
+		[data-fieldname="produktauswahl_für_gastgeberin"] .grid-heading-row .col[data-fieldname="delivery_date"],
+		[data-fieldname="produktauswahl_für_gastgeberin"] .grid-body .data-row .col[data-fieldname="delivery_date"],
+		[data-fieldname="produktauswahl_für_gastgeberin"] .grid-heading-row .col[data-fieldname="warehouse"],
+		[data-fieldname="produktauswahl_für_gastgeberin"] .grid-body .data-row .col[data-fieldname="warehouse"] {
+			display: none !important;
+		}
+	`;
+	
+	// Füge CSS in den Head ein
+	let style = document.createElement('style');
+	style.id = 'party-column-hide-css';
+	style.type = 'text/css';
+	style.innerHTML = css;
+	document.head.appendChild(style);
+	
+	console.log("Permanente CSS-Regeln zum Verstecken der Spalten hinzugefügt");
+}
+
+// === SUMMEN-ANZEIGE FUNKTIONEN ===
+
+// Funktion zum Berechnen und Anzeigen der Summe für eine Tabelle
+function updateSummeForTable(frm, tableName, sumFieldName) {
+	let sum = 0;
+	
+	if (frm.doc[tableName] && frm.doc[tableName].length > 0) {
+		frm.doc[tableName].forEach(function(item) {
+			if (item.qty && item.rate) {
+				sum += flt(item.qty) * flt(item.rate);
+			}
+		});
+	}
+	
+	// Zeige die Summe im HTML-Feld an
+	if (frm.fields_dict[sumFieldName]) {
+		let htmlContent = `<div style="text-align: right; font-weight: bold; color: black; margin-top: 5px; margin-bottom: 10px;">Summe: ${format_currency(sum)}</div>`;
+		frm.fields_dict[sumFieldName].$wrapper.html(htmlContent);
+	}
+}
+
+// Funktion zum Aktualisieren aller Summen-Anzeigen
+function updateAllSummenAnzeigen(frm) {
+	// Gastgeberin-Summe
+	updateSummeForTable(frm, 'produktauswahl_für_gastgeberin', 'summe_gastgeberin');
+	
+	// Gäste-Summen
+	for (let i = 1; i <= 15; i++) {
+		let tableName = `produktauswahl_für_gast_${i}`;
+		let sumFieldName = `summe_gast_${i}`;
+		updateSummeForTable(frm, tableName, sumFieldName);
+	}
+}
+
+// === ENDE SUMMEN-ANZEIGE FUNKTIONEN ===
 
 // Validiere Aktionsartikel...
