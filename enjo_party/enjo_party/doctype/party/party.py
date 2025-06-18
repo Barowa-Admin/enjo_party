@@ -1408,45 +1408,56 @@ def cancel_multiple_parties(parties):
     }
 
 # Einfache Funktion zum Finden vorhandener Adressen (OHNE automatische Erstellung)
-def find_existing_address(customer_name, preferred_type="Billing"):
+def find_existing_address(entity_name, preferred_type="Billing"):
     """
-    Findet eine vorhandene Adresse für einen Kunden
+    Findet eine vorhandene Adresse für einen Kunden oder Sales Partner
+    - entity_name: Customer-ID oder Sales Partner-ID
     - preferred_type: "Billing" oder "Shipping" 
     - Falls preferred_type nicht gefunden wird, nimm andere verfügbare Adresse
     - NIEMALS neue Adressen erstellen!
     - ERWEITERT: Sucht auch in Contact-verknüpften Adressen
+    - NEU: Unterstützt sowohl Customer als auch Sales Partner
     """
-    frappe.log_error(f"=== find_existing_address START: Customer='{customer_name}', Type='{preferred_type}' ===", "DEBUG: find_address_start")
+    frappe.log_error(f"=== find_existing_address START: Entity='{entity_name}', Type='{preferred_type}' ===", "DEBUG: find_address_start")
     
     try:
-        # Prüfen, ob der Customer überhaupt existiert
-        if not frappe.db.exists("Customer", customer_name):
-            frappe.log_error(f"❌ Customer '{customer_name}' existiert nicht!", "ERROR: find_address")
+        # ERWEITERT: Prüfen, ob es sich um einen Customer oder Sales Partner handelt
+        entity_type = None
+        entity_doc = None
+        display_name = entity_name
+        
+        if frappe.db.exists("Customer", entity_name):
+            entity_type = "Customer"
+            entity_doc = frappe.get_doc("Customer", entity_name)
+            display_name = entity_doc.customer_name or entity_name
+            frappe.log_error(f"✅ Customer '{entity_name}' existiert", "DEBUG: customer_exists")
+        elif frappe.db.exists("Sales Partner", entity_name):
+            entity_type = "Sales Partner"
+            entity_doc = frappe.get_doc("Sales Partner", entity_name)
+            display_name = entity_doc.partner_name or entity_name
+            frappe.log_error(f"✅ Sales Partner '{entity_name}' existiert", "DEBUG: sales_partner_exists")
+        else:
+            frappe.log_error(f"❌ Weder Customer noch Sales Partner '{entity_name}' existiert!", "ERROR: find_address")
             return None
         
-        frappe.log_error(f"✅ Customer '{customer_name}' existiert", "DEBUG: customer_exists")
+        frappe.log_error(f"Entity Display Name: '{display_name}' (Typ: {entity_type})", "DEBUG: entity_name")
         
-        # Hole den echten Kundennamen für bessere Fehlermeldungen
-        customer_doc = frappe.get_doc("Customer", customer_name)
-        display_name = customer_doc.customer_name or customer_name
-        frappe.log_error(f"Customer Display Name: '{display_name}'", "DEBUG: customer_name")
-        
-        # ERWEITERT: Finde alle Adressen für diesen Kunden (Customer + Contact Links)
+        # ERWEITERT: Finde alle Adressen für diese Entity (Customer/Sales Partner + Contact Links)
         address_links = []
         
-        # 1. Direkte Customer-Links
-        frappe.log_error(f"Suche direkte Customer-Links für '{customer_name}'...", "DEBUG: search_customer_links")
-        customer_links = frappe.get_all(
+        # 1. Direkte Entity-Links
+        frappe.log_error(f"Suche direkte {entity_type}-Links für '{entity_name}'...", "DEBUG: search_entity_links")
+        entity_links = frappe.get_all(
             "Dynamic Link",
-            filters={"link_doctype": "Customer", "link_name": customer_name},
+            filters={"link_doctype": entity_type, "link_name": entity_name},
             fields=["parent"]
         )
-        frappe.log_error(f"Gefunden: {len(customer_links)} direkte Customer-Links: {[link['parent'] for link in customer_links]}", "DEBUG: customer_links_found")
-        address_links.extend(customer_links)
+        frappe.log_error(f"Gefunden: {len(entity_links)} direkte {entity_type}-Links: {[link['parent'] for link in entity_links]}", "DEBUG: entity_links_found")
+        address_links.extend(entity_links)
         
         # 2. Contact-Links (Adressen die über Kontakte verknüpft sind)
         try:
-            frappe.log_error(f"Suche Contact-Links für '{customer_name}'...", "DEBUG: search_contact_links")
+            frappe.log_error(f"Suche Contact-Links für '{entity_name}'...", "DEBUG: search_contact_links")
             contact_links = frappe.get_all(
                 "Dynamic Link", 
                 filters={"link_doctype": "Contact"},
@@ -1454,29 +1465,29 @@ def find_existing_address(customer_name, preferred_type="Billing"):
             )
             frappe.log_error(f"Alle Contact-Links gefunden: {len(contact_links)}", "DEBUG: all_contacts")
             
-            # Prüfe welche Kontakte zu diesem Customer gehören
+            # Prüfe welche Kontakte zu dieser Entity gehören
             contact_count = 0
             for contact_link in contact_links:
                 if contact_link.parent and frappe.db.exists("Contact", contact_link.link_name):
-                    # Prüfe, ob dieser Contact mit unserem Customer verknüpft ist
-                    contact_customer_links = frappe.get_all(
+                    # Prüfe, ob dieser Contact mit unserer Entity verknüpft ist
+                    contact_entity_links = frappe.get_all(
                         "Dynamic Link",
                         filters={
                             "parent": contact_link.link_name,
                             "parenttype": "Contact", 
-                            "link_doctype": "Customer",
-                            "link_name": customer_name
+                            "link_doctype": entity_type,
+                            "link_name": entity_name
                         },
                         fields=["parent"]
                     )
                     
-                    if contact_customer_links:
-                        # Dieser Contact gehört zu unserem Customer, also verwende seine Adresse
+                    if contact_entity_links:
+                        # Dieser Contact gehört zu unserer Entity, also verwende seine Adresse
                         address_links.append({"parent": contact_link.parent})
                         contact_count += 1
                         frappe.log_error(f"✅ Contact-Adresse #{contact_count} gefunden für '{display_name}': {contact_link.parent}", "INFO: contact_address_found")
             
-            frappe.log_error(f"Gefunden: {contact_count} Contact-Adressen für '{customer_name}'", "DEBUG: contact_summary")
+            frappe.log_error(f"Gefunden: {contact_count} Contact-Adressen für '{entity_name}'", "DEBUG: contact_summary")
         except Exception as e:
             frappe.log_error(f"❌ Fehler beim Suchen von Contact-Adressen für '{display_name}': {str(e)}", "WARNING: contact_search_error")
         
@@ -1485,7 +1496,7 @@ def find_existing_address(customer_name, preferred_type="Billing"):
         frappe.log_error(f"Unique Adressen gefunden: {len(unique_addresses)} - {[link['parent'] for link in unique_addresses]}", "DEBUG: unique_addresses")
         
         if not unique_addresses:
-            frappe.log_error(f"❌ Keine Adressen für Customer '{display_name}' gefunden", "WARNING: no_addresses")
+            frappe.log_error(f"❌ Keine Adressen für {entity_type} '{display_name}' gefunden", "WARNING: no_addresses")
             return None
         
         # Sammle Adressen nach Typ
@@ -1533,11 +1544,11 @@ def find_existing_address(customer_name, preferred_type="Billing"):
             return None
             
     except Exception as e:
-        frappe.log_error(f"❌ Kritischer Fehler beim Suchen von Adressen für '{customer_name}': {str(e)}\n{frappe.get_traceback()}", "ERROR: find_address_error")
+        frappe.log_error(f"❌ Kritischer Fehler beim Suchen von Adressen für '{entity_name}': {str(e)}\n{frappe.get_traceback()}", "ERROR: find_address_error")
         return None
     
     finally:
-        frappe.log_error(f"=== find_existing_address ENDE für '{customer_name}' ===", "DEBUG: find_address_end")
+        frappe.log_error(f"=== find_existing_address ENDE für '{entity_name}' ===", "DEBUG: find_address_end")
 
 def create_picklists_for_party(party_doc, all_orders_with_shipping, created_order_names):
 	"""

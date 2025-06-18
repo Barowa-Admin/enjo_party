@@ -1754,8 +1754,21 @@ frappe.ui.form.on('Party', {
 				})
 			);
 		}
-		// Partnerin wird NICHT als Customer abgefragt!
-		// Die Partnerin kann als Versandziel nicht ausgewählt werden
+		// Partnerin als Versandziel hinzufügen
+		if (frm.doc.partnerin) {
+			promises.push(
+				frappe.db.get_doc('Sales Partner', frm.doc.partnerin).then(doc => {
+					// Sicherstellen, dass doc und doc.partner_name existieren
+					if (doc && doc.partner_name) {
+						optionen.push({ value: frm.doc.partnerin, label: doc.partner_name });
+					} else {
+						optionen.push({ value: frm.doc.partnerin, label: frm.doc.partnerin }); // Fallback auf ID
+					}
+				}).catch(() => {
+					optionen.push({ value: frm.doc.partnerin, label: frm.doc.partnerin }); // Fallback bei Fehler
+				})
+			);
+		}
 		if (frm.doc.kunden && frm.doc.kunden.length > 0) {
 			frm.doc.kunden.forEach(function(kunde_row) { // Renamed 'kunde' to 'kunde_row'
 				if (kunde_row.kunde) {
@@ -2102,7 +2115,14 @@ frappe.ui.form.on('Party', {
 				})
 			);
 		}
-		// Partnerin wird NICHT als Versandoption hinzugefügt, da sie kein Kunde ist
+		// Partnerin als Versandoption hinzufügen
+		if (frm.doc.partnerin) {
+			promises.push(
+				frappe.db.get_doc('Sales Partner', frm.doc.partnerin).then(doc => {
+					optionen.push({ value: frm.doc.partnerin, label: doc.partner_name });
+				})
+			);
+		}
 		if (frm.doc.kunden && frm.doc.kunden.length > 0) {
 			frm.doc.kunden.forEach(function(kunde) {
 				if (kunde.kunde && !optionen.some(opt => opt.value === kunde.kunde)) {
