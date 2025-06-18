@@ -911,6 +911,8 @@ function wendeGutscheinAn(aktionsfaehigeGastgeberProdukte, verfuegbarerGutschein
 			produkt.item.rate = 0;
 			produkt.item.amount = 0;
 			produkt.item._gutschein_angewendet = true; // WICHTIGE MARKIERUNG!
+			// WICHTIG: Speichere ursprünglichen Betrag für Provisionsberechnung
+			produkt.item._original_amount_for_commission = produkt.originalAmount;
 			
 			angewendeteRabatte.push({
 				produkt: produkt,
@@ -931,6 +933,8 @@ function wendeGutscheinAn(aktionsfaehigeGastgeberProdukte, verfuegbarerGutschein
 			produkt.item.rate = neuerPreis;
 			produkt.item.amount = neuerBetrag;
 			produkt.item._gutschein_angewendet = true; // WICHTIGE MARKIERUNG!
+			// WICHTIG: Speichere ursprünglichen Betrag für Provisionsberechnung
+			produkt.item._original_amount_for_commission = produkt.originalAmount;
 			
 			angewendeteRabatte.push({
 				produkt: produkt,
