@@ -7,10 +7,15 @@ from frappe.utils import flt, today
 
 
 class Party(Document):
-	def before_save(self):
-		# Entferne alle komplett leeren Zeilen aus den Produkttabellen BEVOR alles andere passiert
+	def before_validate(self):
+		"""
+		WICHTIG: Diese Funktion läuft VOR allen Frappe Core-Validierungen!
+		Entferne leere Zeilen BEVOR Sales Order Item Validierungen greifen.
+		"""
+		# Entferne alle komplett leeren Zeilen aus den Produkttabellen BEVOR Frappe sie validiert
 		self.remove_empty_product_rows()
-		
+
+	def before_save(self):
 		# Wenn es ein neues Dokument ist, wird der Name erst nach dem Speichern generiert
 		if self.is_new():
 			# Setze party_name auf None, wird nach dem Einfügen gesetzt
@@ -21,20 +26,20 @@ class Party(Document):
 
 	def remove_empty_product_rows(self):
 		"""
-		Entferne alle komplett leeren Zeilen aus den Produkttabellen.
-		Eine Zeile gilt als leer, wenn sie WEDER item_code NOCH qty > 0 hat.
-		Andere automatisch gesetzte Felder (delivery_date, warehouse, etc.) werden ignoriert.
+		Entferne alle unvollständigen Zeilen aus den Produkttabellen.
+		Eine Zeile ist nur gültig, wenn sie einen item_code UND qty > 0 hat.
+		Alle anderen Zeilen werden entfernt (auch solche mit qty aber ohne item_code).
 		"""
 		# Gastgeberin-Tabelle bereinigen
 		if hasattr(self, 'produktauswahl_für_gastgeberin') and self.produktauswahl_für_gastgeberin:
 			original_count = len(self.produktauswahl_für_gastgeberin)
 			self.produktauswahl_für_gastgeberin = [
 				row for row in self.produktauswahl_für_gastgeberin 
-				if (row.item_code and row.item_code.strip()) or (row.qty and row.qty > 0)
+				if (row.item_code and row.item_code.strip()) and (row.qty and row.qty > 0)
 			]
 			removed_count = original_count - len(self.produktauswahl_für_gastgeberin)
 			if removed_count > 0:
-				frappe.log_error(f"Entfernt {removed_count} leere Zeilen aus Gastgeberin-Produkttabelle", "INFO: remove_empty_rows")
+				frappe.log_error(f"Entfernt {removed_count} unvollständige Zeilen aus Gastgeberin-Produkttabelle", "INFO: remove_empty_rows")
 		
 		# Gäste-Tabellen bereinigen
 		for i in range(1, 16):
@@ -45,12 +50,12 @@ class Party(Document):
 					original_count = len(current_table)
 					cleaned_table = [
 						row for row in current_table 
-						if (row.item_code and row.item_code.strip()) or (row.qty and row.qty > 0)
+						if (row.item_code and row.item_code.strip()) and (row.qty and row.qty > 0)
 					]
 					setattr(self, field_name, cleaned_table)
 					removed_count = original_count - len(cleaned_table)
 					if removed_count > 0:
-						frappe.log_error(f"Entfernt {removed_count} leere Zeilen aus {field_name}", "INFO: remove_empty_rows")
+						frappe.log_error(f"Entfernt {removed_count} unvollständige Zeilen aus {field_name}", "INFO: remove_empty_rows")
 
 	def after_insert(self):
 		# Nach dem Einfügen den party_name auf den generierten Namen setzen
