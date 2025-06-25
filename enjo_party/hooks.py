@@ -25,8 +25,8 @@ required_apps = ["frappe", "erpnext"]
 # ------------------
 
 # include js, css files in header of desk.html
-# app_include_css = "/assets/enjo_party/css/enjo_party.css"
-# app_include_js = "/assets/enjo_party/js/enjo_party.js"
+app_include_css = "/assets/enjo_party/css/enjo_party.css"
+app_include_js = "/assets/enjo_party/js/customer_quick_entry.js"
 
 # include js, css files in header of web template
 # web_include_css = "/assets/enjo_party/css/enjo_party.css"
