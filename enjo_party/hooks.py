@@ -142,6 +142,9 @@ fixtures = ["Custom Field"]
 # Hook on document methods and events
 
 doc_events = {
+	"Address": {
+		"before_insert": "enjo_party.enjo_party.utils.address_hooks.copy_email_from_customer"
+	},
 	"Sales Invoice": {
 		"before_validate": "enjo_party.enjo_party.utils.sales_invoice_hooks.before_validate_sales_invoice",
 		"before_save": "enjo_party.enjo_party.utils.sales_invoice_hooks.add_shipping_to_sales_invoice",
