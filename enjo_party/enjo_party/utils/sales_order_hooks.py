@@ -3,7 +3,7 @@ from frappe import _
 
 # === AUTO SALES INVOICE TEMPORÄR DEAKTIVIERT ===
 # Schalter für automatische Rechnungserstellung über Hooks (True = aktiv, False = deaktiviert)
-ENABLE_AUTO_SALES_INVOICE_HOOKS = False  # Wieder aktivieren, sobald gewünscht!
+ENABLE_AUTO_SALES_INVOICE_HOOKS = True  # Wieder aktiviert!
 
 
 def auto_create_and_submit_sales_invoice(doc, method):
@@ -124,8 +124,8 @@ def auto_create_and_submit_sales_invoice(doc, method):
         frappe.log_error(f"Sales Invoice created: {invoice.name}", "INFO: invoice_created")
         
         # Reiche die Sales Invoice ein
-        invoice.submit()
-        frappe.log_error(f"Sales Invoice submitted: {invoice.name}", "SUCCESS: invoice_submitted")
+        # invoice.submit()  # <--- AUSKOMMENTIERT: Rechnung wird NICHT gebucht, nur erstellt
+        # frappe.log_error(f"Sales Invoice submitted: {invoice.name}", "SUCCESS: invoice_submitted")
         
         frappe.log_error(f"✅ SUCCESS: Auto invoice complete for SO {doc.name} -> SI {invoice.name}", "SUCCESS: auto_invoice_complete")
         
