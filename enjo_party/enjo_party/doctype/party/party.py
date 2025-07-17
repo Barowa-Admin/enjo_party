@@ -1172,6 +1172,7 @@ def create_invoices(party, from_submit=False, from_button=False):
                     # Custom Fields für Versandinformationen
                     "custom_party_reference": party,
                     "custom_calculated_shipping_cost": shipping_cost,
+                    "sales_order": party_doc.name,          # Link setzen
                 }
                 
                 frappe.log_error(f"DEBUG: Order-Daten für {customer}: customer_address={billing_address}, shipping_address_name={shipping_address}", "DEBUG: order_data")
@@ -1313,7 +1314,13 @@ def create_invoices(party, from_submit=False, from_button=False):
             # ENTFERNT: frappe.msgprint("Es wurden keine Aufträge erstellt. Bitte prüfe die Logs und versuche es erneut.", alert=True)
         
         frappe.db.commit()
-        frappe.log_error(f"create_invoices beendet. Rückgabe: {created_orders}", "INFO: function_end")
+        # Logging: Ergebnis der Auftragserstellung
+        if len(str(created_orders)) > 120:
+            # Wenn die Liste sehr lang ist, kürze sie für das Log
+            log_message = f"create_invoices beendet. Rückgabe (gekürzt): {str(created_orders)[:120]}... (insgesamt {len(created_orders)} Aufträge)"
+        else:
+            log_message = f"create_invoices beendet. Rückgabe: {created_orders}"
+        frappe.log_error(log_message, "INFO: function_end")
         
         # WICHTIG: Räume das skip_total_calculation Flag auf, damit es nicht hängen bleibt
         if hasattr(party_doc, 'skip_total_calculation'):

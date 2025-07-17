@@ -54,7 +54,8 @@ def auto_create_and_submit_sales_invoice(doc, method):
             "selling_price_list": doc.selling_price_list,
             "sales_partner": doc.sales_partner,
             "remarks": f"Automatisch erstellt aus Sales Order: {doc.name}",
-            "items": []
+            "items": [],
+            "sales_order": doc.name,          #  ← Link setzen, verhindert Duplikate
         }
         
         # Sichere Behandlung von custom fields
