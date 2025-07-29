@@ -4,6 +4,11 @@ from frappe import _
 # === AUTO SALES INVOICE TEMPORÄR DEAKTIVIERT ===
 # Schalter für automatische Rechnungserstellung über Hooks (True = aktiv, False = deaktiviert)
 ENABLE_AUTO_SALES_INVOICE_HOOKS = True  # Wieder aktiviert!
+# Schalter für automatische Erstellung
+# Lieferschein (Delivery Note) separat aktivierbar
+ENABLE_AUTO_DELIVERY_NOTE = True
+# Packliste (Pick List) separat aktivierbar
+ENABLE_AUTO_PICKLIST = True
 
 
 def auto_create_and_submit_sales_invoice(doc, method):
@@ -123,6 +128,25 @@ def auto_create_and_submit_sales_invoice(doc, method):
         
         invoice.insert()
         frappe.log_error(f"Sales Invoice created: {invoice.name}", "INFO: invoice_created")
+
+        # === NEU: Lieferschein und/oder Packliste erzeugen ===
+
+        # 1) Lieferschein
+        if ENABLE_AUTO_DELIVERY_NOTE:
+            try:
+                dn = create_delivery_note_for_sales_order(doc)
+                if dn:
+                    frappe.log_error(f"Delivery Note created: {dn.name}", "INFO: delivery_note_created")
+            except Exception as e:
+                frappe.log_error(f"Error creating Delivery Note for SO {doc.name}: {str(e)}", "ERROR: delivery_note_failed")
+
+        # 2) Packliste
+        if ENABLE_AUTO_PICKLIST:
+            try:
+                from enjo_party.enjo_party.utils.sales_invoice_hooks import auto_create_picklist_from_invoice
+                auto_create_picklist_from_invoice(invoice, "auto")
+            except Exception as e:
+                frappe.log_error(f"Error creating Pick List for Invoice {invoice.name}: {str(e)}", "ERROR: picklist_create_failed")
         
         # Reiche die Sales Invoice ein
         # invoice.submit()  # <--- AUSKOMMENTIERT: Rechnung wird NICHT gebucht, nur erstellt
@@ -211,3 +235,27 @@ def create_invoice_from_sales_order(sales_order_name):
             "message": f"Fehler: {str(e)}",
             "invoice_name": None
         } 
+
+
+# =====================
+# HILFSFUNKTIONEN
+# =====================
+
+def create_delivery_note_for_sales_order(sales_order_doc):
+    """Erstellt einen Lieferschein (Delivery Note) für den gegebenen Sales Order und gibt das DN-Dokument zurück.
+    Nutzt die Standard-Mapper-Funktion von ERPNext. Bei Fehlern wird None zurückgegeben."""
+
+    try:
+        # Import erst hier, um Abhängigkeiten nur bei Bedarf zu laden
+        from erpnext.selling.doctype.sales_order.sales_order import make_delivery_note
+    except Exception as e:
+        frappe.log_error(f"Import make_delivery_note fehlgeschlagen: {str(e)}", "ERROR: dn_import_failed")
+        return None
+
+    try:
+        dn = make_delivery_note(sales_order_doc.name)
+        dn.insert()
+        return dn
+    except Exception as e:
+        frappe.log_error(f"Delivery Note konnte nicht erstellt werden: {str(e)}", "ERROR: dn_creation_failed")
+        return None 
