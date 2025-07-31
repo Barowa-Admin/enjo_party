@@ -45,87 +45,52 @@ def auto_create_and_submit_sales_invoice(doc, method):
         company = doc.company or frappe.defaults.get_user_default("Company")
         
         # Erstelle Sales Invoice basierend auf Sales Order
-        invoice_data = {
-            "doctype": "Sales Invoice",
-            "customer": doc.customer,
-            "posting_date": frappe.utils.today(),
-            "due_date": frappe.utils.today(),
-            "customer_address": doc.customer_address,
-            "shipping_address_name": doc.shipping_address_name,
-            "po_no": doc.po_no,  # Party-Referenz übernehmen
-            "po_date": doc.transaction_date,
-            "company": company,
-            "currency": doc.currency,
-            "selling_price_list": doc.selling_price_list,
-            "sales_partner": doc.sales_partner,
-            "remarks": f"Automatisch erstellt aus Sales Order: {doc.name}",
-            "items": [],
-            "sales_order": doc.name,          #  ← Link setzen, verhindert Duplikate
-        }
-        
-        # Sichere Behandlung von custom fields
-        if hasattr(doc, 'custom_party_reference') and doc.custom_party_reference:
-            # Prüfe ob die Party noch aktiv ist (nicht cancelled)
+        # === NEU: Mapper-Funktion verwenden, damit Steuern & weitere Felder korrekt übernommen werden ===
+        try:
+            from erpnext.selling.doctype.sales_order.sales_order import make_sales_invoice
+        except Exception as e:
+            frappe.log_error(f"Import make_sales_invoice fehlgeschlagen: {str(e)}", "ERROR: mapper_import_failed")
+            raise
+
+        invoice = make_sales_invoice(doc.name)  # noch nicht gespeichert
+
+        # Zusätzliche/benutzerdefinierte Felder anpassen
+        invoice.remarks = f"Automatisch erstellt aus Sales Order: {doc.name}"
+        invoice.sales_order = doc.name  # Custom-Feld für Duplikat-Prüfung
+
+        # Custom Party Referenz übernehmen
+        if hasattr(doc, "custom_party_reference") and doc.custom_party_reference:
             try:
                 party_doc = frappe.get_doc("Party", doc.custom_party_reference)
-                if party_doc.docstatus != 2:  # Nicht cancelled
-                    invoice_data["custom_party_reference"] = doc.custom_party_reference
-                    frappe.log_error(f"Party Referenz hinzugefügt: {doc.custom_party_reference}", "DEBUG: party_ref_added")
+                if party_doc.docstatus != 2:
+                    invoice.custom_party_reference = doc.custom_party_reference
                 else:
-                    frappe.log_error(f"Party {doc.custom_party_reference} ist cancelled - überspringe Referenz", "WARNING: cancelled_party")
+                    frappe.log_error(f"Party {doc.custom_party_reference} ist cancelled – Referenz ignoriert", "WARNING: cancelled_party")
             except Exception as e:
                 frappe.log_error(f"Fehler beim Laden der Party {doc.custom_party_reference}: {str(e)}", "WARNING: party_load_error")
-        else:
-            frappe.log_error("Kein custom_party_reference gefunden - normaler Sales Order", "DEBUG: no_party_ref")
-                
-        if hasattr(doc, 'custom_calculated_shipping_cost') and doc.custom_calculated_shipping_cost:
-            invoice_data["custom_calculated_shipping_cost"] = doc.custom_calculated_shipping_cost
-        
-        # Kopiere alle Items vom Sales Order
-        for item in doc.items:
-            invoice_item = {
-                "doctype": "Sales Invoice Item",
-                "item_code": item.item_code,
-                "item_name": item.item_name,
-                "description": getattr(item, 'description', item.item_name),
-                "qty": item.qty,
-                "rate": item.rate,
-                "amount": item.amount,
-                "uom": item.uom,
-                "conversion_factor": getattr(item, 'conversion_factor', 1.0),
-                "warehouse": getattr(item, 'warehouse', None),
-                "sales_order": doc.name,  # Referenz zum Sales Order
-                "so_detail": item.name     # Referenz zum Sales Order Item
-            }
-            
-            # Optionale Felder nur hinzufügen wenn sie existieren
-            if hasattr(item, 'cost_center') and item.cost_center:
-                invoice_item["cost_center"] = item.cost_center
-            if hasattr(item, 'income_account') and item.income_account:
-                invoice_item["income_account"] = item.income_account
-                
-            invoice_data["items"].append(invoice_item)
-        
-        # Erstelle die Sales Invoice
-        invoice = frappe.get_doc(invoice_data)
-        
-        # WICHTIG: Verhindere Preis-Validierung damit Gutschein-Preise erhalten bleiben
+
+        if hasattr(doc, "custom_calculated_shipping_cost") and doc.custom_calculated_shipping_cost:
+            invoice.custom_calculated_shipping_cost = doc.custom_calculated_shipping_cost
+
+        # Preise exakt wie im Sales Order setzen und Preisregeln ignorieren
         invoice.flags.ignore_pricing_rule = True
         invoice.flags.ignore_item_price = True
-        
-        # Setze die exakten Preise aus dem Sales Order nochmal explizit
+
         for i, invoice_item in enumerate(invoice.items):
             so_item = doc.items[i]
-            # Überschreibe mit den exakten Sales Order Preisen (inkl. Gutschein-Rabatte)
             invoice_item.rate = so_item.rate
-            invoice_item.price_list_rate = so_item.rate  
+            invoice_item.price_list_rate = so_item.rate
             invoice_item.base_rate = so_item.rate
             invoice_item.base_price_list_rate = so_item.rate
             invoice_item.amount = so_item.amount
             invoice_item.base_amount = so_item.amount
-            # Markiere als manuell gesetzt um weitere Validierung zu verhindern
             invoice_item.flags.ignore_pricing_rule = True
-        
+
+        # Fehlende Felder füllen & Steuern/Totals neu berechnen
+        invoice.run_method("set_missing_values")
+        invoice.calculate_taxes_and_totals()
+
+        # Jetzt speichern (nicht submitten)
         invoice.insert()
         frappe.log_error(f"Sales Invoice created: {invoice.name}", "INFO: invoice_created")
 
