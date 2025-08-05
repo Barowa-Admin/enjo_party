@@ -24,7 +24,7 @@ frappe.pages['meine_provision'] = {
         function ladeProvisionen() {
             let monat = $('#monat').val();
             frappe.call({
-                method: 'enjo_party.meine_provision.get_data',
+                method: 'enjo_party.enjo_party.doctype.meine_provision.meine_provision.get_data',
                 args: { month: monat },
                 callback: function(r) {
                     if(r.message && r.message.data) {

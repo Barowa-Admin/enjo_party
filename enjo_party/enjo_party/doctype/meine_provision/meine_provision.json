@@ -1,0 +1,30 @@
+{
+  "doctype": "DocType",
+  "name": "meine_provision",
+  "module": "Enjo Party",
+  "custom": 1,
+  "issingle": 1,
+  "fields": [
+    {
+      "fieldname": "section_break_auswertung",
+      "fieldtype": "Section Break",
+      "label": "Provisionsübersicht"
+    }
+  ],
+  "permissions": [
+    {
+      "role": "System Manager",
+      "read": 1
+    },
+    {
+      "role": "Sales User",
+      "read": 1
+    }
+  ],
+  "istable": 0,
+  "editable_grid": 0,
+  "track_changes": 0,
+  "track_views": 0,
+  "track_seen": 0,
+  "engine": "InnoDB"
+}
