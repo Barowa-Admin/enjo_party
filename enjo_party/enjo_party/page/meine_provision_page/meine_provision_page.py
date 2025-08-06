@@ -50,10 +50,11 @@ def get_provision_data(month=None, year=None):
         except:
             pass
 
-    # SQL Query mit eigener Sicherheitslogik
+    # SQL Query mit eigener Sicherheitslogik - nur bezahlte Rechnungen mit Zahlungsdatum
     sql_query = """
         SELECT
-            si.posting_date,
+            pe.posting_date as payment_date,
+            si.posting_date as invoice_date,
             si.name,
             c.customer_name,
             si.base_net_total,
@@ -61,7 +62,12 @@ def get_provision_data(month=None, year=None):
         FROM `tabSales Invoice` si
         LEFT JOIN `tabCustomer` c ON si.customer = c.name
         LEFT JOIN `tabSales Partner` sp ON si.sales_partner = sp.name
-        WHERE si.docstatus = 1
+        LEFT JOIN `tabPayment Entry Reference` per ON per.reference_name = si.name
+        LEFT JOIN `tabPayment Entry` pe ON pe.name = per.parent
+        WHERE si.docstatus = 1 
+        AND si.status = 'Paid'
+        AND pe.docstatus = 1
+        AND per.reference_doctype = 'Sales Invoice'
     """
     
     sql_conditions = []
@@ -89,14 +95,14 @@ def get_provision_data(month=None, year=None):
             last_day_num = calendar.monthrange(int(year), month_num)[1]
             last_day = f"{year}-{month_num:02d}-{last_day_num:02d}"
             
-            sql_conditions.append("si.posting_date BETWEEN %(first_day)s AND %(last_day)s")
+            sql_conditions.append("pe.posting_date BETWEEN %(first_day)s AND %(last_day)s")
             sql_values["first_day"] = first_day
             sql_values["last_day"] = last_day
     
     if sql_conditions:
         sql_query += " AND " + " AND ".join(sql_conditions)
     
-    sql_query += " ORDER BY si.posting_date DESC"
+    sql_query += " ORDER BY pe.posting_date DESC"
     
     # Führe Query aus
     try:
@@ -114,7 +120,7 @@ def get_provision_data(month=None, year=None):
         total_provision += provision
         
         data.append([
-            inv.posting_date.strftime('%d.%m.%Y') if inv.posting_date else '',
+            inv.payment_date.strftime('%d.%m.%Y') if inv.payment_date else '',
             inv.name,
             inv.customer_name,
             flt(inv.base_net_total),
