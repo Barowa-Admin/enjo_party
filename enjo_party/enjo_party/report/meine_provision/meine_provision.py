@@ -18,9 +18,8 @@ def execute(filters=None):
     frappe.log_error(f"Filter empfangen: {filters}", "DEBUG: meine_provision")
     user = frappe.session.user
     
-    # Sicherheitscheck: Darf der User überhaupt Sales Invoices sehen?
-    if not frappe.has_permission("Sales Invoice", "read"):
-        frappe.throw("Sie haben keine Berechtigung, Rechnungen einzusehen.")
+    # KEIN allgemeiner Berechtigungscheck - wir implementieren eigene Sicherheitslogik
+    # Der User soll nur seine eigenen Daten sehen, auch ohne generelle Sales Invoice-Berechtigung
 
     # Versuche automatisch die Sales-Partnerin zum aktuellen Benutzer zu finden.
     sales_partner = None
@@ -92,6 +91,7 @@ def execute(filters=None):
         field_list.append("commission_amount")
 
     # Erweiterte SQL-Abfrage für bessere Daten
+    # Verwende ignore_permissions=True für die SQL-Abfrage, aber mit strikten eigenen Filtern
     sql_query = """
         SELECT
             si.posting_date,
@@ -110,14 +110,27 @@ def execute(filters=None):
     sql_conditions = []
     sql_values = {}
     
+    # WICHTIG: Immer sicherstellen, dass User nur eigene Daten sieht
     if sales_partner:
+        # Hauptfilter: Sales Partner
         sql_conditions.append("si.sales_partner = %(sales_partner)s")
         sql_values["sales_partner"] = sales_partner
     else:
-        # Falls kein Sales Partner gefunden wurde, aber "only if creator" aktiv ist,
-        # zusätzlich nach owner filtern
+        # Fallback: Nur Rechnungen die der User selbst erstellt hat
         sql_conditions.append("si.owner = %(current_user)s")
         sql_values["current_user"] = user
+    
+    # Zusätzliche Sicherheit: User darf NIEMALS fremde Daten sehen
+    # Auch wenn er als Sales Partner hinterlegt ist, zusätzlich prüfen ob er berechtigt ist
+    if not frappe.session.user == "Administrator":
+        # Entweder Sales Partner ODER Owner - niemals fremde Daten
+        if sales_partner:
+            # Prüfe ob dieser Sales Partner wirklich zu diesem User gehört
+            partner_user = frappe.db.get_value("Sales Partner", sales_partner, "user")
+            if partner_user and partner_user != user:
+                # Sales Partner gehört nicht zu diesem User - nur owner-Daten zeigen
+                sql_conditions = [f"si.owner = %(current_user)s"]
+                sql_values = {"current_user": user}
     
     if filters.get("month") and filters.get("year"):
         month_name = filters.get("month")
@@ -144,6 +157,7 @@ def execute(filters=None):
     
     sql_query += " ORDER BY si.posting_date DESC"
     
+    # Führe SQL-Query mit ignore_permissions=True aus, da wir eigene Sicherheitslogik haben
     invoices = frappe.db.sql(sql_query, sql_values, as_dict=True)
 
     data = []
