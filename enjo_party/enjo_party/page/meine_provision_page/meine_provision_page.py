@@ -50,24 +50,21 @@ def get_provision_data(month=None, year=None):
         except:
             pass
 
-    # SQL Query mit eigener Sicherheitslogik - nur bezahlte Rechnungen mit Zahlungsdatum
+    # SQL Query mit eigener Sicherheitslogik - korrekte Provisionsfelder verwenden
     sql_query = """
         SELECT
             pe.posting_date as payment_date,
-            si.posting_date as invoice_date,
             si.name,
             c.customer_name,
-            si.base_net_total,
-            (si.base_net_total * (COALESCE(sp.commission_rate, 20) / 100)) as provision
-        FROM `tabSales Invoice` si
+            si.amount_eligible_for_commission,
+            si.total_commission
+        FROM `tabPayment Entry Reference` per
+        LEFT JOIN `tabPayment Entry` pe ON per.parent = pe.name
+        LEFT JOIN `tabSales Invoice` si ON per.reference_name = si.name
         LEFT JOIN `tabCustomer` c ON si.customer = c.name
-        LEFT JOIN `tabSales Partner` sp ON si.sales_partner = sp.name
-        LEFT JOIN `tabPayment Entry Reference` per ON per.reference_name = si.name
-        LEFT JOIN `tabPayment Entry` pe ON pe.name = per.parent
-        WHERE si.docstatus = 1 
-        AND si.status = 'Paid'
+        WHERE per.reference_doctype = 'Sales Invoice'
         AND pe.docstatus = 1
-        AND per.reference_doctype = 'Sales Invoice'
+        AND si.docstatus = 1
     """
     
     sql_conditions = []
@@ -116,15 +113,15 @@ def get_provision_data(month=None, year=None):
     total_provision = 0
     
     for inv in invoices:
-        provision = flt(inv.provision)
-        total_provision += provision
+        commission = flt(inv.total_commission) if inv.total_commission else 0
+        total_provision += commission
         
         data.append([
             inv.payment_date.strftime('%d.%m.%Y') if inv.payment_date else '',
             inv.name,
             inv.customer_name,
-            flt(inv.base_net_total),
-            provision,
+            flt(inv.amount_eligible_for_commission) if inv.amount_eligible_for_commission else 0,
+            commission,
         ])
     
     # Gesamtsumme hinzufügen

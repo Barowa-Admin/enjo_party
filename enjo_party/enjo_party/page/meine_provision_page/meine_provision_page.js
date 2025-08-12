@@ -189,10 +189,10 @@ frappe.pages['meine-provision-page'].on_page_load = function(wrapper) {
 	function showTable(data) {
 		var html = '<table class="table table-bordered table-striped">';
 		html += '<thead><tr>';
-		html += '<th style="width: 120px;">Bezahlt am</th>';
+		html += '<th style="width: 150px;">Bezahlt am</th>';
 		html += '<th style="width: 230px;">Rechnung</th>';
-		html += '<th style="width: 350px;">Kundenname</th>';
-		html += '<th style="width: 120px;">Betrag</th>';
+		html += '<th style="width: 300px;">Kundenname</th>';
+		html += '<th style="width: 200px;">Provisionsfähiger Betrag</th>';
 		html += '<th style="width: 120px;">Provision</th>';
 		html += '</tr></thead><tbody>';
 
