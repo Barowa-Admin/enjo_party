@@ -50,14 +50,15 @@ def get_provision_data(month=None, year=None):
         except:
             pass
 
-    # SQL Query mit eigener Sicherheitslogik - korrekte Provisionsfelder verwenden
+    # SQL Query mit eigener Sicherheitslogik - anteilige Provisionsberechnung
     sql_query = """
         SELECT
             pe.posting_date as payment_date,
             si.name,
             c.customer_name,
-            si.amount_eligible_for_commission,
-            si.total_commission
+            per.allocated_amount as paid_amount,
+            (per.allocated_amount / si.grand_total) * si.amount_eligible_for_commission as amount_eligible_for_commission,
+            (per.allocated_amount / si.grand_total) * si.total_commission as total_commission
         FROM `tabPayment Entry Reference` per
         LEFT JOIN `tabPayment Entry` pe ON per.parent = pe.name
         LEFT JOIN `tabSales Invoice` si ON per.reference_name = si.name
