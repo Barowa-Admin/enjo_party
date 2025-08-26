@@ -7,7 +7,8 @@ from frappe.utils import flt
 def before_validate_sales_invoice(doc, method):
     """
     Hook für Sales Invoice before_validate
-    Umgeht die Adress-Validierung für Party-Rechnungen
+    Umgeht die Adress-Validierung NUR für Party-Rechnungen
+    OHNE Monkey Patching (DATEV-sicher)
     """
     if doc.doctype != "Sales Invoice" or not doc.items:
         return
@@ -29,31 +30,31 @@ def before_validate_sales_invoice(doc, method):
         "custom_party_reference"
     )
     
-    # Wenn es eine Party-Rechnung ist, umgehe die Adress-Validierung
+    # NUR bei Party-Rechnungen eingreifen - DATEV-Rechnungen nicht berühren!
     if is_party_invoice:
-        # Importiere die Elternklasse
-        from erpnext.controllers.accounts_controller import AccountsController
+        frappe.log_error(f"🎉 Party-Invoice erkannt: {doc.name} - Validierung angepasst (DATEV-sicher)", "INFO: party_invoice_detected")
         
-        # Speichere die originale Methode
-        if not hasattr(AccountsController, '_original_validate_party_address'):
-            AccountsController._original_validate_party_address = AccountsController.validate_party_address
+        # NEUER ANSATZ: Setze Dummy-Adressen statt Monkey Patching
+        if not doc.customer_address:
+            # Hole die erste verfügbare Adresse für den Customer
+            addresses = frappe.get_all("Address", 
+                filters={"link_doctype": "Customer", "link_name": doc.customer},
+                fields=["name"], limit=1)
+            if addresses:
+                doc.customer_address = addresses[0].name
+                frappe.log_error(f"✅ Dummy customer_address gesetzt: {doc.customer_address}", "INFO: party_invoice_address_fix")
         
-        # Überschreibe die Validierungsmethode temporär
-        def dummy_validate_party_address(self, party, party_type, billing_address=None, shipping_address=None):
-            pass
-        
-        # Monkey-patch die Validierung
-        AccountsController.validate_party_address = dummy_validate_party_address
+        if not doc.shipping_address_name:
+            doc.shipping_address_name = doc.customer_address
+            frappe.log_error(f"✅ Dummy shipping_address_name gesetzt: {doc.shipping_address_name}", "INFO: party_invoice_address_fix")
 
 def after_save_sales_invoice(doc, method):
     """
     Hook für Sales Invoice after_save
-    Stellt die ursprüngliche Adress-Validierung wieder her
+    Nichts mehr zu tun - kein Monkey Patching cleanup nötig
     """
-    # Stelle die originale Validierung wieder her
-    from erpnext.controllers.accounts_controller import AccountsController
-    if hasattr(AccountsController, '_original_validate_party_address'):
-        AccountsController.validate_party_address = AccountsController._original_validate_party_address
+    # Kein Monkey Patching cleanup mehr nötig - DATEV-sicher!
+    pass
 
 def get_shipping_account():
     """
