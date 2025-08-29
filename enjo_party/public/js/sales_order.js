@@ -10,6 +10,25 @@ frappe.ui.form.on('Sales Order', {
         }
         
         if (frm.doc.docstatus === 0) {
+            // Party-Referenz prüfen: falls aufgehoben (docstatus=2), Referenz entfernen
+            if (frm.doc.custom_party_reference) {
+                frappe.call({
+                    method: "frappe.client.get_value",
+                    args: {
+                        doctype: "Party",
+                        filters: { name: frm.doc.custom_party_reference },
+                        fieldname: "docstatus"
+                    },
+                    async: false,
+                    callback: function(r) {
+                        if (r.message && r.message.docstatus === 2) {
+                            console.log("Entferne ungültige Party-Referenz (aufgehoben)");
+                            frm.set_value("custom_party_reference", null);
+                        }
+                    }
+                });
+            }
+
             // Lade Aktionseinstellungen dynamisch
             frappe.call({
                 method: "enjo_party.enjo_party.doctype.enjo_aktionseinstellungen.enjo_aktionseinstellungen.get_aktionseinstellungen",
@@ -28,38 +47,24 @@ frappe.ui.form.on('Sales Order', {
                     const STAGE_1_MIN = settings.stage_1_minimum;
                     const STAGE_1_MAX = settings.stage_1_maximum;
                     
-                    // Artikelvariablen aus den Einstellungen
-                    const v1_code = settings.v1_code;
-                    const v2_code = settings.v2_code;
-                    const v3_code = settings.v3_code;
-                    const v4_code = settings.v4_code;
-                    const v5_code = settings.v5_code;
-                    const v6_code = settings.v6_code;
-                    const v7_code = settings.v7_code;
+                    // Dynamische Varianten aus den Einstellungen (neues Schema)
+                    const standardVariants = (settings.variants && settings.variants.standard) ? settings.variants.standard : [];
+                    const premiumVariants = (settings.variants && settings.variants.premium) ? settings.variants.premium : [];
                     
-                    // Artikelnamen aus den Einstellungen
-                    const v1_name = settings.v1_name;
-                    const v2_name = settings.v2_name;
-                    const v3_name = settings.v3_name;
-                    const v4_name = settings.v4_name;
-                    const v5_name = settings.v5_name;
-                    const v6_name = settings.v6_name;
-                    const v7_name = settings.v7_name;
-                    
-                    // Array mit allen Aktionsartikeln
-                    const allAktionsCodes = [v1_code, v2_code, v3_code, v4_code, v5_code, v6_code, v7_code].filter(code => code);
+                    const allStandardCodes = standardVariants.map(v => v.code).filter(Boolean);
+                    const allPremiumCodes = premiumVariants.map(v => v.code).filter(Boolean);
+                    const allAktionsCodes = [...allStandardCodes, ...allPremiumCodes];
                     
                     // Prüfe, ob bereits ein Aktionsartikel vorhanden ist und welcher Typ
                     let currentAktionsartikel = null;
                     let currentStage = 0;
                     
                     frm.doc.items.forEach(item => {
-                        if (allAktionsCodes.includes(item.item_code)) {
+                        if (item._aktionsartikel === true || allAktionsCodes.includes(item.item_code)) {
                             currentAktionsartikel = item;
-                            // Bestimme aktuelle Stage basierend auf dem Artikel
-                            if ([v1_code, v2_code, v3_code, v4_code].includes(item.item_code)) {
+                            if (allStandardCodes.includes(item.item_code)) {
                                 currentStage = 1;
-                            } else if ([v5_code, v6_code, v7_code].includes(item.item_code)) {
+                            } else if (allPremiumCodes.includes(item.item_code)) {
                                 currentStage = 2;
                             }
                         }
@@ -85,7 +90,7 @@ frappe.ui.form.on('Sales Order', {
                                         // Kein Aktionsartikel vorhanden - zeige Stage 2
                                         showStage2Dialog(total);
                                     } else {
-                                        // Bereits Stage 2
+                                        // Bereits Stage 2 (und aktueller Aktionsartikel vorhanden): keine Abfrage
                                         frappe.validated = true;
                                     }
                                 } else if (total > STAGE_1_MIN) {
@@ -97,7 +102,7 @@ frappe.ui.form.on('Sales Order', {
                                         // Downgrade von Stage 2 zu Stage 1
                                         showStage1DowngradeDialog(total, currentAktionsartikel);
                                     } else {
-                                        // Bereits Stage 1 Aktionsartikel vorhanden
+                                        // Bereits Stage 1 Aktionsartikel vorhanden: keine Abfrage
                                         frappe.validated = true;
                                     }
                                 } else {
@@ -139,7 +144,7 @@ frappe.ui.form.on('Sales Order', {
                                     fieldtype: 'Select',
                                     fieldname: 'aktion_artikel',
                                     label: 'Wähle deinen Aktionsartikel',
-                                    options: [v1_name, v2_name, v3_name, v4_name].filter(name => name),
+                                    options: standardVariants.map(v => v.name).filter(Boolean),
                                     reqd: 1
                                 },
                                 {
@@ -188,7 +193,7 @@ frappe.ui.form.on('Sales Order', {
                                     fieldtype: 'Select',
                                     fieldname: 'aktion_artikel',
                                     label: 'Wähle deinen Aktionsartikel',
-                                    options: [v5_name, v6_name, v7_name].filter(name => name),
+                                    options: premiumVariants.map(v => v.name).filter(Boolean),
                                     reqd: 1
                                 },
                                 {
@@ -237,7 +242,7 @@ frappe.ui.form.on('Sales Order', {
                                     fieldtype: 'Select',
                                     fieldname: 'aktion_artikel',
                                     label: 'Wähle deinen Standard-Aktionsartikel',
-                                    options: [v1_name, v2_name, v3_name, v4_name].filter(name => name),
+                                    options: standardVariants.map(v => v.name).filter(Boolean),
                                     reqd: 1
                                 },
                                 {
@@ -246,9 +251,8 @@ frappe.ui.form.on('Sales Order', {
                                     options: `
                                         <div style="margin-top: 10px; margin-bottom: 10px;">
                                             <p>Dein Einkauf berechtigt dich zur Standard-Aktion.</p>
-                                            <p>Dein aktueller Premium-Aktionsartikel "${currentAktionsartikel.item_name}" kann durch einen Standard-Artikel ersetzt werden.</p>
-                                            <br>
-                                            <p>Mit der Auswahl "Behalten" behältst du deinen Premium-Artikel.</p>
+                                            <p>Dein aktueller Premium-Aktionsartikel "${currentAktionsartikel.item_name}" kann nicht behalten werden.</p>
+                                            <p>Wähle einen Standard-Artikel oder klicke auf "Nein, danke".</p>
                                         </div>
                                     `
                                 }
@@ -259,18 +263,15 @@ frappe.ui.form.on('Sales Order', {
                                 let selectedItem = values.aktion_artikel;
                                 let itemCode = getItemCodeFromName(selectedItem);
                                 
-                                // Entferne aktuellen Premium-Aktionsartikel
-                                let itemIndex = frm.doc.items.findIndex(item => item.item_code === currentAktionsartikel.item_code);
-                                if (itemIndex !== -1) {
-                                    frm.get_field("items").grid.grid_rows[itemIndex].remove();
-                                    frm.refresh_field("items");
-                                }
+                                // Vor dem Hinzufügen: alle vorhandenen Aktionsartikel entfernen
+                                removeExistingActionItems();
                                 
                                 addAktionsartikelToInvoice(itemCode, selectedItem, d);
                             },
-                            secondary_action_label: 'Behalten',
+                            secondary_action_label: 'Nein, danke',
                             secondary_action: function() {
-                                console.log("Premium-Artikel wird beibehalten");
+                                console.log("Downgrade: Aktion abgelehnt – entferne Premium-Artikel");
+                                removeExistingActionItems();
                                 saveFromDialog(d);
                             },
                             onhide: function() {
@@ -293,7 +294,7 @@ frappe.ui.form.on('Sales Order', {
                                     fieldtype: 'Select',
                                     fieldname: 'aktion_artikel',
                                     label: 'Wähle deinen Premium-Aktionsartikel',
-                                    options: [v5_name, v6_name, v7_name].filter(name => name),
+                                    options: premiumVariants.map(v => v.name).filter(Boolean),
                                     reqd: 1
                                 },
                                 {
@@ -316,12 +317,8 @@ frappe.ui.form.on('Sales Order', {
                                 let selectedItem = values.aktion_artikel;
                                 let itemCode = getItemCodeFromName(selectedItem);
                                 
-                                // Entferne aktuellen Aktionsartikel
-                                let itemIndex = frm.doc.items.findIndex(item => item.item_code === currentAktionsartikel.item_code);
-                                if (itemIndex !== -1) {
-                                    frm.get_field("items").grid.grid_rows[itemIndex].remove();
-                                    frm.refresh_field("items");
-                                }
+                                // Vor dem Hinzufügen: alle vorhandenen Aktionsartikel entfernen
+                                removeExistingActionItems();
                                 
                                 addAktionsartikelToInvoice(itemCode, selectedItem, d);
                             },
@@ -341,16 +338,19 @@ frappe.ui.form.on('Sales Order', {
                     }
                     
                     function getItemCodeFromName(itemName) {
-                        switch(itemName) {
-                            case v1_name: return v1_code;
-                            case v2_name: return v2_code;
-                            case v3_name: return v3_code;
-                            case v4_name: return v4_code;
-                            case v5_name: return v5_code;
-                            case v6_name: return v6_code;
-                            case v7_name: return v7_code;
-                            default: return null;
+                        let found = standardVariants.find(v => v.name === itemName) || premiumVariants.find(v => v.name === itemName);
+                        return found ? found.code : null;
+                    }
+                    
+                    function removeExistingActionItems() {
+                        if (!frm.doc.items || !frm.doc.items.length) return;
+                        for (let i = frm.doc.items.length - 1; i >= 0; i--) {
+                            const it = frm.doc.items[i];
+                            if (it._aktionsartikel === true || allAktionsCodes.includes(it.item_code)) {
+                                frm.get_field("items").grid.grid_rows[i].remove();
+                            }
                         }
+                        frm.refresh_field("items");
                     }
                     
                     function addAktionsartikelToInvoice(itemCode, selectedItem, dialog) {
@@ -359,6 +359,9 @@ frappe.ui.form.on('Sales Order', {
                             saveFromDialog(dialog);
                             return;
                         }
+                        
+                        // Vor dem Hinzufügen: alle vorhandenen Aktionsartikel entfernen
+                        removeExistingActionItems();
                         
                         frappe.call({
                             method: "frappe.client.get_value",
@@ -415,6 +418,7 @@ frappe.ui.form.on('Sales Order', {
                                                 income_account: income_account,
                                                 delivery_date: deliveryDate
                                             });
+                                            child._aktionsartikel = true;
                                             
                                             frm.refresh_field("items");
                                             frappe.show_alert(`Aktionsartikel "${selectedItem}" wurde hinzugefügt!`, 5);
@@ -461,6 +465,37 @@ frappe.ui.form.on('Sales Order', {
 
 // Event Handler für Items Tabelle
 frappe.ui.form.on('Sales Order Item', {
+    item_code: function(frm, cdt, cdn) {
+        let row = locals[cdt][cdn];
+        if (!row || !row.item_code) return;
+
+        frappe.call({
+            method: "enjo_party.enjo_party.doctype.enjo_aktionseinstellungen.enjo_aktionseinstellungen.get_aktionseinstellungen",
+            async: false,
+            callback: function(r) {
+                if (!r.message) return;
+                const standardVariants = (r.message.variants && r.message.variants.standard) ? r.message.variants.standard : [];
+                const premiumVariants = (r.message.variants && r.message.variants.premium) ? r.message.variants.premium : [];
+                const allAktionsCodes = [...standardVariants, ...premiumVariants].map(v => v.code).filter(Boolean);
+
+                // Manuelles Hinzufügen von Aktionsartikeln unterbinden
+                if (allAktionsCodes.includes(row.item_code) && row._aktionsartikel !== true) {
+                    frappe.show_alert('Aktionsartikel dürfen nur über das Auswahlfenster hinzugefügt werden.', 5);
+                    try {
+                        const grid = frm.get_field("items").grid;
+                        const gr = grid.grid_rows_by_docname[cdn];
+                        if (gr) {
+                            gr.remove();
+                            frm.refresh_field("items");
+                            return;
+                        }
+                    } catch (e) { /* fallback unten */ }
+                    frappe.model.set_value(cdt, cdn, 'item_code', '');
+                    frappe.model.set_value(cdt, cdn, 'qty', 0);
+                }
+            }
+        });
+    },
     qty: function(frm, cdt, cdn) {
         let row = locals[cdt][cdn];
         
@@ -471,18 +506,21 @@ frappe.ui.form.on('Sales Order Item', {
             callback: function(r) {
                 if (r.message) {
                     let settings = r.message;
-                    const allAktionsCodes = [
-                        settings.v1_code, settings.v2_code, settings.v3_code, 
-                        settings.v4_code, settings.v5_code, settings.v6_code, 
-                        settings.v7_code
-                    ].filter(code => code);
+                    const standardVariants = (settings.variants && settings.variants.standard) ? settings.variants.standard : [];
+                    const premiumVariants = (settings.variants && settings.variants.premium) ? settings.variants.premium : [];
+                    const allAktionsCodes = [...standardVariants, ...premiumVariants].map(v => v.code).filter(Boolean);
                     
-                    // Prüfe ob es ein Aktionsartikel ist
-                    if (allAktionsCodes.includes(row.item_code)) {
+                    // Lock für Aktionsartikel: Flag ODER Code
+                    if (row._aktionsartikel === true || allAktionsCodes.includes(row.item_code)) {
                         if (row.qty !== 1) {
                             frappe.model.set_value(cdt, cdn, 'qty', 1);
                             frappe.show_alert('Die Menge von Aktionsartikeln kann nicht geändert werden!', 3);
                         }
+                    }
+                    
+                    // Defensive: Wenn Menge auf 0 gesetzt wird, Flag entfernen
+                    if (row.qty === 0 && row._aktionsartikel === true) {
+                        row._aktionsartikel = undefined;
                     }
                 }
             }
@@ -500,11 +538,9 @@ function recalculateActionItemsOrder(frm) {
             
             let settings = r.message;
             const STAGE_1_MIN = settings.stage_1_minimum;
-            const allAktionsCodes = [
-                settings.v1_code, settings.v2_code, settings.v3_code, 
-                settings.v4_code, settings.v5_code, settings.v6_code, 
-                settings.v7_code
-            ].filter(code => code);
+            const standardVariants = (settings.variants && settings.variants.standard) ? settings.variants.standard : [];
+            const premiumVariants = (settings.variants && settings.variants.premium) ? settings.variants.premium : [];
+            const allAktionsCodes = [...standardVariants, ...premiumVariants].map(v => v.code).filter(Boolean);
             
             // Prüfe aktuelle Items auf Aktionsberechtigung
             let actionTotal = 0;
@@ -512,7 +548,7 @@ function recalculateActionItemsOrder(frm) {
             let aktionsartikelIndex = -1;
             
             frm.doc.items.forEach((item, index) => {
-                if (allAktionsCodes.includes(item.item_code)) {
+                if (item._aktionsartikel === true) {
                     hasAktionsartikel = true;
                     aktionsartikelIndex = index;
                 } else {
