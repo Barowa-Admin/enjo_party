@@ -28,26 +28,13 @@ frappe.ui.form.on('Sales Invoice', {
                     const STAGE_1_MIN = settings.stage_1_minimum;
                     const STAGE_1_MAX = settings.stage_1_maximum;
                     
-                    // Artikelvariablen aus den Einstellungen
-                    const v1_code = settings.v1_code;
-                    const v2_code = settings.v2_code;
-                    const v3_code = settings.v3_code;
-                    const v4_code = settings.v4_code;
-                    const v5_code = settings.v5_code;
-                    const v6_code = settings.v6_code;
-                    const v7_code = settings.v7_code;
+                    // Dynamische Varianten aus den Einstellungen (neues Schema)
+                    const standardVariants = (settings.variants && settings.variants.standard) ? settings.variants.standard : [];
+                    const premiumVariants = (settings.variants && settings.variants.premium) ? settings.variants.premium : [];
                     
-                    // Artikelnamen aus den Einstellungen
-                    const v1_name = settings.v1_name;
-                    const v2_name = settings.v2_name;
-                    const v3_name = settings.v3_name;
-                    const v4_name = settings.v4_name;
-                    const v5_name = settings.v5_name;
-                    const v6_name = settings.v6_name;
-                    const v7_name = settings.v7_name;
-                    
-                    // Array mit allen Aktionsartikeln
-                    const allAktionsCodes = [v1_code, v2_code, v3_code, v4_code, v5_code, v6_code, v7_code].filter(code => code);
+                    const allStandardCodes = standardVariants.map(v => v.code).filter(Boolean);
+                    const allPremiumCodes = premiumVariants.map(v => v.code).filter(Boolean);
+                    const allAktionsCodes = [...allStandardCodes, ...allPremiumCodes];
                     
                     // Prüfe, ob bereits ein Aktionsartikel vorhanden ist und welcher Typ
                     let currentAktionsartikel = null;
@@ -57,9 +44,9 @@ frappe.ui.form.on('Sales Invoice', {
                         if (allAktionsCodes.includes(item.item_code)) {
                             currentAktionsartikel = item;
                             // Bestimme aktuelle Stage basierend auf dem Artikel
-                            if ([v1_code, v2_code, v3_code, v4_code].includes(item.item_code)) {
+                            if (allStandardCodes.includes(item.item_code)) {
                                 currentStage = 1;
-                            } else if ([v5_code, v6_code, v7_code].includes(item.item_code)) {
+                            } else if (allPremiumCodes.includes(item.item_code)) {
                                 currentStage = 2;
                             }
                         }
@@ -76,7 +63,7 @@ frappe.ui.form.on('Sales Invoice', {
                             console.log("Aktuelle Stage:", currentStage);
                             
                             if (actionItems.length > 0) {
-                                if (total > STAGE_1_MAX) {
+                                if (total >= STAGE_1_MAX) {
                                     // Stage 2 berechtigt
                                     if (currentStage === 1) {
                                         // Upgrade von Stage 1 zu Stage 2 - entferne aktuellen Aktionsartikel
@@ -88,7 +75,7 @@ frappe.ui.form.on('Sales Invoice', {
                                         // Bereits Stage 2
                                         frappe.validated = true;
                                     }
-                                } else if (total > STAGE_1_MIN) {
+                                } else if (total >= STAGE_1_MIN) {
                                     // Stage 1 berechtigt
                                     if (currentStage === 0) {
                                         // Kein Aktionsartikel vorhanden - zeige Stage 1
@@ -132,6 +119,8 @@ frappe.ui.form.on('Sales Invoice', {
                     function showStage1Dialog(total) {
                         frappe.validated = false;
                         
+                        const options = standardVariants.map(v => v.name || v.code).filter(Boolean).join('\n');
+                        
                         let d = new frappe.ui.Dialog({
                             title: 'Herzlichen Glückwunsch!',
                             fields: [
@@ -139,7 +128,7 @@ frappe.ui.form.on('Sales Invoice', {
                                     fieldtype: 'Select',
                                     fieldname: 'aktion_artikel',
                                     label: 'Wähle deinen Aktionsartikel',
-                                    options: [v1_name, v2_name, v3_name, v4_name].filter(name => name),
+                                    options: options,
                                     reqd: 1
                                 },
                                 {
@@ -188,7 +177,7 @@ frappe.ui.form.on('Sales Invoice', {
                                     fieldtype: 'Select',
                                     fieldname: 'aktion_artikel',
                                     label: 'Wähle deinen Aktionsartikel',
-                                    options: [v5_name, v6_name, v7_name].filter(name => name),
+                                    options: premiumVariants.map(v => v.name || v.code).filter(Boolean).join('\n'),
                                     reqd: 1
                                 },
                                 {
@@ -237,7 +226,7 @@ frappe.ui.form.on('Sales Invoice', {
                                     fieldtype: 'Select',
                                     fieldname: 'aktion_artikel',
                                     label: 'Wähle deinen Standard-Aktionsartikel',
-                                    options: [v1_name, v2_name, v3_name, v4_name].filter(name => name),
+                                    options: standardVariants.map(v => v.name).filter(Boolean),
                                     reqd: 1
                                 },
                                 {
@@ -259,12 +248,8 @@ frappe.ui.form.on('Sales Invoice', {
                                 let selectedItem = values.aktion_artikel;
                                 let itemCode = getItemCodeFromName(selectedItem);
                                 
-                                // Entferne aktuellen Premium-Aktionsartikel
-                                let itemIndex = frm.doc.items.findIndex(item => item.item_code === currentAktionsartikel.item_code);
-                                if (itemIndex !== -1) {
-                                    frm.get_field("items").grid.grid_rows[itemIndex].remove();
-                                    frm.refresh_field("items");
-                                }
+                                // Vor dem Hinzufügen: alle vorhandenen Aktionsartikel entfernen
+                                removeExistingActionItems();
                                 
                                 addAktionsartikelToInvoice(itemCode, selectedItem, d);
                             },
@@ -293,7 +278,7 @@ frappe.ui.form.on('Sales Invoice', {
                                     fieldtype: 'Select',
                                     fieldname: 'aktion_artikel',
                                     label: 'Wähle deinen Premium-Aktionsartikel',
-                                    options: [v5_name, v6_name, v7_name].filter(name => name),
+                                    options: premiumVariants.map(v => v.name || v.code).filter(Boolean).join('\n'),
                                     reqd: 1
                                 },
                                 {
@@ -316,12 +301,8 @@ frappe.ui.form.on('Sales Invoice', {
                                 let selectedItem = values.aktion_artikel;
                                 let itemCode = getItemCodeFromName(selectedItem);
                                 
-                                // Entferne aktuellen Aktionsartikel
-                                let itemIndex = frm.doc.items.findIndex(item => item.item_code === currentAktionsartikel.item_code);
-                                if (itemIndex !== -1) {
-                                    frm.get_field("items").grid.grid_rows[itemIndex].remove();
-                                    frm.refresh_field("items");
-                                }
+                                // Vor dem Hinzufügen: alle vorhandenen Aktionsartikel entfernen
+                                removeExistingActionItems();
                                 
                                 addAktionsartikelToInvoice(itemCode, selectedItem, d);
                             },
@@ -341,16 +322,19 @@ frappe.ui.form.on('Sales Invoice', {
                     }
                     
                     function getItemCodeFromName(itemName) {
-                        switch(itemName) {
-                            case v1_name: return v1_code;
-                            case v2_name: return v2_code;
-                            case v3_name: return v3_code;
-                            case v4_name: return v4_code;
-                            case v5_name: return v5_code;
-                            case v6_name: return v6_code;
-                            case v7_name: return v7_code;
-                            default: return null;
+                        let found = standardVariants.find(v => v.name === itemName) || premiumVariants.find(v => v.name === itemName);
+                        return found ? found.code : null;
+                    }
+                    
+                    function removeExistingActionItems() {
+                        if (!frm.doc.items || !frm.doc.items.length) return;
+                        for (let i = frm.doc.items.length - 1; i >= 0; i--) {
+                            const it = frm.doc.items[i];
+                            if (allAktionsCodes.includes(it.item_code)) {
+                                frm.get_field("items").grid.grid_rows[i].remove();
+                            }
                         }
+                        frm.refresh_field("items");
                     }
                     
                     function addAktionsartikelToInvoice(itemCode, selectedItem, dialog) {
@@ -359,6 +343,9 @@ frappe.ui.form.on('Sales Invoice', {
                             saveFromDialog(dialog);
                             return;
                         }
+                        
+                        // Vor dem Hinzufügen: alle vorhandenen Aktionsartikel entfernen
+                        removeExistingActionItems();
                         
                         frappe.call({
                             method: "frappe.client.get_value",
@@ -409,7 +396,10 @@ frappe.ui.form.on('Sales Invoice', {
                                                 conversion_factor: 1,
                                                 warehouse: warehouse,
                                                 cost_center: cost_center,
-                                                income_account: income_account
+                                                income_account: income_account,
+                                                stock_qty: 1.0,
+                                                stock_uom: item.stock_uom,
+                                                uom_conversion_factor: 1.0
                                             });
                                             
                                             frm.refresh_field("items");
@@ -457,6 +447,37 @@ frappe.ui.form.on('Sales Invoice', {
 
 // Event Handler für Items Tabelle
 frappe.ui.form.on('Sales Invoice Item', {
+    item_code: function(frm, cdt, cdn) {
+        let row = locals[cdt][cdn];
+        if (!row || !row.item_code) return;
+
+        frappe.call({
+            method: "enjo_party.enjo_party.doctype.enjo_aktionseinstellungen.enjo_aktionseinstellungen.get_aktionseinstellungen",
+            async: false,
+            callback: function(r) {
+                if (!r.message) return;
+                const standardVariants = (r.message.variants && r.message.variants.standard) ? r.message.variants.standard : [];
+                const premiumVariants = (r.message.variants && r.message.variants.premium) ? r.message.variants.premium : [];
+                const allAktionsCodes = [...standardVariants, ...premiumVariants].map(v => v.code).filter(Boolean);
+
+                // Manuelles Hinzufügen von Aktionsartikeln unterbinden
+                if (allAktionsCodes.includes(row.item_code)) {
+                    frappe.show_alert('Aktionsartikel dürfen nur über das Auswahlfenster hinzugefügt werden.', 5);
+                    try {
+                        const grid = frm.get_field("items").grid;
+                        const gr = grid.grid_rows_by_docname[cdn];
+                        if (gr) {
+                            gr.remove();
+                            frm.refresh_field("items");
+                            return;
+                        }
+                    } catch (e) { /* fallback unten */ }
+                    frappe.model.set_value(cdt, cdn, 'item_code', '');
+                    frappe.model.set_value(cdt, cdn, 'qty', 0);
+                }
+            }
+        });
+    },
     qty: function(frm, cdt, cdn) {
         let row = locals[cdt][cdn];
         
@@ -467,11 +488,9 @@ frappe.ui.form.on('Sales Invoice Item', {
             callback: function(r) {
                 if (r.message) {
                     let settings = r.message;
-                    const allAktionsCodes = [
-                        settings.v1_code, settings.v2_code, settings.v3_code, 
-                        settings.v4_code, settings.v5_code, settings.v6_code, 
-                        settings.v7_code
-                    ].filter(code => code);
+                    const standardVariants = (settings.variants && settings.variants.standard) ? settings.variants.standard : [];
+                    const premiumVariants = (settings.variants && settings.variants.premium) ? settings.variants.premium : [];
+                    const allAktionsCodes = [...standardVariants, ...premiumVariants].map(v => v.code).filter(Boolean);
                     
                     // Prüfe ob es ein Aktionsartikel ist
                     if (allAktionsCodes.includes(row.item_code)) {
@@ -479,6 +498,13 @@ frappe.ui.form.on('Sales Invoice Item', {
                             frappe.model.set_value(cdt, cdn, 'qty', 1);
                             frappe.show_alert('Die Menge von Aktionsartikeln kann nicht geändert werden!', 3);
                         }
+                    }
+                    
+                    // Defensive: Wenn Menge auf 0 gesetzt wird, prüfe Berechtigung
+                    if (row.qty === 0 && allAktionsCodes.includes(row.item_code)) {
+                        // Aktionsartikel sollten nicht auf 0 gesetzt werden können
+                        frappe.model.set_value(cdt, cdn, 'qty', 1);
+                        frappe.show_alert('Aktionsartikel können nicht entfernt werden. Verwenden Sie das Aktions-System.', 3);
                     }
                 }
             }
@@ -496,11 +522,9 @@ function recalculateActionItems(frm) {
             
             let settings = r.message;
             const STAGE_1_MIN = settings.stage_1_minimum;
-            const allAktionsCodes = [
-                settings.v1_code, settings.v2_code, settings.v3_code, 
-                settings.v4_code, settings.v5_code, settings.v6_code, 
-                settings.v7_code
-            ].filter(code => code);
+            const standardVariants = (settings.variants && settings.variants.standard) ? settings.variants.standard : [];
+            const premiumVariants = (settings.variants && settings.variants.premium) ? settings.variants.premium : [];
+            const allAktionsCodes = [...standardVariants, ...premiumVariants].map(v => v.code).filter(Boolean);
             
             // Prüfe aktuelle Items auf Aktionsberechtigung
             let actionTotal = 0;

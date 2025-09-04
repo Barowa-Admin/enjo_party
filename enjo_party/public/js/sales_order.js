@@ -81,7 +81,8 @@ frappe.ui.form.on('Sales Order', {
                             console.log("Aktuelle Stage:", currentStage);
                             
                             if (actionItems.length > 0) {
-                                if (total > STAGE_1_MAX) {
+
+                                if (total >= STAGE_1_MAX) {
                                     // Stage 2 berechtigt
                                     if (currentStage === 1) {
                                         // Upgrade von Stage 1 zu Stage 2 - entferne aktuellen Aktionsartikel
@@ -93,7 +94,7 @@ frappe.ui.form.on('Sales Order', {
                                         // Bereits Stage 2 (und aktueller Aktionsartikel vorhanden): keine Abfrage
                                         frappe.validated = true;
                                     }
-                                } else if (total > STAGE_1_MIN) {
+                                } else if (total >= STAGE_1_MIN) {
                                     // Stage 1 berechtigt
                                     if (currentStage === 0) {
                                         // Kein Aktionsartikel vorhanden - zeige Stage 1
@@ -123,11 +124,21 @@ frappe.ui.form.on('Sales Order', {
                                 filters: { item_code: item.item_code },
                                 fieldname: "custom_considered_for_action"
                             },
+                            async: false,
                             callback: function(r) {
                                 if (r.message && r.message.custom_considered_for_action) {
-                                    actionItems.push(item);
-                                    total += item.amount;
-                                    console.log(`Item ${item.item_code} wird für Aktion berücksichtigt (${item.amount} EUR)`);
+                                    // Prüfe ob es ein Aktionsartikel ist (Flag ODER in der Aktionsartikel-Liste)
+                                    const isAktionsartikel = item._aktionsartikel === true || 
+                                                           allStandardCodes.includes(item.item_code) || 
+                                                           allPremiumCodes.includes(item.item_code);
+                                    
+                                    if (!isAktionsartikel) {
+                                        actionItems.push(item);
+                                        total += item.amount;
+                                        console.log(`Item ${item.item_code} wird für Aktion berücksichtigt (${item.amount} EUR)`);
+                                    } else {
+                                        console.log(`Item ${item.item_code} ist ein Aktionsartikel und wird NICHT zur Summe hinzugefügt`);
+                                    }
                                 }
                                 checkItemsForAction(items, index + 1, actionItems, total, currentAktionsartikel, currentStage);
                             }
@@ -137,6 +148,8 @@ frappe.ui.form.on('Sales Order', {
                     function showStage1Dialog(total) {
                         frappe.validated = false;
                         
+                        const options = standardVariants.map(v => v.name || v.code).filter(Boolean).join('\n');
+                        
                         let d = new frappe.ui.Dialog({
                             title: 'Herzlichen Glückwunsch!',
                             fields: [
@@ -144,7 +157,7 @@ frappe.ui.form.on('Sales Order', {
                                     fieldtype: 'Select',
                                     fieldname: 'aktion_artikel',
                                     label: 'Wähle deinen Aktionsartikel',
-                                    options: standardVariants.map(v => v.name).filter(Boolean),
+                                    options: options,
                                     reqd: 1
                                 },
                                 {
@@ -193,7 +206,7 @@ frappe.ui.form.on('Sales Order', {
                                     fieldtype: 'Select',
                                     fieldname: 'aktion_artikel',
                                     label: 'Wähle deinen Aktionsartikel',
-                                    options: premiumVariants.map(v => v.name).filter(Boolean),
+                                    options: premiumVariants.map(v => v.name || v.code).filter(Boolean).join('\n'),
                                     reqd: 1
                                 },
                                 {
@@ -294,7 +307,7 @@ frappe.ui.form.on('Sales Order', {
                                     fieldtype: 'Select',
                                     fieldname: 'aktion_artikel',
                                     label: 'Wähle deinen Premium-Aktionsartikel',
-                                    options: premiumVariants.map(v => v.name).filter(Boolean),
+                                    options: premiumVariants.map(v => v.name || v.code).filter(Boolean).join('\n'),
                                     reqd: 1
                                 },
                                 {

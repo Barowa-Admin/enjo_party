@@ -108,9 +108,9 @@ function discount_window_party(frm, callback) {
                 if (actionItems.length > 0 && !hasAktionsartikel) {
                     // Bestimme Stage basierend auf Summe
                     let stage = null;
-                    if (total > STAGE_1_MAX) {
+                    if (total >= STAGE_1_MAX) {
                         stage = 2; // Premium
-                    } else if (total > STAGE_1_MIN) {
+                    } else if (total >= STAGE_1_MIN) {
                         stage = 1; // Standard
                     }
                     

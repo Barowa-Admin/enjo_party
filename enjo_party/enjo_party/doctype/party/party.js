@@ -336,26 +336,13 @@ function startAktionsSystem(frm, callback) {
 			const STAGE_1_MIN = settings.stage_1_minimum;
 			const STAGE_1_MAX = settings.stage_1_maximum;
 			
-			// Artikelvariablen aus den Einstellungen
-			const v1_code = settings.v1_code;
-			const v2_code = settings.v2_code;
-			const v3_code = settings.v3_code;
-			const v4_code = settings.v4_code;
-			const v5_code = settings.v5_code;
-			const v6_code = settings.v6_code;
-			const v7_code = settings.v7_code;
+			// Dynamische Varianten aus den Einstellungen (neues Schema)
+			const standardVariants = (settings.variants && settings.variants.standard) ? settings.variants.standard : [];
+			const premiumVariants = (settings.variants && settings.variants.premium) ? settings.variants.premium : [];
 			
-			// Artikelnamen aus den Einstellungen
-			const v1_name = settings.v1_name;
-			const v2_name = settings.v2_name;
-			const v3_name = settings.v3_name;
-			const v4_name = settings.v4_name;
-			const v5_name = settings.v5_name;
-			const v6_name = settings.v6_name;
-			const v7_name = settings.v7_name;
-			
-			// Array mit allen Aktionsartikeln
-			const allAktionsCodes = [v1_code, v2_code, v3_code, v4_code, v5_code, v6_code, v7_code];
+			const allStandardCodes = standardVariants.map(v => v.code).filter(Boolean);
+			const allPremiumCodes = premiumVariants.map(v => v.code).filter(Boolean);
+			const allAktionsCodes = [...allStandardCodes, ...allPremiumCodes];
 			
 			// Jetzt die eigentliche Aktions-Logik mit den geladenen Einstellungen
 			processAktionsSystemWithSettings();
@@ -478,9 +465,9 @@ function startAktionsSystem(frm, callback) {
 						
 						if (actionItems.length > 0 && !hasAktionsartikel) {
 							let stage = null;
-							if (total > STAGE_1_MAX) {
+							if (total >= STAGE_1_MAX) {
 								stage = 2; // Premium
-							} else if (total > STAGE_1_MIN) {
+							} else if (total >= STAGE_1_MIN) {
 								stage = 1; // Standard
 							}
 							
@@ -554,10 +541,10 @@ function startAktionsSystem(frm, callback) {
 					let stageText = "";
 					
 					if (teilnehmer.stage === 1) {
-						optionen = ["", v1_name, v2_name, v3_name, v4_name];
+						optionen = [""].concat(standardVariants.map(v => v.name || v.code).filter(Boolean));
 						stageText = "Standard";
 					} else if (teilnehmer.stage === 2) {
-						optionen = ["", v5_name, v6_name, v7_name];
+						optionen = [""].concat(premiumVariants.map(v => v.name || v.code).filter(Boolean));
 						stageText = "Premium";
 					}
 					
@@ -685,16 +672,8 @@ function startAktionsSystem(frm, callback) {
 			}
 			
 			function getItemCodeFromName(itemName) {
-				switch(itemName) {
-					case v1_name: return v1_code;
-					case v2_name: return v2_code;
-					case v3_name: return v3_code;
-					case v4_name: return v4_code;
-					case v5_name: return v5_code;
-					case v6_name: return v6_code;
-					case v7_name: return v7_code;
-					default: return null;
-				}
+				let found = standardVariants.find(v => v.name === itemName) || premiumVariants.find(v => v.name === itemName);
+				return found ? found.code : null;
 			}
 			
 			function addAktionsartikelToTeilnehmer(teilnehmer, itemCode, itemName) {
@@ -1195,16 +1174,10 @@ function validateAktionsartikel(frm) {
 			
 			let settings = r.message;
 			
-			// Aktionsartikel-Codes aus den Einstellungen
-			const aktionsCodes = [
-				settings.v1_code,
-				settings.v2_code, 
-				settings.v3_code,
-				settings.v4_code,
-				settings.v5_code,
-				settings.v6_code,
-				settings.v7_code
-			].filter(code => code); // Filter leere Codes heraus
+					// Dynamische Varianten aus den Einstellungen
+		const standardVariants = (settings.variants && settings.variants.standard) ? settings.variants.standard : [];
+		const premiumVariants = (settings.variants && settings.variants.premium) ? settings.variants.premium : [];
+		const aktionsCodes = [...standardVariants, ...premiumVariants].map(v => v.code).filter(Boolean);
 			
 			console.log("Dynamische Aktions-Codes:", aktionsCodes);
 			
@@ -2425,15 +2398,9 @@ function update_all_empty_prices(frm) {
 			let aktionsCodes = [];
 			if (r.message) {
 				let settings = r.message;
-				aktionsCodes = [
-					settings.v1_code,
-					settings.v2_code,
-					settings.v3_code,
-					settings.v4_code,
-					settings.v5_code,
-					settings.v6_code,
-					settings.v7_code
-				].filter(code => code); // Filter leere Codes heraus
+				const standardVariants = (settings.variants && settings.variants.standard) ? settings.variants.standard : [];
+				const premiumVariants = (settings.variants && settings.variants.premium) ? settings.variants.premium : [];
+				aktionsCodes = [...standardVariants, ...premiumVariants].map(v => v.code).filter(Boolean);
 			}
 			console.log("Schutz für Aktionsartikel-Codes:", aktionsCodes);
 			
