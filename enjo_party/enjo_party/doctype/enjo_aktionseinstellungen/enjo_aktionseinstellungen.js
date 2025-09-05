@@ -1312,16 +1312,59 @@ function update_schwellwerte_labels(frm) {
 	const label1 = frm.doc.period_1_label || 'Aktion 1';
 	const label2 = frm.doc.period_2_label || 'Aktion 2';
 	
-	// DEAKTIVIERT: set_df_property für Labels kann Zuklappen verursachen
-	// frm.set_df_property('section_break_schwellwerte', 'label', `Aktions-Schwellwerte ${label1}`);
-	// frm.set_df_property('section_break_schwellwerte_z2', 'label', `Aktions-Schwellwerte ${label2}`);
+	// Sichere Label-Updates mit verbesserter Stabilität
+	console.log(`Updating Schwellwerte Labels: ${label1}, ${label2}`);
 	
-	// DEAKTIVIERT: DOM-Updates können Zuklappen verursachen
-	console.log(`ÜBERSPRUNGEN: DOM-Updates für Schwellwerte-Labels um Zuklappen zu vermeiden`);
-	// setTimeout(() => {
-	//	update_section_break_dom_label(frm, 'section_break_schwellwerte', `Aktions-Schwellwerte ${label1}`);
-	//	update_section_break_dom_label(frm, 'section_break_schwellwerte_z2', `Aktions-Schwellwerte ${label2}`);
-	// }, 100);
+	// Verwende einen sichereren Ansatz mit längerer Verzögerung
+	setTimeout(() => {
+		try {
+			// Sicherer DOM-Update mit stabileren Selektoren
+			update_schwellwerte_section_labels(frm, 'section_break_schwellwerte', `Aktions-Schwellwerte ${label1}`);
+			update_schwellwerte_section_labels(frm, 'section_break_schwellwerte_z2', `Aktions-Schwellwerte ${label2}`);
+		} catch (error) {
+			console.log(`⚠️ Fehler beim Label-Update:`, error);
+		}
+	}, 500); // Längere Verzögerung für bessere Stabilität
+}
+
+function update_schwellwerte_section_labels(frm, fieldname, newLabel) {
+	console.log(`=== SICHERER UPDATE für Section Break ${fieldname} ===`);
+	console.log(`Neues Label: ${newLabel}`);
+	
+	// Sicherere Selektor-Strategie mit spezifischeren Zielen
+	const targetSelector = `[data-fieldname="${fieldname}"]`;
+	const sectionElement = $(targetSelector);
+	
+	if (sectionElement.length) {
+		// Versuche verschiedene Label-Selektoren in Reihenfolge der Präferenz
+		const labelSelectors = [
+			'.section-head h6',
+			'.section-head .section-title', 
+			'.section-head',
+			'h6',
+			'.form-section-head'
+		];
+		
+		let updated = false;
+		for (const selector of labelSelectors) {
+			const labelElement = sectionElement.find(selector).first();
+			if (labelElement.length && labelElement.text().includes('Aktions-Schwellwerte')) {
+				console.log(`Label gefunden mit Selektor: ${selector}`);
+				labelElement.text(newLabel);
+				console.log(`✅ Label erfolgreich aktualisiert: ${newLabel}`);
+				updated = true;
+				break;
+			}
+		}
+		
+		if (!updated) {
+			console.log(`⚠️ Kein passender Label-Selektor für ${fieldname} gefunden`);
+		}
+	} else {
+		console.log(`⚠️ Section Element ${fieldname} nicht gefunden`);
+	}
+	
+	console.log(`=== ENDE SICHERER UPDATE für ${fieldname} ===`);
 }
 
 function update_section_break_dom_label(frm, fieldname, newLabel) {
