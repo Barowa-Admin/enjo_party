@@ -825,22 +825,7 @@ function update_dynamic_visibility(frm) {
 		update_main_section_visibility_simple(frm, 'standard', '');
 		update_main_section_visibility_simple(frm, 'premium', '');
 		
-		// DIREKTE LÖSUNG: Prüfe S1 und zeige S2 an wenn ausgefüllt
-		console.log('🔧🔧🔧 DIREKTE LÖSUNG für Aktion 1');
-		if ((frm.doc.s1_1_name && frm.doc.s1_1_name.trim()) || (frm.doc.s1_1_code && frm.doc.s1_1_code.trim())) {
-			console.log('🔧 S1 ist ausgefüllt - zeige S2 an');
-			frm.toggle_display('section_break_s2', true);
-			frm.toggle_display('s2_1_name', true);
-			frm.toggle_display('s2_1_code', true);
-			frm.toggle_display('column_break_s2', true);
-		}
-		if ((frm.doc.p1_1_name && frm.doc.p1_1_name.trim()) || (frm.doc.p1_1_code && frm.doc.p1_1_code.trim())) {
-			console.log('🔧 P1 ist ausgefüllt - zeige P2 an');
-			frm.toggle_display('section_break_p2', true);
-			frm.toggle_display('p2_1_name', true);
-			frm.toggle_display('p2_1_code', true);
-			frm.toggle_display('column_break_p2', true);
-		}
+		// Hauptsection-Sichtbarkeit wird vollständig von update_main_section_visibility_simple gesteuert
 		
 		// Aktion 1 Logic - Varianten-Sections
 		update_section_visibility_simple(frm, 'standard', '');
@@ -850,11 +835,85 @@ function update_dynamic_visibility(frm) {
 		frm.toggle_display('section_break_s1', true);
 		frm.toggle_display('s1_1_name', true);
 		frm.toggle_display('s1_1_code', true);
-		frm.toggle_display('sb_s1_variants', true);
+		// S1-Varianten nur anzeigen wenn S1 ausgefüllt ist
+		const s1_filled = (frm.doc.s1_1_name && frm.doc.s1_1_name.trim()) || (frm.doc.s1_1_code && frm.doc.s1_1_code.trim());
+		frm.toggle_display('sb_s1_variants', s1_filled);
+		
 		frm.toggle_display('section_break_p1', true);
 		frm.toggle_display('p1_1_name', true);
 		frm.toggle_display('p1_1_code', true);
-		frm.toggle_display('sb_p1_variants', true);
+		// P1-Varianten nur anzeigen wenn P1 ausgefüllt ist
+		const p1_filled = (frm.doc.p1_1_name && frm.doc.p1_1_name.trim()) || (frm.doc.p1_1_code && frm.doc.p1_1_code.trim());
+		frm.toggle_display('sb_p1_variants', p1_filled);
+		
+		// SICHERHEITSÜBERPRÜFUNGEN: Hauptsections anzeigen basierend auf progressiver Logik
+		const s2_filled = (frm.doc.s2_1_name && frm.doc.s2_1_name.trim()) || (frm.doc.s2_1_code && frm.doc.s2_1_code.trim());
+		const s3_filled = (frm.doc.s3_1_name && frm.doc.s3_1_name.trim()) || (frm.doc.s3_1_code && frm.doc.s3_1_code.trim());
+		const s4_filled = (frm.doc.s4_1_name && frm.doc.s4_1_name.trim()) || (frm.doc.s4_1_code && frm.doc.s4_1_code.trim());
+		const s5_filled = (frm.doc.s5_1_name && frm.doc.s5_1_name.trim()) || (frm.doc.s5_1_code && frm.doc.s5_1_code.trim());
+		
+		const p2_filled = (frm.doc.p2_1_name && frm.doc.p2_1_name.trim()) || (frm.doc.p2_1_code && frm.doc.p2_1_code.trim());
+		const p3_filled = (frm.doc.p3_1_name && frm.doc.p3_1_name.trim()) || (frm.doc.p3_1_code && frm.doc.p3_1_code.trim());
+		const p4_filled = (frm.doc.p4_1_name && frm.doc.p4_1_name.trim()) || (frm.doc.p4_1_code && frm.doc.p4_1_code.trim());
+		const p5_filled = (frm.doc.p5_1_name && frm.doc.p5_1_name.trim()) || (frm.doc.p5_1_code && frm.doc.p5_1_code.trim());
+		
+		// S2: Anzeigen wenn S1 ausgefüllt oder S2 ausgefüllt
+		if (s1_filled || s2_filled) {
+			frm.toggle_display('section_break_s2', true);
+			frm.toggle_display('s2_1_name', true);
+			frm.toggle_display('s2_1_code', true);
+			frm.toggle_display('column_break_s2', true);
+		}
+		// S3: Anzeigen wenn S2 ausgefüllt oder S3 ausgefüllt
+		if (s2_filled || s3_filled) {
+			frm.toggle_display('section_break_s3', true);
+			frm.toggle_display('s3_1_name', true);
+			frm.toggle_display('s3_1_code', true);
+			frm.toggle_display('column_break_s3', true);
+		}
+		// S4: Anzeigen wenn S3 ausgefüllt oder S4 ausgefüllt
+		if (s3_filled || s4_filled) {
+			frm.toggle_display('section_break_s4', true);
+			frm.toggle_display('s4_1_name', true);
+			frm.toggle_display('s4_1_code', true);
+			frm.toggle_display('column_break_s4', true);
+		}
+		// S5: Anzeigen wenn S4 ausgefüllt oder S5 ausgefüllt
+		if (s4_filled || s5_filled) {
+			frm.toggle_display('section_break_s5', true);
+			frm.toggle_display('s5_1_name', true);
+			frm.toggle_display('s5_1_code', true);
+			frm.toggle_display('column_break_s5', true);
+		}
+		
+		// P2: Anzeigen wenn P1 ausgefüllt oder P2 ausgefüllt
+		if (p1_filled || p2_filled) {
+			frm.toggle_display('section_break_p2', true);
+			frm.toggle_display('p2_1_name', true);
+			frm.toggle_display('p2_1_code', true);
+			frm.toggle_display('column_break_p2', true);
+		}
+		// P3: Anzeigen wenn P2 ausgefüllt oder P3 ausgefüllt
+		if (p2_filled || p3_filled) {
+			frm.toggle_display('section_break_p3', true);
+			frm.toggle_display('p3_1_name', true);
+			frm.toggle_display('p3_1_code', true);
+			frm.toggle_display('column_break_p3', true);
+		}
+		// P4: Anzeigen wenn P3 ausgefüllt oder P4 ausgefüllt
+		if (p3_filled || p4_filled) {
+			frm.toggle_display('section_break_p4', true);
+			frm.toggle_display('p4_1_name', true);
+			frm.toggle_display('p4_1_code', true);
+			frm.toggle_display('column_break_p4', true);
+		}
+		// P5: Anzeigen wenn P4 ausgefüllt oder P5 ausgefüllt
+		if (p4_filled || p5_filled) {
+			frm.toggle_display('section_break_p5', true);
+			frm.toggle_display('p5_1_name', true);
+			frm.toggle_display('p5_1_code', true);
+			frm.toggle_display('column_break_p5', true);
+		}
 		
 	} else if (current_period === '2') {
 		// Aktion 2: S1 und P1 Hauptfelder IMMER sichtbar machen
@@ -880,22 +939,7 @@ function update_dynamic_visibility(frm) {
 		update_main_section_visibility_simple(frm, 'standard', 'z2_');
 		update_main_section_visibility_simple(frm, 'premium', 'z2_');
 		
-		// DIREKTE LÖSUNG: Prüfe Z2_S1 und zeige Z2_S2 an wenn ausgefüllt
-		console.log('🔧🔧🔧 DIREKTE LÖSUNG für Aktion 2');
-		if ((frm.doc.z2_s1_1_name && frm.doc.z2_s1_1_name.trim()) || (frm.doc.z2_s1_1_code && frm.doc.z2_s1_1_code.trim())) {
-			console.log('🔧 Z2_S1 ist ausgefüllt - zeige Z2_S2 an');
-			frm.toggle_display('section_break_s2_z2', true);
-			frm.toggle_display('z2_s2_1_name', true);
-			frm.toggle_display('z2_s2_1_code', true);
-			frm.toggle_display('column_break_s2_z2', true);
-		}
-		if ((frm.doc.z2_p1_1_name && frm.doc.z2_p1_1_name.trim()) || (frm.doc.z2_p1_1_code && frm.doc.z2_p1_1_code.trim())) {
-			console.log('🔧 Z2_P1 ist ausgefüllt - zeige Z2_P2 an');
-			frm.toggle_display('section_break_p2_z2', true);
-			frm.toggle_display('z2_p2_1_name', true);
-			frm.toggle_display('z2_p2_1_code', true);
-			frm.toggle_display('column_break_p2_z2', true);
-		}
+		// Hauptsection-Sichtbarkeit wird vollständig von update_main_section_visibility_simple gesteuert
 		
 		// Aktion 2 Logic - Varianten-Sections
 		update_section_visibility_simple(frm, 'standard', 'z2_');
@@ -905,11 +949,85 @@ function update_dynamic_visibility(frm) {
 		frm.toggle_display('section_break_s1_z2', true);
 		frm.toggle_display('z2_s1_1_name', true);
 		frm.toggle_display('z2_s1_1_code', true);
-		frm.toggle_display('sb_s1_variants_z2', true);
+		// S1-Varianten nur anzeigen wenn S1 ausgefüllt ist (Aktion 2)
+		const z2_s1_filled = (frm.doc.z2_s1_1_name && frm.doc.z2_s1_1_name.trim()) || (frm.doc.z2_s1_1_code && frm.doc.z2_s1_1_code.trim());
+		frm.toggle_display('sb_s1_variants_z2', z2_s1_filled);
+		
 		frm.toggle_display('section_break_p1_z2', true);
 		frm.toggle_display('z2_p1_1_name', true);
 		frm.toggle_display('z2_p1_1_code', true);
-		frm.toggle_display('sb_p1_variants_z2', true);
+		// P1-Varianten nur anzeigen wenn P1 ausgefüllt ist (Aktion 2)
+		const z2_p1_filled = (frm.doc.z2_p1_1_name && frm.doc.z2_p1_1_name.trim()) || (frm.doc.z2_p1_1_code && frm.doc.z2_p1_1_code.trim());
+		frm.toggle_display('sb_p1_variants_z2', z2_p1_filled);
+		
+		// SICHERHEITSÜBERPRÜFUNGEN: Hauptsections anzeigen basierend auf progressiver Logik (Aktion 2)
+		const z2_s2_filled = (frm.doc.z2_s2_1_name && frm.doc.z2_s2_1_name.trim()) || (frm.doc.z2_s2_1_code && frm.doc.z2_s2_1_code.trim());
+		const z2_s3_filled = (frm.doc.z2_s3_1_name && frm.doc.z2_s3_1_name.trim()) || (frm.doc.z2_s3_1_code && frm.doc.z2_s3_1_code.trim());
+		const z2_s4_filled = (frm.doc.z2_s4_1_name && frm.doc.z2_s4_1_name.trim()) || (frm.doc.z2_s4_1_code && frm.doc.z2_s4_1_code.trim());
+		const z2_s5_filled = (frm.doc.z2_s5_1_name && frm.doc.z2_s5_1_name.trim()) || (frm.doc.z2_s5_1_code && frm.doc.z2_s5_1_code.trim());
+		
+		const z2_p2_filled = (frm.doc.z2_p2_1_name && frm.doc.z2_p2_1_name.trim()) || (frm.doc.z2_p2_1_code && frm.doc.z2_p2_1_code.trim());
+		const z2_p3_filled = (frm.doc.z2_p3_1_name && frm.doc.z2_p3_1_name.trim()) || (frm.doc.z2_p3_1_code && frm.doc.z2_p3_1_code.trim());
+		const z2_p4_filled = (frm.doc.z2_p4_1_name && frm.doc.z2_p4_1_name.trim()) || (frm.doc.z2_p4_1_code && frm.doc.z2_p4_1_code.trim());
+		const z2_p5_filled = (frm.doc.z2_p5_1_name && frm.doc.z2_p5_1_name.trim()) || (frm.doc.z2_p5_1_code && frm.doc.z2_p5_1_code.trim());
+		
+		// S2: Anzeigen wenn S1 ausgefüllt oder S2 ausgefüllt (Aktion 2)
+		if (z2_s1_filled || z2_s2_filled) {
+			frm.toggle_display('section_break_s2_z2', true);
+			frm.toggle_display('z2_s2_1_name', true);
+			frm.toggle_display('z2_s2_1_code', true);
+			frm.toggle_display('column_break_s2_z2', true);
+		}
+		// S3: Anzeigen wenn S2 ausgefüllt oder S3 ausgefüllt (Aktion 2)
+		if (z2_s2_filled || z2_s3_filled) {
+			frm.toggle_display('section_break_s3_z2', true);
+			frm.toggle_display('z2_s3_1_name', true);
+			frm.toggle_display('z2_s3_1_code', true);
+			frm.toggle_display('column_break_s3_z2', true);
+		}
+		// S4: Anzeigen wenn S3 ausgefüllt oder S4 ausgefüllt (Aktion 2)
+		if (z2_s3_filled || z2_s4_filled) {
+			frm.toggle_display('section_break_s4_z2', true);
+			frm.toggle_display('z2_s4_1_name', true);
+			frm.toggle_display('z2_s4_1_code', true);
+			frm.toggle_display('column_break_s4_z2', true);
+		}
+		// S5: Anzeigen wenn S4 ausgefüllt oder S5 ausgefüllt (Aktion 2)
+		if (z2_s4_filled || z2_s5_filled) {
+			frm.toggle_display('section_break_s5_z2', true);
+			frm.toggle_display('z2_s5_1_name', true);
+			frm.toggle_display('z2_s5_1_code', true);
+			frm.toggle_display('column_break_s5_z2', true);
+		}
+		
+		// P2: Anzeigen wenn P1 ausgefüllt oder P2 ausgefüllt (Aktion 2)
+		if (z2_p1_filled || z2_p2_filled) {
+			frm.toggle_display('section_break_p2_z2', true);
+			frm.toggle_display('z2_p2_1_name', true);
+			frm.toggle_display('z2_p2_1_code', true);
+			frm.toggle_display('column_break_p2_z2', true);
+		}
+		// P3: Anzeigen wenn P2 ausgefüllt oder P3 ausgefüllt (Aktion 2)
+		if (z2_p2_filled || z2_p3_filled) {
+			frm.toggle_display('section_break_p3_z2', true);
+			frm.toggle_display('z2_p3_1_name', true);
+			frm.toggle_display('z2_p3_1_code', true);
+			frm.toggle_display('column_break_p3_z2', true);
+		}
+		// P4: Anzeigen wenn P3 ausgefüllt oder P4 ausgefüllt (Aktion 2)
+		if (z2_p3_filled || z2_p4_filled) {
+			frm.toggle_display('section_break_p4_z2', true);
+			frm.toggle_display('z2_p4_1_name', true);
+			frm.toggle_display('z2_p4_1_code', true);
+			frm.toggle_display('column_break_p4_z2', true);
+		}
+		// P5: Anzeigen wenn P4 ausgefüllt oder P5 ausgefüllt (Aktion 2)
+		if (z2_p4_filled || z2_p5_filled) {
+			frm.toggle_display('section_break_p5_z2', true);
+			frm.toggle_display('z2_p5_1_name', true);
+			frm.toggle_display('z2_p5_1_code', true);
+			frm.toggle_display('column_break_p5_z2', true);
+		}
 	}
 	
 }
@@ -1042,10 +1160,17 @@ function update_section_visibility_simple(frm, type, prefix) {
 		const variantSectionField = `sb_${letter}${num}_variants${prefix ? '_z2' : ''}`;
 		const sectionIndex = num - 1; // S1=0, S2=1, etc.
 		
-		// Zeige Section wenn sie ausgefüllt ist ODER die nächste leere ist
-		let showSection = (sectionIndex <= lastFilledIndex + 1);
+		// Prüfe ob diese spezifische Section ausgefüllt ist
+		const mainNameField = `${prefix}${letter}${num}_1_name`;
+		const mainCodeField = `${prefix}${letter}${num}_1_code`;
+		const mainName = frm.doc[mainNameField];
+		const mainCode = frm.doc[mainCodeField];
+		const sectionFilled = (mainName && mainName.trim()) || (mainCode && mainCode.trim());
 		
-		console.log(`${variantSectionField}: sectionIndex=${sectionIndex}, lastFilled=${lastFilledIndex}, zeigen=${showSection}`);
+		// Varianten nur anzeigen wenn die entsprechende Hauptsection ausgefüllt ist
+		let showSection = sectionFilled;
+		
+		console.log(`${variantSectionField}: sectionIndex=${sectionIndex}, ausgefüllt=${sectionFilled}, zeigen=${showSection}`);
 		
 		frm.toggle_display(variantSectionField, showSection);
 		
