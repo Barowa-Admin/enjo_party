@@ -53,21 +53,33 @@ def get_aktionseinstellungen():
 	def collect(prefix: str):
 		result = []
 		for grp in range(1, 6):
-			for pos in range(1, 7):
-				code = getattr(settings, f"{prefix}{grp}_{pos}_code", None) or ""
-				name = getattr(settings, f"{prefix}{grp}_{pos}_name", None) or ""
-				if code or name:
-					result.append({"code": code, "name": name or code})
+			# Prüfe erst, ob die Hauptkategorie (Position 1) ausgefüllt ist
+			main_code = getattr(settings, f"{prefix}{grp}_1_code", None) or ""
+			main_name = getattr(settings, f"{prefix}{grp}_1_name", None) or ""
+			
+			# Nur wenn Hauptkategorie ausgefüllt ist, sammle alle Positionen dieser Gruppe
+			if main_code or main_name:
+				for pos in range(1, 7):
+					code = getattr(settings, f"{prefix}{grp}_{pos}_code", None) or ""
+					name = getattr(settings, f"{prefix}{grp}_{pos}_name", None) or ""
+					if code or name:
+						result.append({"code": code, "name": name or code})
 		return result
 
 	def collect_z2(prefix: str):
 		result = []
 		for grp in range(1, 6):
-			for pos in range(1, 7):
-				code = getattr(settings, f"z2_{prefix}{grp}_{pos}_code", None) or ""
-				name = getattr(settings, f"z2_{prefix}{grp}_{pos}_name", None) or ""
-				if code or name:
-					result.append({"code": code, "name": name or code})
+			# Prüfe erst, ob die Hauptkategorie (Position 1) ausgefüllt ist
+			main_code = getattr(settings, f"z2_{prefix}{grp}_1_code", None) or ""
+			main_name = getattr(settings, f"z2_{prefix}{grp}_1_name", None) or ""
+			
+			# Nur wenn Hauptkategorie ausgefüllt ist, sammle alle Positionen dieser Gruppe
+			if main_code or main_name:
+				for pos in range(1, 7):
+					code = getattr(settings, f"z2_{prefix}{grp}_{pos}_code", None) or ""
+					name = getattr(settings, f"z2_{prefix}{grp}_{pos}_name", None) or ""
+					if code or name:
+						result.append({"code": code, "name": name or code})
 		return result
 
 	if active_period == 2:
