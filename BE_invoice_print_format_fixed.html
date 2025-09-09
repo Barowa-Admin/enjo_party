@@ -125,6 +125,7 @@
         </thead>
         <tbody>
             {% for item in doc.items %}
+                {% if not (item.item_code and "shipping" in item.item_code.lower()) %}
             <tr>
                 <td style="padding: 6px; text-align: center; font-size: 12px;">{{ item.idx }}</td>
                 <td style="padding: 6px; font-weight: bold; font-size: 12px;">{{ item.item_code }}</td>
@@ -133,6 +134,7 @@
                 <td style="padding: 6px; text-align: right; font-size: 12px;">{{ item.get_formatted("rate", doc) }}</td>
                 <td style="padding: 6px; text-align: right; font-size: 12px;">{{ item.get_formatted("amount", doc) }}</td>
             </tr>
+                {% endif %}
             {% endfor %}
         </tbody>
     </table>
@@ -162,6 +164,24 @@
                         <td style="padding: 3px; text-align: right; font-size: 12px;">{{ tax.get_formatted("tax_amount", doc) }}</td>
                     </tr>
                     {% endfor %}
+                    
+                    <!-- Versandkosten nach MwSt. -->
+                    {% set shipping_items = [] %}
+                    {% for item in doc.items %}
+                        {% if item.item_code and "shipping" in item.item_code.lower() %}
+                            {% set _ = shipping_items.append(item) %}
+                        {% endif %}
+                    {% endfor %}
+                    
+                    {% if shipping_items %}
+                    {% for item in shipping_items %}
+                    <tr>
+                        <td style="padding: 3px; text-align: right; font-size: 12px;">Versand:</td>
+                        <td style="padding: 3px; text-align: right; font-size: 12px;">{{ item.get_formatted("amount", doc) }}</td>
+                    </tr>
+                    {% endfor %}
+                    {% endif %}
+                    
                     <tr style="border-top: 2px solid #000; font-weight: bold;">
                         <td style="padding: 6px; text-align: right; font-size: 12px;"><strong>Gesamtsumme:</strong></td>
                         <td style="padding: 6px; text-align: right; font-size: 12px;"><strong>{{ doc.get_formatted("grand_total", doc) }}</strong></td>

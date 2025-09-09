@@ -189,11 +189,12 @@ frappe.pages['meine-provision-page'].on_page_load = function(wrapper) {
 	function showTable(data) {
 		var html = '<table class="table table-bordered table-striped">';
 		html += '<thead><tr>';
-		html += '<th style="width: 150px;">Bezahlt am</th>';
-		html += '<th style="width: 230px;">Rechnung</th>';
-		html += '<th style="width: 300px;">Kundenname</th>';
-		html += '<th style="width: 200px;">Provisionsfähiger Betrag</th>';
-		html += '<th style="width: 120px;">Provision</th>';
+		html += '<th style="width: 130px;">Bezahlt am</th>';
+		html += '<th style="width: 200px;">Rechnung</th>';
+		html += '<th style="width: 230px;">Kundenname</th>';
+		html += '<th style="width: 160px;">Provisionsfähiger Betrag</th>';
+		html += '<th style="width: 100px;">Provision</th>';
+		html += '<th style="width: 80px;">Punkte</th>';
 		html += '</tr></thead><tbody>';
 
 		var total = 0;
@@ -215,6 +216,7 @@ frappe.pages['meine-provision-page'].on_page_load = function(wrapper) {
 			html += '<td>' + (row[2] || '') + '</td>';
 			html += '<td>' + (row[3] ? format_currency(row[3]) : '') + '</td>';
 			html += '<td>' + (row[4] ? format_currency(row[4]) : '') + '</td>';
+			html += '<td>' + (row[5] || '0') + '</td>';
 			html += '</tr>';
 			
 			if (row[1] !== 'GESAMT') {

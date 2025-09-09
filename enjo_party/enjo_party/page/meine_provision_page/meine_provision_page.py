@@ -58,11 +58,20 @@ def get_provision_data(month=None, year=None):
             c.customer_name,
             per.allocated_amount as paid_amount,
             (per.allocated_amount / si.grand_total) * si.amount_eligible_for_commission as amount_eligible_for_commission,
-            (per.allocated_amount / si.grand_total) * si.total_commission as total_commission
+            (per.allocated_amount / si.grand_total) * si.total_commission as total_commission,
+            COALESCE(punkte_summe.punkte_gesamt, 0) as punkte_gesamt
         FROM `tabPayment Entry Reference` per
         LEFT JOIN `tabPayment Entry` pe ON per.parent = pe.name
         LEFT JOIN `tabSales Invoice` si ON per.reference_name = si.name
         LEFT JOIN `tabCustomer` c ON si.customer = c.name
+        LEFT JOIN (
+            SELECT 
+                sales_invoice,
+                SUM(punkte_gesamt) as punkte_gesamt
+            FROM `tabENJO Punkte Transaktion`
+            WHERE is_cancelled = 0
+            GROUP BY sales_invoice
+        ) punkte_summe ON si.name = punkte_summe.sales_invoice
         WHERE per.reference_doctype = 'Sales Invoice'
         AND pe.docstatus = 1
         AND si.docstatus = 1
@@ -112,10 +121,13 @@ def get_provision_data(month=None, year=None):
     # Daten formatieren
     data = []
     total_provision = 0
+    total_punkte = 0
     
     for inv in invoices:
         commission = flt(inv.total_commission) if inv.total_commission else 0
+        punkte = int(inv.punkte_gesamt) if inv.punkte_gesamt else 0
         total_provision += commission
+        total_punkte += punkte
         
         data.append([
             inv.payment_date.strftime('%d.%m.%Y') if inv.payment_date else '',
@@ -123,6 +135,7 @@ def get_provision_data(month=None, year=None):
             inv.customer_name,
             flt(inv.amount_eligible_for_commission) if inv.amount_eligible_for_commission else 0,
             commission,
+            punkte,
         ])
     
     # Gesamtsumme hinzufügen
@@ -133,6 +146,7 @@ def get_provision_data(month=None, year=None):
             f"Provision {month} {year}",
             "",
             total_provision,
+            total_punkte,
         ])
     
     return data
