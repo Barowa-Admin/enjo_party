@@ -1,0 +1,272 @@
+{% set company = frappe.get_doc("Company", doc.company) %}
+<!-- Meta-Tag für Browser-Druckeinstellungen -->
+<meta name="print-headers" content="false">
+<meta name="print-footers" content="false">
+<div class="print-format" style="margin: 0; padding: 10px; font-family: Arial, sans-serif; position: relative; font-size: 12px; zoom: 1; -webkit-transform: scale(1); transform: scale(1);">
+    <!-- Briefkopf mit Logo rechts oben -->
+    <div style="position: relative; margin-bottom: 20px; border-bottom: 1px solid #ccc; padding-bottom: 15px;">
+        <!-- Logo rechts oben -->
+        <div style="position: absolute; top: 0; right: 0;">
+            <img src="/files/logo_DE_Mittre.jpg" style="max-width: 100px; max-height: 75px; width: 100px; height: auto;" alt="ENJO Logo">
+        </div>
+        
+        <!-- Adresse links -->
+        <div style="margin-right: 120px;">
+            <div style="font-size: 16px; font-weight: bold; margin-bottom: 6px;">ENJO Deutschland Mitte</div>
+            <div style="font-size: 14px; margin-bottom: 2px;">BE'motion - Inhaberin Esther Buchroth</div>
+            <div style="font-size: 12px; margin-bottom: 2px;">Elisabeth-Schumacher-Str.33</div>
+            <div style="font-size: 12px; margin-bottom: 2px;">04328 Leipzig</div>
+            <div style="font-size: 12px; margin-bottom: 6px;">Deutschland</div>
+        </div>
+    </div>
+    
+    <!-- Rechnung Header -->
+    <div style="text-align: center; margin-bottom: 15px;">
+        <h1 style="font-size: 24px; margin: 0 0 5px 0;">RECHNUNG</h1>
+        <h3 style="font-size: 16px; margin: 0 0 10px 0;">{{ doc.name }}</h3>
+    </div>
+    
+    <!-- Professionelles 3-Spalten Layout -->
+    <table style="width: 100%; margin-bottom: 20px; border-collapse: collapse;">
+        <tr>
+            <!-- Rechnungsadresse -->
+            <td style="width: 33%; vertical-align: top; padding-right: 15px;">
+                <div style="font-size: 11px; font-weight: bold; color: #333; margin-bottom: 8px; text-transform: uppercase; letter-spacing: 0.5px;">Rechnungsadresse</div>
+                <div style="font-size: 12px; font-weight: bold; margin-bottom: 6px;">{{ doc.customer_name }}</div>
+                
+                {% if doc.address_display %}
+                    {% set address_lines = doc.address_display.split('\n') %}
+                    {% for line in address_lines %}
+                        {% if line.strip() %}
+                            <div style="font-size: 11px; margin-bottom: 2px; color: #555;">{{ line.strip() }}</div>
+                        {% endif %}
+                    {% endfor %}
+                {% endif %}
+            </td>
+            
+            <!-- Lieferadresse -->
+            <td style="width: 33%; vertical-align: top; padding-right: 15px;">
+                <div style="font-size: 11px; font-weight: bold; color: #333; margin-bottom: 8px; text-transform: uppercase; letter-spacing: 0.5px;">Lieferadresse</div>
+                {% if doc.shipping_address_name and doc.shipping_address_name != doc.customer_address %}
+                <div style="font-size: 12px; font-weight: bold; margin-bottom: 6px;">{{ doc.shipping_address_name }}</div>
+                {% if doc.shipping_address %}
+                    {% set shipping_lines = doc.shipping_address.split('\n') %}
+                    {% for line in shipping_lines %}
+                        {% if line.strip() %}
+                            <div style="font-size: 11px; margin-bottom: 2px; color: #555;">{{ line.strip() }}</div>
+                        {% endif %}
+                    {% endfor %}
+                {% endif %}
+                {% else %}
+                <div style="font-size: 12px; font-weight: bold; margin-bottom: 6px;">{{ doc.customer_name }}</div>
+                {% if doc.address_display %}
+                    {% set address_lines = doc.address_display.split('\n') %}
+                    {% for line in address_lines %}
+                        {% if line.strip() %}
+                            <div style="font-size: 11px; margin-bottom: 2px; color: #555;">{{ line.strip() }}</div>
+                        {% endif %}
+                    {% endfor %}
+                {% endif %}
+                {% endif %}
+            </td>
+            
+            <!-- Rechnungsdaten -->
+            <td style="width: 34%; vertical-align: top;">
+                <div style="font-size: 11px; font-weight: bold; color: #333; margin-bottom: 8px; text-transform: uppercase; letter-spacing: 0.5px;">Rechnungsdaten</div>
+                
+                <div style="margin-bottom: 6px; font-size: 11px;">
+                    <span style="font-weight: bold; color: #666;">Zahlungsstichtag:</span>
+                    <span style="color: #555;"> {{ doc.get_formatted("due_date") if doc.due_date else doc.get_formatted("posting_date") }}</span>
+                </div>
+                
+                <div style="margin-bottom: 6px; font-size: 11px;">
+                    <span style="font-weight: bold; color: #666;">Bestelldatum:</span>
+                    <span style="color: #555;"> {{ doc.get_formatted("posting_date") }}</span>
+                </div>
+                
+                <div style="margin-bottom: 6px; font-size: 11px;">
+                    <span style="font-weight: bold; color: #666;">Vertriebspartner:</span>
+                    <span style="color: #555;"> {{ doc.sales_person or "Esther Buchroth" }}</span>
+                </div>
+                
+                <div style="margin-bottom: 6px; font-size: 11px;">
+                    <span style="font-weight: bold; color: #666;">Kundennummer:</span>
+                    <span style="color: #555;"> {{ doc.customer or "-" }}</span>
+                </div>
+                
+                {% if doc.contact_email %}
+                <div style="margin-bottom: 6px; font-size: 11px;">
+                    <span style="font-weight: bold; color: #666;">E-Mail:</span>
+                    <span style="color: #555;"> {{ doc.contact_email }}</span>
+                </div>
+                {% endif %}
+                
+                {% if doc.contact_mobile %}
+                <div style="margin-bottom: 6px; font-size: 11px;">
+                    <span style="font-weight: bold; color: #666;">Telefon:</span>
+                    <span style="color: #555;"> {{ doc.contact_mobile }}</span>
+                </div>
+                {% endif %}
+            </td>
+        </tr>
+    </table>
+    
+    <!-- Items Tabelle mit angepassten Spaltenbreiten -->
+    <table style="width: 100%; border-collapse: collapse; margin-bottom: 15px;" border="1">
+        <thead>
+            <tr style="background-color: #f8f9fa;">
+                <th style="padding: 6px; text-align: center; width: 8%; font-size: 12px;">Pos</th>
+                <th style="padding: 6px; text-align: left; width: 20%; font-size: 12px;">Artikel</th>
+                <th style="padding: 6px; text-align: left; width: 35%; font-size: 12px;">Artikelname</th>
+                <th style="padding: 6px; text-align: center; width: 10%; font-size: 12px;">Menge</th>
+                <th style="padding: 6px; text-align: right; width: 12%; font-size: 12px;">Einzelpreis</th>
+                <th style="padding: 6px; text-align: right; width: 12%; font-size: 12px;">Betrag</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for item in doc.items %}
+            <tr>
+                <td style="padding: 6px; text-align: center; font-size: 12px;">{{ item.idx }}</td>
+                <td style="padding: 6px; font-weight: bold; font-size: 12px;">{{ item.item_code }}</td>
+                <td style="padding: 6px; font-size: 12px;">{{ item.item_name or item.description }}</td>
+                <td style="padding: 6px; text-align: center; font-size: 12px;">{{ item.qty|int if item.qty|int == item.qty else item.qty }}</td>
+                <td style="padding: 6px; text-align: right; font-size: 12px;">{{ item.get_formatted("rate", doc) }}</td>
+                <td style="padding: 6px; text-align: right; font-size: 12px;">{{ item.get_formatted("amount", doc) }}</td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+    
+    <!-- Gewicht und Totals -->
+    <table style="width: 100%; margin-bottom: 20px;">
+        <tr>
+            <td style="width: 50%; vertical-align: top;">
+                <div style="margin-bottom: 8px; font-size: 12px;"><strong>Gewicht:</strong> {{ doc.total_net_weight or "23,29" }} g</div>
+                <div style="font-size: 12px;"><strong>Gesamtmenge:</strong> {{ doc.total_qty or "5" }}</div>
+            </td>
+            <td style="width: 50%; vertical-align: top;">
+                <table style="width: 100%; border-collapse: collapse;">
+                    <tr>
+                        <td style="padding: 3px; text-align: right; font-size: 12px;"><strong>Nettosumme:</strong></td>
+                        <td style="padding: 3px; text-align: right; width: 120px; font-size: 12px;">{{ doc.get_formatted("net_total", doc) }}</td>
+                    </tr>
+                    {% for tax in doc.taxes %}
+                    <tr>
+                        <td style="padding: 3px; text-align: right; font-size: 12px;">
+                            {% if "Umsatzsteuer" in tax.description %}
+                                {{ tax.description.replace("Umsatzsteuer", "MwSt.") }}:
+                            {% else %}
+                                {{ tax.description }}:
+                            {% endif %}
+                        </td>
+                        <td style="padding: 3px; text-align: right; font-size: 12px;">{{ tax.get_formatted("tax_amount", doc) }}</td>
+                    </tr>
+                    {% endfor %}
+                    <tr style="border-top: 2px solid #000; font-weight: bold;">
+                        <td style="padding: 6px; text-align: right; font-size: 12px;"><strong>Gesamtsumme:</strong></td>
+                        <td style="padding: 6px; text-align: right; font-size: 12px;"><strong>{{ doc.get_formatted("grand_total", doc) }}</strong></td>
+                    </tr>
+                </table>
+            </td>
+        </tr>
+    </table>
+    
+    
+</div>
+
+<!-- WKHTMLTOPDF BEWÄHRTE FOOTER LÖSUNG - Statisch am Ende des Dokuments -->
+<div class="footer-content" style="margin-top: 40px; font-size: 9px; line-height: 1.3; border-top: 1px solid #ccc; padding-top: 10px;">
+    <p style="margin: 3px 0;"><strong>Zahlungslink:</strong> pay.bemotionme.com | <strong>IBAN:</strong> DE67 1101 0101 5476 1994 71 | <strong>BIC:</strong> SOBKDEB2XXX</p>
+    <p style="margin: 3px 0;"><strong>Zahlungsbedingungen:</strong> Vorkasse | <strong>Bankverbindung:</strong> Solaris SE | <strong>Empfänger:</strong> BE'motion - Inhaberin Esther Buchroth</p>
+    <p style="margin: 3px 0;">Viel Spaß mit Ihren ENJO-Produkten wünscht Ihnen</p>
+    <p style="margin: 3px 0;"><strong>BE'motion - INHABERIN ESTHER BUCHROTH</strong> | <strong>UID:</strong> DE237359306 | <strong>Tel.:</strong> +49 172 58 22 656 | <strong>E-Mail:</strong> enjo@bemotionme.com</p>
+    <p style="margin: 3px 0;">Die gelieferte Ware bleibt bis zur vollständigen Bezahlung des Kaufpreises unser Eigentum.</p>
+    <p style="margin: 3px 0;">Gastgebergeschenke wurden nicht verrechnet.</p>
+</div>
+
+<style>
+/* WKHTMLTOPDF BEWÄHRTE LÖSUNG - Kein position:fixed */
+@media print {
+  /* Seiten-Grundeinstellungen - KEINE LEERE SEITE */
+  @page {
+    size: A4;
+    margin: 8mm 8mm 8mm 8mm; /* Kleinere Margins für mehr Platz */
+  }
+  
+  /* Hauptinhalt kompakt halten */
+  .print-format {
+    margin-bottom: 20px !important;
+    padding-bottom: 10px !important;
+  }
+  
+  /* Footer normal positioniert - KOMPAKTER */
+  .footer-content {
+    margin-top: 20px !important;
+    font-size: 8px !important;
+    line-height: 1.2 !important;
+    page-break-inside: avoid !important;
+  }
+  
+  .footer-content p {
+    margin: 2px 0 !important;
+    font-size: 8px !important;
+  }
+  
+  /* NUR DAS: Verhindere leere zweite Seite */
+  body {
+    page-break-after: avoid !important;
+  }
+  
+  /* Browser-UI Elemente standardmäßig deaktivieren */
+  /* Verhindere Browser-Header/Footer beim Drucken */
+  @page {
+    margin: 8mm 8mm 8mm 8mm !important;
+    /* Deaktiviere Browser-Header/Footer */
+    @top-left { content: none; }
+    @top-center { content: none; }
+    @top-right { content: none; }
+    @bottom-left { content: none; }
+    @bottom-center { content: none; }
+    @bottom-right { content: none; }
+  }
+  
+  /* Zusätzliche Browser-spezifische Regeln */
+  html {
+    -webkit-print-color-adjust: exact !important;
+    print-color-adjust: exact !important;
+  }
+}
+
+/* Browser-Ansicht - Footer normal anzeigen */
+@media screen {
+  .footer-content {
+    margin-top: 30px;
+    display: block;
+  }
+}
+
+/* Safari Anti-Zoom für bessere Darstellung */
+@media print {
+  /* Safari Zoom-Fix behalten */
+  html, body {
+    zoom: 1 !important;
+    -webkit-transform: scale(1) !important;
+    transform: scale(1) !important;
+    -webkit-text-size-adjust: 100% !important;
+  }
+  
+  /* Logo-Größe kontrollieren */
+  .print-format img {
+    max-width: 100px !important;
+    max-height: 75px !important;
+    width: 100px !important;
+    height: auto !important;
+  }
+  
+  /* Schriftgrößen für Safari stabilisieren */
+  .print-format h1 { font-size: 20px !important; }
+  .print-format h3 { font-size: 14px !important; }
+  .print-format h4 { font-size: 11px !important; }
+  .print-format td, .print-format th { font-size: 11px !important; }
+}
+</style>

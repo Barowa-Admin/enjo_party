@@ -111,6 +111,19 @@ def add_shipping_to_sales_invoice(doc, method):
     Fügt automatisch Versandkosten hinzu, wenn sie im referenzierten Sales Order vorhanden sind
     """
     frappe.log_error(f"=== ADD_SHIPPING_TO_SALES_INVOICE START für {doc.name} ===", "DEBUG: shipping_hook_start")
+
+    # Defensive: Nur im Entwurfsstatus (docstatus == 0) Änderungen zulassen
+    # Verhindert Updates während/nach Submit, die externe Integrationen (z. B. DATEV) erneut triggern könnten
+    try:
+        if getattr(doc, "docstatus", 0) != 0:
+            frappe.log_error(
+                f"Überspringe Versandkosten-Hook: docstatus={getattr(doc, 'docstatus', None)}",
+                "DEBUG: shipping_skip_non_draft"
+            )
+            return
+    except Exception:
+        # Falls etwas schiefgeht: lieber keinen Eingriff
+        return
     
     if doc.doctype != "Sales Invoice" or not doc.items:
         frappe.log_error(f"Überspringe - doctype: {doc.doctype}, items: {len(doc.items) if doc.items else 0}", "DEBUG: shipping_hook_skip")

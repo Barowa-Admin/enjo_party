@@ -328,8 +328,8 @@ bench --site development.localhost migrate
 
 ## Support
 
-**Entwickler:** Elia  
-**E-Mail:** elia@enjo.at  
+**Entwickler:** Tim Samuel Rohde
+**E-Mail:** Tim.Samuel.Rohde@Barowa.com
 **Lizenz:** MIT License
 
 Bei Problemen oder Fragen, bitte ein Issue erstellen oder den Entwickler kontaktieren.

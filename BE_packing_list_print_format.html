@@ -1,0 +1,193 @@
+{% set company = frappe.get_doc("Company", doc.company) %}
+<!-- Meta-Tag für Browser-Druckeinstellungen -->
+<meta name="print-headers" content="false">
+<meta name="print-footers" content="false">
+
+<!-- ÜBERSCHREIBE ALLES - KOMPLETT NEUER INHALT -->
+<div style="margin: 0; padding: 10px; font-family: Arial, sans-serif; position: relative; font-size: 12px; zoom: 1; -webkit-transform: scale(1); transform: scale(1);">
+    <!-- Briefkopf mit Logo rechts oben -->
+    <div style="position: relative; margin-bottom: 20px; border-bottom: 1px solid #ccc; padding-bottom: 15px;">
+        <!-- Logo rechts oben -->
+        <div style="position: absolute; top: 0; right: 0;">
+            <img src="/files/logo_DE_Mittre.jpg" style="max-width: 100px; max-height: 75px; width: 100px; height: auto;" alt="ENJO Logo">
+        </div>
+        
+        <!-- Adresse links -->
+        <div style="margin-right: 120px;">
+            <div style="font-size: 16px; font-weight: bold; margin-bottom: 6px;">ENJO Deutschland Mitte</div>
+            <div style="font-size: 14px; margin-bottom: 2px;">BE'motion - Inhaberin Esther Buchroth</div>
+            <div style="font-size: 12px; margin-bottom: 2px;">Elisabeth-Schumacher-Str.33</div>
+            <div style="font-size: 12px; margin-bottom: 2px;">04328 Leipzig</div>
+            <div style="font-size: 12px; margin-bottom: 6px;">Deutschland</div>
+        </div>
+    </div>
+    
+    <!-- Packliste Header -->
+    <div style="text-align: center; margin-bottom: 15px;">
+        <h1 style="font-size: 24px; margin: 0 0 5px 0; color: #333;">PACKLISTE</h1>
+        <h3 style="font-size: 16px; margin: 0 0 10px 0; color: #666;">{{ doc.name }}</h3>
+    </div>
+    
+    <!-- Kundenname -->
+    <div style="margin-bottom: 20px;">
+        <div style="font-size: 11px; font-weight: bold; color: #333; margin-bottom: 8px; text-transform: uppercase; letter-spacing: 0.5px;">Kundenname</div>
+        <div style="font-size: 12px; font-weight: bold; color: #555;">{{ doc.customer_name }}</div>
+    </div>
+    
+    <!-- Items Tabelle - Packliste (minimalistisch) -->
+    <table style="width: 100%; border-collapse: collapse; margin-bottom: 20px;" border="1">
+        <thead>
+            <tr style="background-color: #f8f9fa;">
+                <th style="padding: 8px; text-align: left; font-size: 12px; font-weight: bold; color: #333; border: 1px solid #ddd;">Artikel</th>
+                <th style="padding: 8px; text-align: left; font-size: 12px; font-weight: bold; color: #333; border: 1px solid #ddd;">Artikelname</th>
+                <th style="padding: 8px; text-align: right; font-size: 12px; font-weight: bold; color: #333; border: 1px solid #ddd;">Menge</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% if doc.locations %}
+                {% for item in doc.locations %}
+                <tr>
+                    <td style="padding: 8px; font-size: 12px; color: #555; border: 1px solid #ddd;">{{ item.item_code or "N/A" }}</td>
+                    <td style="padding: 8px; font-size: 12px; color: #555; border: 1px solid #ddd;">{{ item.item_name or item.description or "N/A" }}</td>
+                    <td style="padding: 8px; text-align: right; font-size: 12px; color: #555; border: 1px solid #ddd;">{{ item.qty|int if item.qty|int == item.qty else item.qty or "0" }}</td>
+                </tr>
+                {% endfor %}
+            {% else %}
+                <tr>
+                    <td colspan="3" style="padding: 8px; font-size: 12px; color: #999; border: 1px solid #ddd; text-align: center;">Keine Items gefunden - Debug: {{ doc.doctype }} - Locations: {{ doc.locations|length if doc.locations else "None" }}</td>
+                </tr>
+            {% endif %}
+        </tbody>
+    </table>
+    
+</div>
+
+<!-- WKHTMLTOPDF BEWÄHRTE FOOTER LÖSUNG - Statisch am Ende des Dokuments -->
+<div class="footer-content" style="margin-top: 20px; font-size: 8px; line-height: 1.2; border-top: 1px solid #ccc; padding-top: 10px;">
+    <div style="text-align: left;">
+        Zahlungslink: pay.bemotionme.com | IBAN: DE67 1101 0101 5476 1994 71 | BIC: SOBKDEB2XXX<br>
+        Zahlungsbedingungen: Vorkasse | Bankverbindung: Solaris SE | Empfänger: BE'motion - Inhaberin Esther Buchroth<br>
+        Viel Spaß mit Ihren ENJO-Produkten wünscht Ihnen<br>
+        BE'motion - INHABERIN ESTHER BUCHROTH | UID: DE237359306 | Tel.: +49 172 58 22 656 | enjo@bemotionme.com<br>
+        Die gelieferte Ware bleibt bis zur vollständigen Bezahlung des Kaufpreises unser Eigentum.<br>
+        Gastgebergeschenke wurden nicht verrechnet.
+    </div>
+</div>
+
+<style>
+/* ÜBERSCHREIBE ALLEN AUTOMATISCHEN INHALT - FÜR UI UND DRUCK */
+body, html {
+  margin: 0 !important;
+  padding: 0 !important;
+}
+
+/* Verstecke ALLEN automatischen Briefkopf und Titel */
+.print-heading,
+.letter-head,
+.letter-head-content,
+.print-format .print-heading,
+.print-format .letter-head,
+.print-format .letter-head-content,
+.letter-head-content,
+.letter-head,
+.print-heading,
+.letter-head-footer,
+.footer-content,
+.letter-head-footer-content {
+  display: none !important;
+  visibility: hidden !important;
+  height: 0 !important;
+  margin: 0 !important;
+  padding: 0 !important;
+  overflow: hidden !important;
+}
+
+/* Verstecke automatischen Titel */
+.print-format h1:first-of-type,
+.print-format h2:first-of-type,
+.print-format h3:first-of-type {
+  display: none !important;
+}
+
+/* WKHTMLTOPDF BEWÄHRTE LÖSUNG - Kein position:fixed */
+@media print {
+  /* Seiten-Grundeinstellungen - KEINE LEERE SEITE */
+  @page {
+    size: A4;
+    margin: 8mm 8mm 8mm 8mm; /* Kleinere Margins für mehr Platz */
+  }
+  
+  /* Hauptinhalt kompakt halten */
+  .print-format {
+    margin-bottom: 20px !important;
+    padding-bottom: 10px !important;
+  }
+  
+  /* NUR DAS: Verhindere leere zweite Seite */
+  body {
+    page-break-after: avoid !important;
+  }
+  
+  /* Browser-UI Elemente standardmäßig deaktivieren */
+  /* Verhindere Browser-Header/Footer beim Drucken */
+  @page {
+    margin: 8mm 8mm 8mm 8mm !important;
+    /* Deaktiviere Browser-Header/Footer */
+    @top-left { content: none; }
+    @top-center { content: none; }
+    @top-right { content: none; }
+    @bottom-left { content: none; }
+    @bottom-center { content: none; }
+    @bottom-right { content: none; }
+  }
+  
+  /* Zusätzliche Browser-spezifische Regeln */
+  html {
+    -webkit-print-color-adjust: exact !important;
+    print-color-adjust: exact !important;
+  }
+  
+  /* Safari Zoom-Fix behalten */
+  html, body {
+    zoom: 1 !important;
+    -webkit-transform: scale(1) !important;
+    transform: scale(1) !important;
+    -webkit-text-size-adjust: 100% !important;
+  }
+  
+  /* Schriftgrößen für Safari stabilisieren */
+  .print-format img {
+    max-width: 100px !important;
+    max-height: 75px !important;
+    width: 100px !important;
+    height: auto !important;
+  }
+  
+  /* ÜBERSCHREIBE AUTOMATISCHEN TITEL AUCH BEIM DRUCKEN */
+  .print-format h1:first-of-type,
+  .print-format h2:first-of-type,
+  .print-format h3:first-of-type {
+    display: none !important;
+  }
+  
+  .print-format h1 { font-size: 20px !important; }
+  .print-format h3 { font-size: 14px !important; }
+  .print-format td, .print-format th { font-size: 11px !important; }
+  
+  /* Footer-Formatierung */
+  .footer-content {
+    margin-top: 20px !important;
+    font-size: 8px !important;
+    line-height: 1.2 !important;
+    page-break-inside: avoid !important;
+  }
+}
+
+/* Browser-Ansicht - Footer normal anzeigen */
+@media screen {
+  .print-format {
+    margin-top: 30px;
+    display: block;
+  }
+}
+</style>
