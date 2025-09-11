@@ -106,7 +106,8 @@ def get_provision_data(month=None, year=None):
             last_day_num = calendar.monthrange(int(year), month_num)[1]
             last_day = f"{year}-{month_num:02d}-{last_day_num:02d}"
             
-            sql_conditions.append("(COALESCE(pe.posting_date, si.posting_date) BETWEEN %(first_day)s AND %(last_day)s)")
+            # Normale Rechnungen nur mit Payment Entry; Returns (is_return=1) nach Rechnungsdatum
+            sql_conditions.append("((pe.posting_date BETWEEN %(first_day)s AND %(last_day)s) OR (si.is_return = 1 AND si.posting_date BETWEEN %(first_day)s AND %(last_day)s))")
             sql_values["first_day"] = first_day
             sql_values["last_day"] = last_day
     
