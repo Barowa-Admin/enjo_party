@@ -50,20 +50,26 @@ def get_provision_data(month=None, year=None):
         except:
             pass
 
-    # SQL Query mit eigener Sicherheitslogik - anteilige Provisionsberechnung
+    # SQL Query mit eigener Sicherheitslogik - anteilige Provisionsberechnung (inkl. Returns)
     sql_query = """
         SELECT
-            pe.posting_date as payment_date,
+            COALESCE(pe.posting_date, si.posting_date) as payment_date,
             si.name,
             c.customer_name,
-            per.allocated_amount as paid_amount,
-            (per.allocated_amount / si.grand_total) * si.amount_eligible_for_commission as amount_eligible_for_commission,
-            (per.allocated_amount / si.grand_total) * si.total_commission as total_commission,
+            COALESCE(per.allocated_amount, si.grand_total) as paid_amount,
+            CASE 
+                WHEN per.allocated_amount IS NOT NULL THEN (per.allocated_amount / si.grand_total) * si.amount_eligible_for_commission
+                ELSE si.amount_eligible_for_commission
+            END as amount_eligible_for_commission,
+            CASE 
+                WHEN per.allocated_amount IS NOT NULL THEN (per.allocated_amount / si.grand_total) * si.total_commission
+                ELSE si.total_commission
+            END as total_commission,
             COALESCE(punkte_summe.punkte_gesamt, 0) as punkte_gesamt
-        FROM `tabPayment Entry Reference` per
-        LEFT JOIN `tabPayment Entry` pe ON per.parent = pe.name
-        LEFT JOIN `tabSales Invoice` si ON per.reference_name = si.name
+        FROM `tabSales Invoice` si
         LEFT JOIN `tabCustomer` c ON si.customer = c.name
+        LEFT JOIN `tabPayment Entry Reference` per ON si.name = per.reference_name AND per.reference_doctype = 'Sales Invoice'
+        LEFT JOIN `tabPayment Entry` pe ON per.parent = pe.name AND pe.docstatus = 1
         LEFT JOIN (
             SELECT 
                 sales_invoice,
@@ -72,9 +78,7 @@ def get_provision_data(month=None, year=None):
             WHERE is_cancelled = 0
             GROUP BY sales_invoice
         ) punkte_summe ON si.name = punkte_summe.sales_invoice
-        WHERE per.reference_doctype = 'Sales Invoice'
-        AND pe.docstatus = 1
-        AND si.docstatus = 1
+        WHERE si.docstatus IN (1, 2)
     """
     
     sql_conditions = []
@@ -109,7 +113,7 @@ def get_provision_data(month=None, year=None):
     if sql_conditions:
         sql_query += " AND " + " AND ".join(sql_conditions)
     
-    sql_query += " ORDER BY pe.posting_date DESC"
+    sql_query += " ORDER BY COALESCE(pe.posting_date, si.posting_date) DESC"
     
     # Führe Query aus
     try:
