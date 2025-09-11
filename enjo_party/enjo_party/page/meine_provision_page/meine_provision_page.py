@@ -106,7 +106,7 @@ def get_provision_data(month=None, year=None):
             last_day_num = calendar.monthrange(int(year), month_num)[1]
             last_day = f"{year}-{month_num:02d}-{last_day_num:02d}"
             
-            sql_conditions.append("pe.posting_date BETWEEN %(first_day)s AND %(last_day)s")
+            sql_conditions.append("(COALESCE(pe.posting_date, si.posting_date) BETWEEN %(first_day)s AND %(last_day)s)")
             sql_values["first_day"] = first_day
             sql_values["last_day"] = last_day
     
