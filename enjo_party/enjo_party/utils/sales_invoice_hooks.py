@@ -3,50 +3,65 @@
 
 import frappe
 from frappe.utils import flt
+import types
 
 def before_validate_sales_invoice(doc, method):
     """
     Hook für Sales Invoice before_validate
-    Umgeht die Adress-Validierung NUR für Party-Rechnungen
-    OHNE Monkey Patching (DATEV-sicher)
+    Umgeht die Adress-Validierung elegant ohne Dummy-Daten
     """
-    if doc.doctype != "Sales Invoice" or not doc.items:
+    if doc.doctype != "Sales Invoice":
         return
     
-    # Hole den ersten Sales Order aus den Items
-    sales_order_name = None
-    for item in doc.items:
-        if item.sales_order:
-            sales_order_name = item.sales_order
-            break
-    
-    if not sales_order_name:
-        return
-    
-    # Prüfe, ob es sich um eine Party-Rechnung handelt
-    is_party_invoice = frappe.db.get_value(
-        "Sales Order", 
-        sales_order_name, 
-        "custom_party_reference"
-    )
-    
-    # NUR bei Party-Rechnungen eingreifen - DATEV-Rechnungen nicht berühren!
-    if is_party_invoice:
-        frappe.log_error(f"🎉 Party-Invoice erkannt: {doc.name} - Validierung angepasst (DATEV-sicher)", "INFO: party_invoice_detected")
+    # Prüfe, ob es sich um eine Party-Rechnung handelt (aus Sales Order)
+    is_party_invoice = False
+    if doc.items:
+        sales_order_name = None
+        for item in doc.items:
+            if item.sales_order:
+                sales_order_name = item.sales_order
+                break
         
-        # NEUER ANSATZ: Setze Dummy-Adressen statt Monkey Patching
-        if not doc.customer_address:
-            # Hole die erste verfügbare Adresse für den Customer
-            addresses = frappe.get_all("Address", 
-                filters={"link_doctype": "Customer", "link_name": doc.customer},
-                fields=["name"], limit=1)
-            if addresses:
-                doc.customer_address = addresses[0].name
-                frappe.log_error(f"✅ Dummy customer_address gesetzt: {doc.customer_address}", "INFO: party_invoice_address_fix")
+        if sales_order_name:
+            is_party_invoice = frappe.db.get_value(
+                "Sales Order", 
+                sales_order_name, 
+                "custom_party_reference"
+            )
+    
+    # Prüfe auch, ob es eine manuelle Rechnung mit "fremder" Lieferadresse ist
+    is_manual_invoice_with_different_shipping = False
+    if not is_party_invoice and doc.shipping_address_name and doc.customer_address:
+        # Prüfe, ob die Lieferadresse nicht zum Kunden gehört
+        shipping_address_customer = frappe.db.get_value(
+            "Address", 
+            doc.shipping_address_name, 
+            "link_name",
+            filters={"link_doctype": "Customer"}
+        )
+        if shipping_address_customer and shipping_address_customer != doc.customer:
+            is_manual_invoice_with_different_shipping = True
+    
+    # Nur bei Party-Rechnungen oder manuellen Rechnungen mit fremder Lieferadresse eingreifen
+    if is_party_invoice or is_manual_invoice_with_different_shipping:
+        frappe.log_error(f"🎉 Invoice erkannt: {doc.name} - Adressvalidierung angepasst", "INFO: invoice_address_validation_bypass")
         
-        if not doc.shipping_address_name:
-            doc.shipping_address_name = doc.customer_address
-            frappe.log_error(f"✅ Dummy shipping_address_name gesetzt: {doc.shipping_address_name}", "INFO: party_invoice_address_fix")
+        # SAUBERE LÖSUNG: Überschreibe nur die spezifischen Adress-Validierungsmethoden
+        def safe_validate_shipping_address(self, *args, **kwargs):
+            """Überspringe die Versandadress-Validierung"""
+            frappe.log_error(f"Überspringe shipping_address Validierung für {self.customer}", "INFO: skip_shipping_validation")
+            pass
+        
+        def safe_validate_billing_address(self, *args, **kwargs):
+            """Überspringe die Rechnungsadress-Validierung"""
+            frappe.log_error(f"Überspringe billing_address Validierung für {self.customer}", "INFO: skip_billing_validation")
+            pass
+        
+        # Überschreibe nur die problematischen Validierungsmethoden
+        doc.validate_shipping_address = types.MethodType(safe_validate_shipping_address, doc)
+        doc.validate_billing_address = types.MethodType(safe_validate_billing_address, doc)
+        
+        frappe.log_error(f"✅ Adressvalidierung für Invoice {doc.name} deaktiviert", "SUCCESS: address_validation_bypassed")
 
 def after_save_sales_invoice(doc, method):
     """

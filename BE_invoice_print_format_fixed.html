@@ -3,15 +3,20 @@
 <meta name="print-headers" content="false">
 <meta name="print-footers" content="false">
 <div class="print-format" style="margin: 0; padding: 10px; font-family: Arial, sans-serif; position: relative; font-size: 12px; zoom: 1; -webkit-transform: scale(1); transform: scale(1);">
-    <!-- Briefkopf mit Logo rechts oben -->
+    <!-- Briefkopf mit zwei Logos -->
     <div style="position: relative; margin-bottom: 20px; border-bottom: 1px solid #ccc; padding-bottom: 15px;">
-        <!-- Logo rechts oben -->
-        <div style="position: absolute; top: 0; right: 0;">
+        <!-- ENJO Logo links oben -->
+        <!-- <div style="position: absolute; top: 0; left: 0;">
             <img src="https://bemotion.qob.app/files/logo_DE_Mittre.jpg" style="max-width: 100px; max-height: 75px; width: 100px; height: auto;" alt="ENJO Logo">
-        </div>
+        </div> -->
         
-        <!-- Adresse links -->
-        <div style="margin-right: 120px;">
+        <!-- BE'motion Logo rechts oben -->
+        <!-- <div style="position: absolute; top: 0; right: 0;">
+            <img src="https://bemotion.qob.app/files/Logo_Transparent_2.png" style="max-width: 100px; max-height: 75px; width: 80px; height: auto;" alt="BE'motion Logo">
+        </div> -->
+        
+        <!-- Adresse mittig -->
+        <div style="margin: 0 120px; text-align: center;">
             <div style="font-size: 16px; font-weight: bold; margin-bottom: 6px;">ENJO Deutschland Mitte</div>
             <div style="font-size: 14px; margin-bottom: 2px;">BE'motion - Inhaberin Esther Buchroth</div>
             <div style="font-size: 12px; margin-bottom: 2px;">Elisabeth-Schumacher-Str.33</div>
@@ -31,14 +36,14 @@
         <tr>
             <!-- Rechnungsadresse -->
             <td style="width: 33%; vertical-align: top; padding-right: 15px;">
-                <div style="font-size: 11px; font-weight: bold; color: #333; margin-bottom: 8px; text-transform: uppercase; letter-spacing: 0.5px;">Rechnungsadresse</div>
-                <div style="font-size: 12px; font-weight: bold; margin-bottom: 6px;">{{ doc.customer_name }}</div>
+                <div style="font-size: 11px; font-weight: bold; color: #333; margin-bottom: 5px; text-transform: uppercase; letter-spacing: 0.5px;">Rechnungsadresse</div>
+                <div style="font-size: 12px; font-weight: bold; margin-bottom: 3px;">{{ doc.customer_name }}</div>
                 
                 {% if doc.address_display %}
                     {% set address_lines = doc.address_display.split('\n') %}
                     {% for line in address_lines %}
                         {% if line.strip() %}
-                            <div style="font-size: 11px; margin-bottom: 2px; color: #555;">{{ line.strip() }}</div>
+                            <div style="font-size: 11px; margin-bottom: 1px; color: #555;">{{ line.strip() }}</div>
                         {% endif %}
                     {% endfor %}
                 {% endif %}
@@ -46,24 +51,24 @@
             
             <!-- Lieferadresse -->
             <td style="width: 33%; vertical-align: top; padding-right: 15px;">
-                <div style="font-size: 11px; font-weight: bold; color: #333; margin-bottom: 8px; text-transform: uppercase; letter-spacing: 0.5px;">Lieferadresse</div>
+                <div style="font-size: 11px; font-weight: bold; color: #333; margin-bottom: 5px; text-transform: uppercase; letter-spacing: 0.5px;">Lieferadresse</div>
                 {% if doc.shipping_address_name and doc.shipping_address_name != doc.customer_address %}
-                <div style="font-size: 12px; font-weight: bold; margin-bottom: 6px;">{{ doc.shipping_address_name }}</div>
+                <div style="font-size: 12px; font-weight: bold; margin-bottom: 3px;">{{ doc.shipping_address_name }}</div>
                 {% if doc.shipping_address %}
                     {% set shipping_lines = doc.shipping_address.split('\n') %}
                     {% for line in shipping_lines %}
                         {% if line.strip() %}
-                            <div style="font-size: 11px; margin-bottom: 2px; color: #555;">{{ line.strip() }}</div>
+                            <div style="font-size: 11px; margin-bottom: 1px; color: #555;">{{ line.strip() }}</div>
                         {% endif %}
                     {% endfor %}
                 {% endif %}
                 {% else %}
-                <div style="font-size: 12px; font-weight: bold; margin-bottom: 6px;">{{ doc.customer_name }}</div>
+                <div style="font-size: 12px; font-weight: bold; margin-bottom: 3px;">{{ doc.customer_name }}</div>
                 {% if doc.address_display %}
                     {% set address_lines = doc.address_display.split('\n') %}
                     {% for line in address_lines %}
                         {% if line.strip() %}
-                            <div style="font-size: 11px; margin-bottom: 2px; color: #555;">{{ line.strip() }}</div>
+                            <div style="font-size: 11px; margin-bottom: 1px; color: #555;">{{ line.strip() }}</div>
                         {% endif %}
                     {% endfor %}
                 {% endif %}
@@ -72,37 +77,37 @@
             
             <!-- Rechnungsdaten -->
             <td style="width: 34%; vertical-align: top;">
-                <div style="font-size: 11px; font-weight: bold; color: #333; margin-bottom: 8px; text-transform: uppercase; letter-spacing: 0.5px;">Rechnungsdaten</div>
+                <div style="font-size: 11px; font-weight: bold; color: #333; margin-bottom: 5px; text-transform: uppercase; letter-spacing: 0.5px;">Rechnungsdaten</div>
                 
-                <div style="margin-bottom: 6px; font-size: 11px;">
+                <div style="margin-bottom: 3px; font-size: 11px;">
                     <span style="font-weight: bold; color: #666;">Zahlungsstichtag:</span>
                     <span style="color: #555;"> {{ doc.get_formatted("due_date") if doc.due_date else doc.get_formatted("posting_date") }}</span>
                 </div>
                 
-                <div style="margin-bottom: 6px; font-size: 11px;">
+                <div style="margin-bottom: 3px; font-size: 11px;">
                     <span style="font-weight: bold; color: #666;">Bestelldatum:</span>
                     <span style="color: #555;"> {{ doc.get_formatted("posting_date") }}</span>
                 </div>
                 
-                <div style="margin-bottom: 6px; font-size: 11px;">
+                <div style="margin-bottom: 3px; font-size: 11px;">
                     <span style="font-weight: bold; color: #666;">Vertriebspartner:</span>
                     <span style="color: #555;"> {{ doc.sales_person or "Esther Buchroth" }}</span>
                 </div>
                 
-                <div style="margin-bottom: 6px; font-size: 11px;">
+                <div style="margin-bottom: 3px; font-size: 11px;">
                     <span style="font-weight: bold; color: #666;">Kundennummer:</span>
                     <span style="color: #555;"> {{ doc.customer or "-" }}</span>
                 </div>
                 
                 {% if doc.contact_email %}
-                <div style="margin-bottom: 6px; font-size: 11px;">
+                <div style="margin-bottom: 3px; font-size: 11px;">
                     <span style="font-weight: bold; color: #666;">E-Mail:</span>
                     <span style="color: #555;"> {{ doc.contact_email }}</span>
                 </div>
                 {% endif %}
                 
                 {% if doc.contact_mobile %}
-                <div style="margin-bottom: 6px; font-size: 11px;">
+                <div style="margin-bottom: 3px; font-size: 11px;">
                     <span style="font-weight: bold; color: #666;">Telefon:</span>
                     <span style="color: #555;"> {{ doc.contact_mobile }}</span>
                 </div>
@@ -112,7 +117,7 @@
     </table>
     
     <!-- Items Tabelle mit angepassten Spaltenbreiten -->
-    <table style="width: 100%; border-collapse: collapse; margin-bottom: 15px;" border="1">
+    <table style="width: 100%; border-collapse: collapse; margin-bottom: 10px;" border="1">
         <thead>
             <tr style="background-color: #f8f9fa;">
                 <th style="padding: 6px; text-align: center; width: 8%; font-size: 12px;">Pos</th>
@@ -140,18 +145,18 @@
     </table>
     
     <!-- Gewicht und Totals -->
-    <table style="width: 100%; margin-bottom: 20px;">
+    <table style="width: 100%; margin-bottom: 10px;">
         <tr>
             <td style="width: 50%; vertical-align: top;">
                 <div style="margin-bottom: 8px; font-size: 12px;"><strong>Gewicht:</strong> {{ doc.total_net_weight or "23,29" }} g</div>
                 <div style="font-size: 12px;"><strong>Gesamtmenge:</strong> 
-                    {% set total_qty = 0 %}
+                    {% set total_qty = namespace(value=0) %}
                     {% for item in doc.items %}
-                        {% if item.item_code and "shipping" not in item.item_code.lower() %}
-                            {% set total_qty = total_qty + (item.qty|int if item.qty|int == item.qty else item.qty) %}
+                        {% if item.item_code and item.item_code|lower and "shipping" not in item.item_code|lower %}
+                            {% set total_qty.value = total_qty.value + (item.qty|float) %}
                         {% endif %}
                     {% endfor %}
-                    {{ total_qty }}
+                    {{ total_qty.value|int if total_qty.value|int == total_qty.value else total_qty.value }}
                 </div>
             </td>
             <td style="width: 50%; vertical-align: top;">
@@ -200,12 +205,12 @@
     </table>
     
     <!-- ENJO Spruch und Instagram -->
-    <div style="text-align: center; margin: 20px 0; padding: 15px;">
-        <p style="margin: 0 0 10px 0; font-size: 14px; color: #333; font-style: italic;">Viel Spaß mit Ihren ENJO-Produkten wünscht Ihnen Ihr BE'motion Team loves ENJO</p>
-        <div style="display: flex; align-items: center; justify-content: center; gap: 15px;">
-            <p style="margin: 0; font-size: 12px; color: #666;">Folgen Sie uns gern auf Instagram:</p>
-            <p style="margin: 0; font-size: 12px; font-weight: bold; color: #333;">ENJO_Deutschland_Mitte</p>
-            <img src="https://bemotion.qob.app/files/enjo_deutschland_mitte_qr.png" style="width: 60px; height: 70px;" alt="QR-Code Instagram">
+    <div style="text-align: center; margin: 10px 0; padding: 8px;">
+        <p style="margin: 0 0 5px 0; font-size: 12px; color: #333; font-style: italic;">Viel Spaß mit Ihren ENJO-Produkten wünscht Ihnen Ihr BE'motion Team loves ENJO</p>
+        <div style="display: flex; align-items: center; justify-content: center; gap: 10px;">
+            <p style="margin: 0; font-size: 10px; color: #666;">Folgen Sie uns gern auf Instagram:</p>
+            <p style="margin: 0; font-size: 10px; font-weight: bold; color: #333;">ENJO_Deutschland_Mitte</p>
+            <!-- <img src="https://bemotion.qob.app/files/enjo_deutschland_mitte_qr.png" style="width: 45px; height: 55px;" alt="QR-Code Instagram"> -->
         </div>
     </div>
                 </table>
@@ -216,40 +221,41 @@
     
 </div>
 
-<!-- WKHTMLTOPDF BEWÄHRTE FOOTER LÖSUNG - Statisch am Ende des Dokuments -->
-<div class="footer-content" style="margin-top: 40px; font-size: 9px; line-height: 1.3; border-top: 1px solid #ccc; padding-top: 10px;">
-    <p style="margin: 3px 0;"><strong>Zahlungsbedingungen:</strong> Vorkasse | <strong>Bankverbindung:</strong> Solaris SE | <strong>Empfänger:</strong> BE'motion - Inhaberin Esther Buchroth</p>
-    <p style="margin: 3px 0;"><strong>Zahlungslink:</strong> pay.bemotionme.com | <strong>IBAN:</strong> DE67 1101 0101 5476 1994 71 | <strong>BIC:</strong> SOBKDEB2XXX</p>
-    <p style="margin: 3px 0;"><strong>BE'motion - INHABERIN ESTHER BUCHROTH</strong> | <strong>UID:</strong> DE237359306 | <strong>Tel.:</strong> +49 172 58 22 656 | <strong>E-Mail:</strong> enjo@bemotionme.com</p>
-    <p style="margin: 3px 0;">Die gelieferte Ware bleibt bis zur vollständigen Bezahlung des Kaufpreises unser Eigentum. Gastgebergeschenke wurden nicht verrechnet.</p>
+<!-- STATISCHE FOOTER LÖSUNG - Kein Seitenwechsel -->
+<div class="footer-static" style="margin-top: 20px; font-size: 8px; line-height: 1.2; border-top: 1px solid #ccc; padding-top: 8px;">
+    <p style="margin: 2px 0;"><strong>Zahlungsbedingungen:</strong> Vorkasse | <strong>Bankverbindung:</strong> Solaris SE | <strong>Empfänger:</strong> BE'motion - Inhaberin Esther Buchroth</p>
+    <p style="margin: 2px 0;"><strong>Zahlungslink:</strong> pay.bemotionme.com | <strong>IBAN:</strong> DE67 1101 0101 5476 1994 71 | <strong>BIC:</strong> SOBKDEB2XXX</p>
+    <p style="margin: 2px 0;"><strong>BE'motion - INHABERIN ESTHER BUCHROTH</strong> | <strong>UID:</strong> DE237359306 | <strong>Tel.:</strong> +49 172 58 22 656 | <strong>E-Mail:</strong> enjo@bemotionme.com</p>
+    <p style="margin: 2px 0;">Die gelieferte Ware bleibt bis zur vollständigen Bezahlung des Kaufpreises unser Eigentum. Gastgebergeschenke wurden nicht verrechnet.</p>
 </div>
 
 <style>
 /* WKHTMLTOPDF BEWÄHRTE LÖSUNG - Footer am Seitenende */
 @media print {
-  /* Seiten-Grundeinstellungen - KEINE LEERE SEITE */
+  /* STATISCHE FOOTER LÖSUNG - Kein Seitenwechsel */
   @page {
     size: A4;
-    margin: 8mm 8mm 25mm 8mm; /* Mehr Platz unten für Footer */
+    margin: 8mm 8mm 8mm 8mm; /* Normaler Rand */
   }
   
-  /* Hauptinhalt kompakt halten */
+  /* Hauptinhalt kompakt */
   .print-format {
-    margin-bottom: 20px !important;
-    padding-bottom: 10px !important;
+    margin-bottom: 0 !important;
+    padding-bottom: 0 !important;
   }
   
-  /* Footer statisch am Ende - WKHTMLTOPDF KOMPATIBEL */
-  .footer-content {
-    margin-top: 100px !important;
+  /* Footer statisch - KEIN Seitenwechsel */
+  .footer-static {
+    margin-top: 15px !important;
     font-size: 8px !important;
     line-height: 1.2 !important;
     border-top: 1px solid #ccc !important;
-    padding-top: 10px !important;
+    padding-top: 8px !important;
     page-break-inside: avoid !important;
+    page-break-after: avoid !important;
   }
   
-  .footer-content p {
+  .footer-static p {
     margin: 2px 0 !important;
     font-size: 8px !important;
   }
