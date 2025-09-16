@@ -24,13 +24,12 @@
     
     <!-- Packliste Header -->
     <div style="text-align: center; margin-bottom: 15px;">
-        <h1 style="font-size: 24px; margin: 0 0 5px 0; color: #333;">PACKLISTE</h1>
-        <h3 style="font-size: 16px; margin: 0 0 10px 0; color: #666;">{{ doc.name }}</h3>
+        <h1 style="font-size: 24px; margin: 0 0 5px 0; color: #333; font-weight: bold;">PACKLISTE</h1>
     </div>
     
     <!-- Kundenname -->
     <div style="margin-bottom: 20px;">
-        <div style="font-size: 11px; font-weight: bold; color: #333; margin-bottom: 8px; text-transform: uppercase; letter-spacing: 0.5px;">Kundenname</div>
+        <div style="font-size: 11px; font-weight: bold; color: #333; margin-bottom: 8px; text-transform: uppercase; letter-spacing: 0.5px;">Kunde</div>
         <div style="font-size: 12px; font-weight: bold; color: #555;">{{ doc.customer_name }}</div>
     </div>
     
@@ -59,6 +58,47 @@
             {% endif %}
         </tbody>
     </table>
+    
+    <!-- Gesamtmenge und Gesamtgewicht -->
+    <div style="margin-top: 20px; margin-bottom: 20px;">
+        <div style="display: flex; justify-content: space-between; font-size: 12px; font-weight: bold;">
+            <div>
+                <span style="color: #333;">Gesamtmenge:</span>
+                <span style="color: #555; margin-left: 10px;">
+                    {% set total_qty = 0 %}
+                    {% if doc.locations %}
+                        {% for item in doc.locations %}
+                            {% set item_qty = item.qty or 0 %}
+                            {% if item_qty %}
+                                {% set total_qty = total_qty + item_qty %}
+                            {% endif %}
+                        {% endfor %}
+                    {% endif %}
+                    {{ total_qty|int if total_qty|int == total_qty else total_qty }} Stück
+                </span>
+            </div>
+            <div>
+                <span style="color: #333;">Gesamtgewicht:</span>
+                <span style="color: #555; margin-left: 10px;">
+                    {% set total_weight = 0 %}
+                    {% if doc.locations %}
+                        {% for item in doc.locations %}
+                            {% set item_qty = item.qty or 0 %}
+                            {% if item_qty and item.weight_per_unit %}
+                                {% set item_weight = item.weight_per_unit * item_qty %}
+                                {% set total_weight = total_weight + item_weight %}
+                            {% endif %}
+                        {% endfor %}
+                    {% endif %}
+                    {% if total_weight > 0 %}
+                        {{ "%.2f"|format(total_weight) }} kg
+                    {% else %}
+                        N/A
+                    {% endif %}
+                </span>
+            </div>
+        </div>
+    </div>
     
 </div>
 
@@ -102,10 +142,10 @@ body, html {
   overflow: hidden !important;
 }
 
-/* Verstecke automatischen Titel */
-.print-format h1:first-of-type,
-.print-format h2:first-of-type,
-.print-format h3:first-of-type {
+/* Verstecke automatischen Titel - aber nicht unseren PACKLISTE Header */
+.print-format > h1:first-of-type,
+.print-format > h2:first-of-type,
+.print-format > h3:first-of-type {
   display: none !important;
 }
 
@@ -163,10 +203,10 @@ body, html {
     height: auto !important;
   }
   
-  /* ÜBERSCHREIBE AUTOMATISCHEN TITEL AUCH BEIM DRUCKEN */
-  .print-format h1:first-of-type,
-  .print-format h2:first-of-type,
-  .print-format h3:first-of-type {
+  /* ÜBERSCHREIBE AUTOMATISCHEN TITEL AUCH BEIM DRUCKEN - aber nicht unseren PACKLISTE Header */
+  .print-format > h1:first-of-type,
+  .print-format > h2:first-of-type,
+  .print-format > h3:first-of-type {
     display: none !important;
   }
   

@@ -1,5 +1,6 @@
 import frappe
 from frappe import _
+import types
 
 # === AUTO SALES INVOICE TEMPORÄR DEAKTIVIERT ===
 # Schalter für automatische Rechnungserstellung über Hooks (True = aktiv, False = deaktiviert)
@@ -89,6 +90,28 @@ def auto_create_and_submit_sales_invoice(doc, method):
         # Fehlende Felder füllen & Steuern/Totals neu berechnen
         invoice.run_method("set_missing_values")
         invoice.calculate_taxes_and_totals()
+
+        # === ADRESS-VALIDIERUNG DEAKTIVIEREN FÜR PARTY-RECHNUNGEN ===
+        # Prüfe, ob es sich um eine Party-Rechnung handelt
+        if hasattr(doc, "custom_party_reference") and doc.custom_party_reference:
+            frappe.log_error(f"🎉 Party-Invoice erkannt: {invoice.name if hasattr(invoice, 'name') else 'NEW'} - Validierung angepasst (DATEV-sicher)", "INFO: party_invoice_detected")
+            
+            # Überschreibe die Adress-Validierungsmethoden
+            def safe_validate_party_address(self, party, party_type, billing_address, shipping_address=None):
+                """Überspringe die Party-Adress-Validierung"""
+                frappe.log_error(f"✅ Überspringe validate_party_address für {party} (Type: {party_type}, Billing: {billing_address}, Shipping: {shipping_address})", "INFO: skip_party_address_validation")
+                pass
+            
+            def safe_validate_party_address_and_contact(self):
+                """Überspringe die komplette Party-Adress- und Kontakt-Validierung"""
+                frappe.log_error(f"✅ Überspringe validate_party_address_and_contact für {self.customer}", "INFO: skip_party_validation")
+                pass
+            
+            # Überschreibe die korrekten Validierungsmethoden
+            invoice.validate_party_address = types.MethodType(safe_validate_party_address, invoice)
+            invoice.validate_party_address_and_contact = types.MethodType(safe_validate_party_address_and_contact, invoice)
+            
+            frappe.log_error(f"✅ Adressvalidierung für automatische Invoice deaktiviert", "SUCCESS: auto_invoice_address_validation_bypassed")
 
         # Jetzt speichern (nicht submitten)
         invoice.insert()
