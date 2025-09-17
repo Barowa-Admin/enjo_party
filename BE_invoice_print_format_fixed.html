@@ -204,6 +204,21 @@
         </tr>
     </table>
     
+    <!-- Stripe Payment Link für Abos -->
+    {% if doc.subscription %}
+    <div style="margin: 20px 0; padding: 15px; border: 2px solid #007bff; border-radius: 8px; background-color: #f8f9ff; text-align: center;">
+        <h3 style="margin: 0 0 10px 0; color: #007bff; font-size: 16px;">Online-Zahlung für Ihr Abonnement</h3>
+        {% if payment_url %}
+            <p style="margin: 0 0 10px 0; font-size: 14px; color: #333;">Bezahlen Sie bequem online mit Kreditkarte, SEPA-Lastschrift oder anderen Zahlungsmethoden:</p>
+            <a href="{{ payment_url }}" style="display: inline-block; background-color: #007bff; color: white; padding: 12px 25px; text-decoration: none; border-radius: 6px; font-size: 14px; font-weight: bold;">
+                Jetzt online bezahlen
+            </a>
+        {% else %}
+            <p style="margin: 0; font-size: 14px; color: #666;">Payment Link wird generiert...</p>
+        {% endif %}
+    </div>
+    {% endif %}
+    
     <!-- ENJO Spruch und Instagram -->
     <div style="text-align: center; margin: 10px 0; padding: 8px;">
         <p style="margin: 0 0 5px 0; font-size: 12px; color: #333; font-style: italic;">Viel Spaß mit Ihren ENJO-Produkten wünscht Ihnen Ihr BE'motion Team loves ENJO</p>

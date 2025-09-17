@@ -50,7 +50,7 @@ def get_provision_data(month=None, year=None):
         except:
             pass
 
-    # SQL Query mit eigener Sicherheitslogik - anteilige Provisionsberechnung (inkl. Returns)
+    # SQL Query mit eigener Sicherheitslogik - nur gültige Provisionsrechnungen
     sql_query = """
         SELECT
             COALESCE(pe.posting_date, si.posting_date) as payment_date,
@@ -78,7 +78,13 @@ def get_provision_data(month=None, year=None):
             WHERE is_cancelled = 0
             GROUP BY sales_invoice
         ) punkte_summe ON si.name = punkte_summe.sales_invoice
-        WHERE si.docstatus IN (1, 2)
+        WHERE si.docstatus = 1
+        AND si.is_return = 0
+        AND NOT EXISTS (
+            SELECT 1 FROM `tabSales Invoice` storno 
+            WHERE storno.return_against = si.name 
+            AND storno.docstatus = 1
+        )
     """
     
     sql_conditions = []
@@ -106,8 +112,8 @@ def get_provision_data(month=None, year=None):
             last_day_num = calendar.monthrange(int(year), month_num)[1]
             last_day = f"{year}-{month_num:02d}-{last_day_num:02d}"
             
-            # Normale Rechnungen nur mit Payment Entry; Returns (is_return=1) nach Rechnungsdatum
-            sql_conditions.append("((pe.posting_date BETWEEN %(first_day)s AND %(last_day)s) OR (si.is_return = 1 AND si.posting_date BETWEEN %(first_day)s AND %(last_day)s))")
+            # Nur bezahlte Rechnungen im Zeitraum (keine Storno-Rechnungen mehr)
+            sql_conditions.append("pe.posting_date BETWEEN %(first_day)s AND %(last_day)s")
             sql_values["first_day"] = first_day
             sql_values["last_day"] = last_day
     
