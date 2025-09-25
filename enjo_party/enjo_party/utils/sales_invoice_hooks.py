@@ -9,19 +9,28 @@ def before_validate_sales_invoice(doc, method):
     """
     Hook für Sales Invoice before_validate
     Umgeht die Adress-Validierung für Party-Rechnungen und fremde Lieferadressen
+    Überträgt Party-Referenz von Sales Order zu Sales Invoice
     """
     if doc.doctype != "Sales Invoice":
         return
     
-    # Prüfe, ob es sich um eine Party-Rechnung handelt
+    # Prüfe, ob es sich um eine Party-Rechnung handelt und übertrage Party-Referenz
     is_party_invoice = False
+    party_reference = None
+    
     if doc.items:
         for item in doc.items:
             if item.sales_order:
                 party_ref = frappe.db.get_value("Sales Order", item.sales_order, "custom_party_reference")
                 if party_ref:
                     is_party_invoice = True
+                    party_reference = party_ref
                     break
+    
+    # Setze Party-Referenz, falls noch nicht gesetzt
+    if party_reference and not getattr(doc, "custom_party_reference", None):
+        doc.custom_party_reference = party_reference
+        frappe.log_error(f"Party-Referenz {party_reference} zu Sales Invoice {doc.name} übertragen", "INFO: party_reference_transferred")
     
     # Prüfe, ob fremde Lieferadresse verwendet wird
     is_foreign_shipping = False

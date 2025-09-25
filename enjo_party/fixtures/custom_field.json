@@ -51,5 +51,17 @@
   "description": "Liste der zugehörigen Ausgangsrechnungen",
   "read_only": 1,
   "insert_after": "customer"
+ },
+ {
+  "doctype": "Custom Field",
+  "name": "Sales Invoice-custom_party_reference",
+  "dt": "Sales Invoice",
+  "fieldname": "custom_party_reference",
+  "fieldtype": "Link",
+  "label": "Party Referenz",
+  "options": "Party",
+  "read_only": 1,
+  "hidden": 0,
+  "insert_after": "po_no"
  }
 ] 
