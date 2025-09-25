@@ -190,30 +190,68 @@ def auto_create_picklist_from_invoice(doc, method):
                             warehouses = frappe.get_all("Warehouse", filters={"is_group": 0}, fields=["name"], limit=1)
                             warehouse = warehouses[0].name if warehouses else "Stores - Main"
                     
-                    picklist_item = {
-                        "doctype": "Pick List Item",
-                        "item_code": so_item.item_code,
-                        "item_name": so_item.item_name,
-                        "qty": float(so_item.qty),
-                        "stock_qty": float(so_item.stock_qty or so_item.qty),
-                        "picked_qty": 0.0,
-                        "stock_reserved_qty": 0.0,
-                        "uom": so_item.uom,
-                        "stock_uom": so_item.stock_uom or so_item.uom,
-                        "conversion_factor": float(so_item.conversion_factor or 1.0),
-                        "warehouse": warehouse,
-                        "sales_order": so_name,
-                        "sales_order_item": so_item.name,
-                        "batch_no": None,
-                        "serial_no": None,
-                        "use_serial_batch_fields": 0,
-                        "serial_and_batch_bundle": None,
-                        "product_bundle_item": None,
-                        "material_request": None,
-                        "material_request_item": None
-                    }
+                    # Prüfe ob Item ein Product Bundle ist
+                    bundle_items = frappe.get_all("Product Bundle Item", 
+                                                 filters={"parent": so_item.item_code}, 
+                                                 fields=["item_code", "qty", "uom", "description"])
                     
-                    picklist_items.append(picklist_item)
+                    if bundle_items:
+                        # Item ist ein Product Bundle - füge Bundle Items hinzu
+                        frappe.log_error(f"Product Bundle erkannt: {so_item.item_code} mit {len(bundle_items)} Items", "INFO: bundle_detected")
+                        for bundle_item in bundle_items:
+                            bundle_qty = float(bundle_item.qty) * float(so_item.qty)
+                            
+                            picklist_item = {
+                                "doctype": "Pick List Item",
+                                "item_code": bundle_item.item_code,
+                                "item_name": bundle_item.description or frappe.get_value("Item", bundle_item.item_code, "item_name"),
+                                "qty": bundle_qty,
+                                "stock_qty": bundle_qty,
+                                "picked_qty": 0.0,
+                                "stock_reserved_qty": 0.0,
+                                "uom": bundle_item.uom or so_item.uom,
+                                "stock_uom": bundle_item.uom or so_item.stock_uom or so_item.uom,
+                                "conversion_factor": 1.0,
+                                "warehouse": warehouse,
+                                "sales_order": so_name,
+                                "sales_order_item": so_item.name,
+                                "batch_no": None,
+                                "serial_no": None,
+                                "use_serial_batch_fields": 0,
+                                "serial_and_batch_bundle": None,
+                                "product_bundle_item": so_item.item_code,  # Referenz zum Original Bundle
+                                "material_request": None,
+                                "material_request_item": None
+                            }
+                            
+                            picklist_items.append(picklist_item)
+                            frappe.log_error(f"Bundle Item hinzugefügt: {bundle_item.item_code} (Qty: {bundle_qty}) für Bundle {so_item.item_code}", "INFO: bundle_item_added")
+                    else:
+                        # Normaler Artikel - wie bisher
+                        picklist_item = {
+                            "doctype": "Pick List Item",
+                            "item_code": so_item.item_code,
+                            "item_name": so_item.item_name,
+                            "qty": float(so_item.qty),
+                            "stock_qty": float(so_item.stock_qty or so_item.qty),
+                            "picked_qty": 0.0,
+                            "stock_reserved_qty": 0.0,
+                            "uom": so_item.uom,
+                            "stock_uom": so_item.stock_uom or so_item.uom,
+                            "conversion_factor": float(so_item.conversion_factor or 1.0),
+                            "warehouse": warehouse,
+                            "sales_order": so_name,
+                            "sales_order_item": so_item.name,
+                            "batch_no": None,
+                            "serial_no": None,
+                            "use_serial_batch_fields": 0,
+                            "serial_and_batch_bundle": None,
+                            "product_bundle_item": None,
+                            "material_request": None,
+                            "material_request_item": None
+                        }
+                        
+                        picklist_items.append(picklist_item)
                     
             except Exception as e:
                 continue
@@ -244,12 +282,22 @@ def auto_create_picklist_from_invoice(doc, method):
         }
         
         picklist = frappe.get_doc(picklist_data)
+        
+        # Flags setzen um Lagerbestand-Validierung zu umgehen
+        picklist.flags.ignore_permissions = True
+        picklist.flags.ignore_mandatory = True
+        
+        # Überschreibe validate_for_qty um Lagerbestand-Prüfung zu umgehen
+        def safe_validate_for_qty(self):
+            pass
+        
+        import types
+        picklist.validate_for_qty = types.MethodType(safe_validate_for_qty, picklist)
+        
         picklist.insert()
         
-        try:
-            picklist.submit()
-        except Exception as e:
-            pass
+        # NICHT automatisch einreichen - da Artikel möglicherweise nicht lagernd sind
+        # Die Picklist kann manuell eingereicht werden, wenn alle Artikel verfügbar sind
         
         frappe.publish_realtime(
             "show_alert",

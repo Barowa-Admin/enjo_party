@@ -112,8 +112,8 @@ def get_provision_data(month=None, year=None):
             last_day_num = calendar.monthrange(int(year), month_num)[1]
             last_day = f"{year}-{month_num:02d}-{last_day_num:02d}"
             
-            # Nur bezahlte Rechnungen im Zeitraum (keine Storno-Rechnungen mehr)
-            sql_conditions.append("pe.posting_date BETWEEN %(first_day)s AND %(last_day)s")
+            # Nur bezahlte Rechnungen im Zeitraum (pe.posting_date muss existieren)
+            sql_conditions.append("pe.posting_date IS NOT NULL AND pe.posting_date BETWEEN %(first_day)s AND %(last_day)s")
             sql_values["first_day"] = first_day
             sql_values["last_day"] = last_day
     

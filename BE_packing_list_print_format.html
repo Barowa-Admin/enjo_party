@@ -47,13 +47,28 @@
                 {% for item in doc.locations %}
                 <tr>
                     <td style="padding: 8px; font-size: 12px; color: #555; border: 1px solid #ddd;">{{ item.item_code or "N/A" }}</td>
-                    <td style="padding: 8px; font-size: 12px; color: #555; border: 1px solid #ddd;">{{ item.item_name or item.description or "N/A" }}</td>
+                    <td style="padding: 8px; font-size: 12px; color: #555; border: 1px solid #ddd;">
+                        {{ item.item_name or item.description or "N/A" }}
+                        <!-- DEBUG Bundle Fields: product_bundle_item={{ item.product_bundle_item or "None" }}, parent_item={{ item.parent_item or "None" }} -->
+                    </td>
                     <td style="padding: 8px; text-align: right; font-size: 12px; color: #555; border: 1px solid #ddd;">{{ item.qty|int if item.qty|int == item.qty else item.qty or "0" }}</td>
                 </tr>
                 {% endfor %}
             {% else %}
                 <tr>
-                    <td colspan="3" style="padding: 8px; font-size: 12px; color: #999; border: 1px solid #ddd; text-align: center;">Keine Items gefunden - Debug: {{ doc.doctype }} - Locations: {{ doc.locations|length if doc.locations else "None" }}</td>
+                    <td colspan="3" style="padding: 8px; font-size: 12px; color: #999; border: 1px solid #ddd; text-align: center;">
+                        DEBUG: Keine Items gefunden<br>
+                        DocType: {{ doc.doctype }}<br>
+                        Items vorhanden: {{ doc.items|length if doc.items else "None" }}<br>
+                        Status: {{ doc.status if doc.status else "N/A" }}<br>
+                        {% if doc.items %}
+                            Items Details: {{ doc.items|string }}
+                        {% endif %}
+                        {% if doc.locations %}
+                            Locations vorhanden: {{ doc.locations|length }}<br>
+                            Locations Details: {{ doc.locations|string }}
+                        {% endif %}
+                    </td>
                 </tr>
             {% endif %}
         </tbody>
@@ -65,36 +80,50 @@
             <div>
                 <span style="color: #333;">Gesamtmenge:</span>
                 <span style="color: #555; margin-left: 10px;">
-                    {% set total_qty = 0 %}
+                    {% set qty_list = [] %}
                     {% if doc.locations %}
                         {% for item in doc.locations %}
-                            {% set item_qty = item.qty or 0 %}
-                            {% if item_qty %}
-                                {% set total_qty = total_qty + item_qty %}
-                            {% endif %}
+                            {% set item_qty = item.qty|float if item.qty else 0 %}
+                            {% set _ = qty_list.append(item_qty) %}
                         {% endfor %}
                     {% endif %}
+                    {% set total_qty = qty_list|sum %}
                     {{ total_qty|int if total_qty|int == total_qty else total_qty }} Stück
+                    <!-- DEBUG: Items: {{ doc.locations|length if doc.locations else 0 }}, List: {{ qty_list }}, Total: {{ total_qty }} -->
                 </span>
             </div>
             <div>
                 <span style="color: #333;">Gesamtgewicht:</span>
                 <span style="color: #555; margin-left: 10px;">
-                    {% set total_weight = 0 %}
+                    {% set weight_list_kg = [] %}
                     {% if doc.locations %}
                         {% for item in doc.locations %}
-                            {% set item_qty = item.qty or 0 %}
-                            {% if item_qty and item.weight_per_unit %}
-                                {% set item_weight = item.weight_per_unit * item_qty %}
-                                {% set total_weight = total_weight + item_weight %}
+                            {% set item_qty = item.qty|float if item.qty else 0 %}
+                            {% set item_weight_per_unit = frappe.db.get_value("Item", item.item_code, "weight_per_unit") or 0 %}
+                            {% set item_weight_uom = frappe.db.get_value("Item", item.item_code, "weight_uom") or "kg" %}
+                            {% if item_qty and item_weight_per_unit %}
+                                {% set item_total_weight = (item_weight_per_unit|float) * item_qty %}
+                                {# Umrechnung auf kg #}
+                                {% if item_weight_uom == "g" or item_weight_uom == "Gram" %}
+                                    {% set item_total_weight_kg = item_total_weight / 1000 %}
+                                {% else %}
+                                    {% set item_total_weight_kg = item_total_weight %}
+                                {% endif %}
+                                {% set _ = weight_list_kg.append(item_total_weight_kg) %}
                             {% endif %}
                         {% endfor %}
                     {% endif %}
-                    {% if total_weight > 0 %}
-                        {{ "%.2f"|format(total_weight) }} kg
+                    {% set total_weight_kg = weight_list_kg|sum %}
+                    {% if total_weight_kg > 0 %}
+                        {% if total_weight_kg < 1 %}
+                            {{ "%.0f"|format(total_weight_kg * 1000) }} g
+                        {% else %}
+                            {{ "%.2f"|format(total_weight_kg) }} kg
+                        {% endif %}
                     {% else %}
                         N/A
                     {% endif %}
+                    <!-- DEBUG: Weight List KG: {{ weight_list_kg }}, Total KG: {{ total_weight_kg }} -->
                 </span>
             </div>
         </div>
