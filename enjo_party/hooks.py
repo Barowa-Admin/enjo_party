@@ -143,9 +143,12 @@ fixtures = ["Custom Field"]
 
 doc_events = {
 	"Address": {
-		"before_insert": "enjo_party.enjo_party.utils.address_hooks.copy_email_from_customer"
+		"before_insert": "enjo_party.enjo_party.utils.address_hooks.copy_email_from_customer",
+		"on_update": "enjo_party.enjo_party.utils.address_hooks.notify_draft_invoices_on_address_change",
+		"after_insert": "enjo_party.enjo_party.utils.address_hooks.notify_draft_invoices_on_address_change"
 	},
 	"Sales Invoice": {
+		"onload": "enjo_party.enjo_party.utils.sales_invoice_hooks.onload_sales_invoice",
 		"before_validate": "enjo_party.enjo_party.utils.sales_invoice_hooks.before_validate_sales_invoice",
 		"before_save": "enjo_party.enjo_party.utils.sales_invoice_hooks.add_shipping_to_sales_invoice",
 		"after_save": "enjo_party.enjo_party.utils.sales_invoice_hooks.after_save_sales_invoice",

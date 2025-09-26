@@ -10,9 +10,18 @@ def before_validate_sales_invoice(doc, method):
     Hook für Sales Invoice before_validate
     Umgeht die Adress-Validierung für Party-Rechnungen und fremde Lieferadressen
     Überträgt Party-Referenz von Sales Order zu Sales Invoice
+    Aktualisiert Adressen automatisch im Entwurfsmodus
     """
     if doc.doctype != "Sales Invoice":
         return
+    
+    # NEU: Adress-Synchronisation im Entwurfsmodus
+    if doc.docstatus == 0:  # Nur im Entwurfsmodus
+        sync_addresses_in_draft(doc)
+    
+    # NEU: Adress-Synchronisation beim Buchen (docstatus wird von 0 auf 1)
+    if doc.docstatus == 1 and hasattr(doc, '_doc_before_save'):
+        sync_addresses_before_submit(doc)
     
     # Prüfe, ob es sich um eine Party-Rechnung handelt und übertrage Party-Referenz
     is_party_invoice = False
@@ -60,9 +69,359 @@ def before_validate_sales_invoice(doc, method):
         doc.validate_party_address = types.MethodType(safe_validate_party_address, doc)
         doc.validate_party_address_and_contact = types.MethodType(safe_validate_party_address_and_contact, doc)
 
+def sync_addresses_in_draft(doc):
+    """
+    Synchronisiert Adressen in Rechnungen im Entwurfsmodus mit den aktuellen Kundenadressen.
+    Wird nur aufgerufen wenn docstatus == 0 (Entwurfsmodus).
+    """
+    if not doc.customer:
+        return
+    
+    try:
+        # Finde die aktuelle Standard-Billing-Adresse des Kunden
+        current_billing_address = frappe.get_all("Dynamic Link",
+            filters={
+                "link_doctype": "Customer",
+                "link_name": doc.customer,
+                "parenttype": "Address"
+            },
+            fields=["parent"],
+            limit=1
+        )
+        
+        if current_billing_address:
+            current_billing_address = current_billing_address[0].parent
+            
+            # Prüfe, ob die aktuelle Adresse in der Rechnung anders ist
+            if doc.customer_address != current_billing_address:
+                # Lade die neue Adresse
+                new_address = frappe.get_doc("Address", current_billing_address)
+                
+                # Aktualisiere die Rechnungsadresse
+                doc.customer_address = current_billing_address
+                doc.address_display = new_address.get_display()
+                
+                frappe.log_error(
+                    f"Adresse in Rechnung {doc.name} aktualisiert: {doc.customer_address} -> {current_billing_address}",
+                    "INFO: address_sync_draft"
+                )
+        
+        # Optional: Auch Versandadresse synchronisieren, falls sie zum gleichen Kunden gehört
+        if doc.shipping_address_name:
+            # Prüfe, ob die Versandadresse zum Kunden gehört
+            shipping_links = frappe.get_all("Dynamic Link",
+                filters={
+                    "parent": doc.shipping_address_name,
+                    "parenttype": "Address",
+                    "link_doctype": "Customer",
+                    "link_name": doc.customer
+                },
+                fields=["parent"]
+            )
+            
+            if shipping_links:
+                # Versandadresse gehört zum Kunden - finde die aktuelle Standard-Versandadresse
+                current_shipping_address = frappe.get_all("Dynamic Link",
+                    filters={
+                        "link_doctype": "Customer",
+                        "link_name": doc.customer,
+                        "parenttype": "Address"
+                    },
+                    fields=["parent"],
+                    limit=1
+                )
+                
+                if current_shipping_address:
+                    current_shipping_address = current_shipping_address[0].parent
+                    
+                    if doc.shipping_address_name != current_shipping_address:
+                        # Lade die neue Versandadresse
+                        new_shipping_address = frappe.get_doc("Address", current_shipping_address)
+                        
+                        # Aktualisiere die Versandadresse
+                        doc.shipping_address_name = current_shipping_address
+                        doc.shipping_address = new_shipping_address.get_display()
+                        
+                        frappe.log_error(
+                            f"Versandadresse in Rechnung {doc.name} aktualisiert: {doc.shipping_address_name} -> {current_shipping_address}",
+                            "INFO: shipping_address_sync_draft"
+                        )
+    
+    except Exception as e:
+        frappe.log_error(f"Fehler beim Synchronisieren der Adressen in Rechnung {doc.name}: {str(e)}", "ERROR: address_sync")
+
+def sync_addresses_before_submit(doc):
+    """
+    Synchronisiert Adressen BEVOR die Rechnung gebucht wird.
+    Zeigt eine Warnung an, wenn Adressen geändert wurden.
+    """
+    if not doc.customer:
+        return
+    
+    try:
+        # Finde die aktuelle Standard-Billing-Adresse des Kunden
+        current_billing_address = frappe.get_all("Dynamic Link",
+            filters={
+                "link_doctype": "Customer",
+                "link_name": doc.customer,
+                "parenttype": "Address"
+            },
+            fields=["parent"],
+            limit=1
+        )
+        
+        if current_billing_address:
+            current_billing_address = current_billing_address[0].parent
+            
+            # Prüfe, ob die aktuelle Adresse in der Rechnung anders ist
+            if doc.customer_address != current_billing_address:
+                # Lade die neue Adresse
+                new_address = frappe.get_doc("Address", current_billing_address)
+                
+                # Aktualisiere die Rechnungsadresse
+                old_address = doc.customer_address
+                doc.customer_address = current_billing_address
+                doc.address_display = new_address.get_display()
+                
+                # Zeige eine Warnung an
+                frappe.msgprint(
+                    f"Die Rechnungsadresse wurde automatisch von '{old_address}' auf '{current_billing_address}' aktualisiert.",
+                    title="Adresse aktualisiert",
+                    indicator="blue"
+                )
+                
+                frappe.log_error(
+                    f"Adresse in Rechnung {doc.name} beim Buchen aktualisiert: {old_address} -> {current_billing_address}",
+                    "INFO: address_sync_before_submit"
+                )
+        
+        # Optional: Auch Versandadresse synchronisieren
+        if doc.shipping_address_name:
+            # Prüfe, ob die Versandadresse zum Kunden gehört
+            shipping_links = frappe.get_all("Dynamic Link",
+                filters={
+                    "parent": doc.shipping_address_name,
+                    "parenttype": "Address",
+                    "link_doctype": "Customer",
+                    "link_name": doc.customer
+                },
+                fields=["parent"]
+            )
+            
+            if shipping_links:
+                # Versandadresse gehört zum Kunden - finde die aktuelle Standard-Versandadresse
+                current_shipping_address = frappe.get_all("Dynamic Link",
+                    filters={
+                        "link_doctype": "Customer",
+                        "link_name": doc.customer,
+                        "parenttype": "Address"
+                    },
+                    fields=["parent"],
+                    limit=1
+                )
+                
+                if current_shipping_address:
+                    current_shipping_address = current_shipping_address[0].parent
+                    
+                    if doc.shipping_address_name != current_shipping_address:
+                        # Lade die neue Versandadresse
+                        new_shipping_address = frappe.get_doc("Address", current_shipping_address)
+                        
+                        # Aktualisiere die Versandadresse
+                        old_shipping_address = doc.shipping_address_name
+                        doc.shipping_address_name = current_shipping_address
+                        doc.shipping_address = new_shipping_address.get_display()
+                        
+                        # Zeige eine Warnung an
+                        frappe.msgprint(
+                            f"Die Versandadresse wurde automatisch von '{old_shipping_address}' auf '{current_shipping_address}' aktualisiert.",
+                            title="Versandadresse aktualisiert",
+                            indicator="blue"
+                        )
+                        
+                        frappe.log_error(
+                            f"Versandadresse in Rechnung {doc.name} beim Buchen aktualisiert: {old_shipping_address} -> {current_shipping_address}",
+                            "INFO: shipping_address_sync_before_submit"
+                        )
+    
+    except Exception as e:
+        frappe.log_error(f"Fehler beim Synchronisieren der Adressen beim Buchen der Rechnung {doc.name}: {str(e)}", "ERROR: address_sync_before_submit")
+
+@frappe.whitelist()
+def get_current_customer_addresses(customer):
+    """
+    Gibt die aktuellen Standard-Adressen eines Kunden zurück.
+    Wird von JavaScript aufgerufen für sofortige Adress-Synchronisation.
+    """
+    try:
+        # Finde die aktuelle Standard-Billing-Adresse (bevorzugte Rechnungsadresse)
+        billing_address = frappe.get_all("Dynamic Link",
+            filters={
+                "link_doctype": "Customer",
+                "link_name": customer,
+                "parenttype": "Address"
+            },
+            fields=["parent"]
+        )
+        
+        billing_address_name = None
+        billing_display = None
+        
+        if billing_address:
+            # Suche zuerst nach bevorzugter Rechnungsadresse
+            for addr_link in billing_address:
+                addr_doc = frappe.get_doc("Address", addr_link.parent)
+                if addr_doc.is_primary_address:
+                    billing_address_name = addr_link.parent
+                    billing_display = addr_doc.get_display()
+                    break
+            
+            # Falls keine bevorzugte gefunden, nimm die erste verfügbare
+            if not billing_address_name:
+                billing_address_name = billing_address[0].parent
+                billing_doc = frappe.get_doc("Address", billing_address_name)
+                billing_display = billing_doc.get_display()
+        
+        # Finde die aktuelle Standard-Versandadresse (bevorzugte Lieferadresse)
+        shipping_address_name = None
+        shipping_display = None
+        
+        if billing_address:
+            # Suche zuerst nach bevorzugter Lieferadresse
+            for addr_link in billing_address:
+                addr_doc = frappe.get_doc("Address", addr_link.parent)
+                if addr_doc.is_shipping_address:
+                    shipping_address_name = addr_link.parent
+                    shipping_display = addr_doc.get_display()
+                    break
+            
+            # Falls keine bevorzugte gefunden, nimm die Billing-Adresse
+            if not shipping_address_name:
+                shipping_address_name = billing_address_name
+                shipping_display = billing_display
+        
+        return {
+            "billing_address": billing_address_name,
+            "billing_display": billing_display,
+            "shipping_address": shipping_address_name,
+            "shipping_display": shipping_display
+        }
+        
+    except Exception as e:
+        frappe.log_error(f"Fehler beim Abrufen der Kundenadressen für {customer}: {str(e)}", "ERROR: get_customer_addresses")
+        return {
+            "billing_address": None,
+            "billing_display": None,
+            "shipping_address": None,
+            "shipping_display": None
+        }
+
 def after_save_sales_invoice(doc, method):
     """Hook für Sales Invoice after_save - cleanup nicht nötig"""
     pass
+
+def onload_sales_invoice(doc, method):
+    """
+    Hook für Sales Invoice onload
+    Synchronisiert Adressen automatisch beim Laden der Rechnung im Entwurfsmodus
+    """
+    if doc.doctype != "Sales Invoice":
+        return
+    
+    # Nur im Entwurfsmodus
+    if doc.docstatus != 0:
+        return
+    
+    if not doc.customer:
+        return
+    
+    try:
+        # Prüfe, ob Adressen synchronisiert werden müssen
+        needs_sync = False
+        
+        # Finde die aktuelle Standard-Billing-Adresse des Kunden
+        current_billing_address = frappe.get_all("Dynamic Link",
+            filters={
+                "link_doctype": "Customer",
+                "link_name": doc.customer,
+                "parenttype": "Address"
+            },
+            fields=["parent"],
+            limit=1
+        )
+        
+        if current_billing_address:
+            current_billing_address = current_billing_address[0].parent
+            
+            # Prüfe, ob die aktuelle Adresse in der Rechnung anders ist
+            if doc.customer_address != current_billing_address:
+                needs_sync = True
+                
+                # Lade die neue Adresse
+                new_address = frappe.get_doc("Address", current_billing_address)
+                
+                # Aktualisiere die Rechnungsadresse
+                doc.customer_address = current_billing_address
+                doc.address_display = new_address.get_display()
+                
+                frappe.log_error(
+                    f"Adresse in Rechnung {doc.name} beim Laden aktualisiert: {doc.customer_address} -> {current_billing_address}",
+                    "INFO: address_sync_onload"
+                )
+        
+        # Optional: Auch Versandadresse synchronisieren
+        if doc.shipping_address_name:
+            # Prüfe, ob die Versandadresse zum Kunden gehört
+            shipping_links = frappe.get_all("Dynamic Link",
+                filters={
+                    "parent": doc.shipping_address_name,
+                    "parenttype": "Address",
+                    "link_doctype": "Customer",
+                    "link_name": doc.customer
+                },
+                fields=["parent"]
+            )
+            
+            if shipping_links:
+                # Versandadresse gehört zum Kunden - finde die aktuelle Standard-Versandadresse
+                current_shipping_address = frappe.get_all("Dynamic Link",
+                    filters={
+                        "link_doctype": "Customer",
+                        "link_name": doc.customer,
+                        "parenttype": "Address"
+                    },
+                    fields=["parent"],
+                    limit=1
+                )
+                
+                if current_shipping_address:
+                    current_shipping_address = current_shipping_address[0].parent
+                    
+                    if doc.shipping_address_name != current_shipping_address:
+                        needs_sync = True
+                        
+                        # Lade die neue Versandadresse
+                        new_shipping_address = frappe.get_doc("Address", current_shipping_address)
+                        
+                        # Aktualisiere die Versandadresse
+                        doc.shipping_address_name = current_shipping_address
+                        doc.shipping_address = new_shipping_address.get_display()
+                        
+                        frappe.log_error(
+                            f"Versandadresse in Rechnung {doc.name} beim Laden aktualisiert: {doc.shipping_address_name} -> {current_shipping_address}",
+                            "INFO: shipping_address_sync_onload"
+                        )
+        
+        # Wenn Adressen aktualisiert wurden, zeige eine Nachricht
+        if needs_sync:
+            frappe.msgprint(
+                "Die Adressen wurden automatisch mit den aktuellen Kundenadressen synchronisiert.",
+                title="Adressen aktualisiert",
+                indicator="blue"
+            )
+    
+    except Exception as e:
+        frappe.log_error(f"Fehler beim Synchronisieren der Adressen beim Laden der Rechnung {doc.name}: {str(e)}", "ERROR: address_sync_onload")
 
 def get_shipping_account():
     """Gibt das Standard-Versandkonto zurück"""

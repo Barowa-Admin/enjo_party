@@ -1,4 +1,8 @@
 frappe.ui.form.on('Sales Invoice', {
+    refresh: function(frm) {
+        // Adress-Synchronisation läuft jetzt automatisch über Server-Side Hooks
+    },
+    
     before_save: function(frm) {
         console.log("Before Save wird ausgeführt");
         console.log("Dokument Status:", frm.doc.docstatus);
@@ -563,4 +567,7 @@ function recalculateActionItems(frm) {
             }
         }
     });
-} 
+}
+
+// ===== EINFACHE ADRESS-SYNCHRONISATION =====
+// Nur ein Button, der die Adressen manuell aktualisiert 
