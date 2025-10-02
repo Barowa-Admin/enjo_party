@@ -328,8 +328,8 @@ bench --site development.localhost migrate
 
 ## Support
 
-**Entwickler:** Tim Samuel Rohde
-**E-Mail:** Tim.Samuel.Rohde@Barowa.com
+**Entwickler:** Barowa
+**E-Mail:** Service@Barowa.com
 **Lizenz:** MIT License
 
 Bei Problemen oder Fragen, bitte ein Issue erstellen oder den Entwickler kontaktieren.

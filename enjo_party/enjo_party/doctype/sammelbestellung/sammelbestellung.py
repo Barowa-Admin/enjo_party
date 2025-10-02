@@ -1,0 +1,1222 @@
+# Copyright (c) 2025, Elia and contributors
+# For license information, please see license.txt
+
+import frappe
+from frappe.model.document import Document
+from frappe.utils import flt, today
+
+
+class Sammelbestellung(Document):
+	def before_validate(self):
+		"""
+		WICHTIG: Diese Funktion läuft VOR allen Frappe Core-Validierungen!
+		Entferne leere Zeilen BEVOR Sales Order Item Validierungen greifen.
+		"""
+		# Entferne alle komplett leeren Zeilen aus den Produkttabellen BEVOR Frappe sie validiert
+		self.remove_empty_product_rows()
+
+	def before_save(self):
+		# Wenn es ein neues Dokument ist, wird der Name erst nach dem Speichern generiert
+		if self.is_new():
+			# Setze sammelbestellung_name auf None, wird nach dem Einfügen gesetzt
+			self.sammelbestellung_name = None
+		
+		# Status automatisch setzen
+		self.set_status()
+
+	def remove_empty_product_rows(self):
+		"""
+		Entferne alle unvollständigen Zeilen aus den Produkttabellen.
+		Eine Zeile ist nur gültig, wenn sie einen item_code UND qty > 0 hat.
+		Alle anderen Zeilen werden entfernt (auch solche mit qty aber ohne item_code).
+		"""
+		# Kunden-Tabellen bereinigen
+		for i in range(1, 16):
+			field_name = f'produktauswahl_für_kunde_{i}'
+			if hasattr(self, field_name):
+				current_table = getattr(self, field_name)
+				if current_table:
+					original_count = len(current_table)
+					cleaned_table = [
+						row for row in current_table 
+						if (row.item_code and row.item_code.strip()) and (row.qty and row.qty > 0)
+					]
+					setattr(self, field_name, cleaned_table)
+					removed_count = original_count - len(cleaned_table)
+					if removed_count > 0:
+						frappe.log_error(f"Entfernt {removed_count} unvollständige Zeilen aus {field_name}", "INFO: remove_empty_rows")
+
+	def after_insert(self):
+		# Nach dem Einfügen den sammelbestellung_name auf den generierten Namen setzen
+		self.db_set("sammelbestellung_name", self.name, update_modified=False)
+		
+	def validate(self):
+		frappe.log_error(f"=== VALIDATE START für {self.name} - skip_flag: {getattr(self, 'skip_total_calculation', False)} ===", "DEBUG: validate_start")
+		
+		# NEUE LOGIK: Prüfe globalen Flag über frappe.local.flags
+		# Dieser wird durch JavaScript-Speichern NICHT überschrieben
+		skip_calculation = getattr(self, 'skip_total_calculation', False) or frappe.local.flags.get('skip_sammelbestellung_total_calculation', False)
+		frappe.log_error(f"=== ERWEITERTE PRÜFUNG für {self.name} - dokument_flag: {getattr(self, 'skip_total_calculation', False)}, global_flag: {frappe.local.flags.get('skip_sammelbestellung_total_calculation', False)}, final_skip: {skip_calculation} ===", "DEBUG: validate_flags")
+		
+		# Stelle sicher, dass UOM Conversion Factor in allen Produkttabellen gesetzt ist
+		frappe.log_error("Starte set_uom_conversion_factor", "DEBUG: validate_step")
+		self.set_uom_conversion_factor()
+		frappe.log_error("set_uom_conversion_factor abgeschlossen", "DEBUG: validate_step")
+		
+		# Berechne Gesamtumsatz NUR wenn nicht in Aufträge-Erstellung
+		if not skip_calculation:
+			frappe.log_error("Starte calculate_totals", "DEBUG: validate_step")
+			self.calculate_totals()
+			frappe.log_error("calculate_totals abgeschlossen", "DEBUG: validate_step")
+		else:
+			frappe.log_error("calculate_totals übersprungen (skip_flag gesetzt)", "DEBUG: validate_step")
+		
+		# Prüfe auf doppelte Kunden
+		frappe.log_error("Starte validate_kunden_duplicates", "DEBUG: validate_step")
+		self.validate_kunden_duplicates()
+		frappe.log_error("validate_kunden_duplicates abgeschlossen", "DEBUG: validate_step")
+		
+		# NEUE ADRESSVALIDIERUNG: Prüfe alle Adressen VOR der Produktvalidierung
+		# ABER NUR wenn nicht in Aufträge-Erstellung (skip_total_calculation Flag)
+		if not skip_calculation:
+			frappe.log_error("Starte validate_all_addresses", "DEBUG: validate_step")
+			self.validate_all_addresses()
+			frappe.log_error("validate_all_addresses abgeschlossen", "DEBUG: validate_step")
+		else:
+			frappe.log_error("validate_all_addresses übersprungen (skip_flag gesetzt)", "DEBUG: validate_step")
+		
+		# Prüfe, dass alle Kunden Produkte ausgewählt haben (nur wenn nicht neu UND nicht in Aufträge-Erstellung)
+		if not self.is_new() and not skip_calculation:
+			frappe.log_error("Starte validate_all_customers_have_products", "DEBUG: validate_step")
+			self.validate_all_customers_have_products()
+			frappe.log_error("validate_all_customers_have_products abgeschlossen", "DEBUG: validate_step")
+		else:
+			frappe.log_error("validate_all_customers_have_products übersprungen (neu oder skip_flag gesetzt)", "DEBUG: validate_step")
+		
+		frappe.log_error(f"=== VALIDATE ENDE für {self.name} ===", "DEBUG: validate_end")
+	
+	def before_submit(self):
+		"""
+		Vor dem Einreichen der Sammelbestellung automatisch Aufträge erstellen,
+		falls noch keine existieren
+		"""
+		# Prüfen, ob bereits Aufträge zu dieser Sammelbestellung existieren
+		existing_orders = frappe.get_all(
+			"Sales Order",
+			filters={"docstatus": ["!=", 2]},
+			or_filters=[
+				{"po_no": self.name},
+				{"customer_name": self.name}
+			],
+			limit=1
+		)
+		
+		# Wenn bereits Aufträge existieren, keinen neuen erstellen
+		if existing_orders:
+			frappe.log_error(f"Sammelbestellung {self.name}: Bestehende Aufträge gefunden: {existing_orders}", "INFO: before_submit")
+			return
+			
+		# Aufträge erstellen beim Submit - aber ohne weitere Fehlerbehandlung
+		try:
+			orders = create_invoices(self.name, from_submit=True)
+			if not orders:
+				frappe.throw(
+					"Es konnten keine Aufträge erstellt werden. "
+					"Bitte prüfe, ob Produkte ausgewählt wurden und versuche es erneut."
+				)
+			
+		except Exception as e:
+			frappe.throw(str(e))
+	
+	def validate_kunden_duplicates(self):
+		"""Entferne doppelte Kunden aus der Kundenliste"""
+		if not self.kunden:
+			return
+		
+		# Prüfe auf doppelte Kunden (gleicher Kunde mehrfach)
+		gesehene_kunden = set()
+		duplicate_indexes = []
+		for i, kunde in enumerate(self.kunden):
+			if kunde.kunde:
+				if kunde.kunde in gesehene_kunden:
+					duplicate_indexes.append(i)
+				else:
+					gesehene_kunden.add(kunde.kunde)
+		
+		# Lösche von hinten nach vorne, um Indexproblem zu vermeiden
+		for index in sorted(duplicate_indexes, reverse=True):
+			self.kunden.pop(index)
+		
+		# Wenn Elemente entfernt wurden, eine Benachrichtigung anzeigen
+		if duplicate_indexes:
+			frappe.msgprint("Doppelte Kunden wurden automatisch entfernt. Jeder Kunde darf nur einmal ausgewählt werden.", alert=True)
+	
+	def validate_all_customers_have_products(self):
+		"""
+		Prüft, ob alle eingetragenen Kunden Produkte ausgewählt haben
+		Erlaubt das Speichern ohne Produktvalidierung, wenn neue Kunden hinzugefügt wurden
+		"""
+		if not self.kunden:
+			return
+		
+		# Wenn der Status noch "Kunden" ist, erlaube Speichern ohne Produktvalidierung
+		if self.status == "Kunden":
+			return
+		
+		# Sammle alle Teilnehmer ohne Produktauswahl
+		kunden_ohne_produkte = []
+		
+		# Prüfe alle Kunden
+		for idx, kunde_row in enumerate(self.kunden):
+			if not kunde_row.kunde:
+				continue
+				
+			index = idx + 1
+			field_name = f"produktauswahl_für_kunde_{index}"
+			
+			# Prüfen ob die Tabelle existiert und Produkte enthält
+			hat_produkte = False
+			if hasattr(self, field_name) and getattr(self, field_name):
+				tabelle_inhalt = getattr(self, field_name)
+				frappe.log_error(f"Kunde {index} ({kunde_row.kunde}) - Anzahl Zeilen in {field_name}: {len(tabelle_inhalt)}", "DEBUG: table_check")
+				
+				for idx_prod, produkt in enumerate(getattr(self, field_name)):
+					if produkt.item_code:
+						frappe.log_error(f"  Zeile {idx_prod}: item_code={produkt.item_code}, qty={produkt.qty}, rate={produkt.rate}", "DEBUG: row_check")
+					if produkt.item_code and produkt.qty and produkt.qty > 0:
+						hat_produkte = True
+						break
+			
+			# Wenn keine Produkte gefunden wurden, zur Liste hinzufügen
+			if not hat_produkte:
+				kunden_ohne_produkte.append(f"Kunde {index} ({kunde_row.kunde})")
+		
+		# Wenn Kunden ohne Produkte gefunden wurden, Fehlermeldung anzeigen
+		if kunden_ohne_produkte:
+			anzahl_kunden = len([k for k in self.kunden if k.kunde])
+			
+			frappe.throw(
+				f"Die folgenden Kunden haben noch keine Produkte ausgewählt: {', '.join(kunden_ohne_produkte)}. "
+				f"Bitte wähle für jeden Kunden mindestens ein Produkt aus. "
+				f"Alternativ kannst du Kunden ohne Bestellung aus der Liste entfernen, "
+				f"jedoch müssen mindestens 2 Kunden verbleiben."
+			)
+	
+	def set_status(self):
+		# Wenn wir bereits abgeschlossen sind, nicht mehr ändern
+		if self.status == "Abgeschlossen":
+			return
+			
+		# Prüfen, ob Produkte vorhanden sind
+		has_products = False
+		
+		# Für alle Produktauswahl-Tabellen prüfen
+		for i in range(1, 16):
+			field_name = f"produktauswahl_für_kunde_{i}"
+			if hasattr(self, field_name) and getattr(self, field_name):
+				table = getattr(self, field_name)
+				if any(item.item_code and item.qty for item in table):
+					has_products = True
+					break
+		
+		# Status setzen basierend auf dem Vorhandensein von Produkten
+		if has_products:
+			self.status = "Produkte"
+		else:
+			self.status = "Kunden"
+	
+	def set_uom_conversion_factor(self):
+		# Für alle Produktauswahl-Tabellen
+		for i in range(1, 16):
+			field_name = f"produktauswahl_für_kunde_{i}"
+			if hasattr(self, field_name) and getattr(self, field_name):
+				table = getattr(self, field_name)
+				for item in table:
+					if item.item_code:
+						# Standard-UOM und Item-Daten vom Item abfragen
+						item_doc = frappe.get_cached_doc("Item", item.item_code)
+						
+						# Immer explizit den UOM und UOM Conversion Factor setzen
+						item.uom = item.uom or item_doc.stock_uom or "Nos"
+						item.stock_uom = item_doc.stock_uom
+						item.uom_conversion_factor = 1.0
+						
+						# Falls Item Name fehlt
+						if not item.item_name:
+							item.item_name = item_doc.item_name or item.item_code
+						
+						# WICHTIG: Normalisiere delivery_date Format für Datenbank-Kompatibilität
+						if hasattr(item, 'delivery_date') and item.delivery_date:
+							try:
+								if isinstance(item.delivery_date, str):
+									item.delivery_date = frappe.utils.getdate(item.delivery_date)
+								else:
+									item.delivery_date = frappe.utils.getdate(item.delivery_date)
+							except Exception as e:
+								frappe.log_error(f"Delivery Date Parse Fehler für {item.item_code}: {str(e)}", "WARNING: delivery_date_parse")
+								item.delivery_date = frappe.utils.getdate(frappe.utils.add_days(frappe.utils.today(), 7))
+						
+						# Weitere erforderliche Standardfelder für Sales Order Item setzen
+						if not item.conversion_factor:
+							item.conversion_factor = 1.0
+						if not item.stock_qty:
+							item.stock_qty = flt(item.qty) * flt(item.conversion_factor)
+						
+						# Berechne den Betrag (amount = qty * rate)
+						if item.qty and item.rate:
+							item.amount = flt(item.qty) * flt(item.rate)
+							item.base_amount = item.amount
+	
+	def calculate_totals(self):
+		"""Berechnet Gesamtumsatz"""
+		total_amount = 0.0
+		
+		# Berechne Gesamtumsatz aus allen Produkttabellen
+		for i in range(1, 16):
+			field_name = f"produktauswahl_für_kunde_{i}"
+			if hasattr(self, field_name) and getattr(self, field_name):
+				table = getattr(self, field_name)
+				for item in table:
+					if item.qty and item.rate:
+						total_amount += flt(item.qty) * flt(item.rate)
+		
+		# Setze Gesamtumsatz
+		self.gesamtumsatz = total_amount
+
+	def validate_all_addresses(self):
+		"""
+		Prüft, ob alle benötigten Kunden Adressen haben.
+		REDUZIERT: Weniger aggressive Warnungen
+		"""
+		if self.is_new():
+			return
+		
+		# NUR PRÜFEN wenn der Status "Produkte" ist und wir kurz vor der Auftragserstellung stehen
+		if self.status != "Produkte":
+			return
+		
+		kunden_ohne_adresse = []
+		
+		# Prüfe alle Kunden
+		if self.kunden:
+			for kunde_row in self.kunden:
+				if not kunde_row.kunde:
+					continue
+					
+				# Prüfe Billing-Adresse
+				if not find_existing_address(kunde_row.kunde, "Billing"):
+					kunden_ohne_adresse.append(f"Kunde ({kunde_row.kunde})")
+		
+		# REDUZIERT: Nur noch bei VIELEN fehlenden Adressen warnen
+		if len(kunden_ohne_adresse) > 2:
+			frappe.log_error(f"Adress-Info für Sammelbestellung {self.name}: {', '.join(kunden_ohne_adresse)}", "INFO: address_check")
+		else:
+			if kunden_ohne_adresse:
+				frappe.log_error(f"Vereinzelte Adress-Hinweise für Sammelbestellung {self.name}: {', '.join(kunden_ohne_adresse)}", "INFO: few_address_hints")
+
+# Warehouse-Hilfsfunktion
+@frappe.whitelist()
+def get_default_warehouse():
+	"""
+	Ermittelt das Standard-Warehouse flexibel für verschiedene Installationen
+	"""
+	warehouse = frappe.defaults.get_user_default("Warehouse")
+	if warehouse:
+		return warehouse
+	
+	warehouses = frappe.get_all("Warehouse", 
+		filters={"is_group": 0}, 
+		fields=["name"], 
+		limit=1
+	)
+	
+	if warehouses:
+		return warehouses[0].name
+	
+	all_warehouses = frappe.get_all("Warehouse", fields=["name"], limit=1)
+	if all_warehouses:
+		return all_warehouses[0].name
+	
+	return "Stores - Main"
+
+def calculate_shipping_costs_for_sammelbestellung(sammelbestellung_doc):
+    """
+    Berechnet Versandkosten für eine Sammelbestellung und erstellt Order-Informationen
+    LOGIK: Verwendet 7 verschiedene Versandartikel statt ERPNext Versandregeln
+    """
+    all_orders = []
+    
+    frappe.log_error(f"=== CALCULATE_SHIPPING_COSTS START für {sammelbestellung_doc.name} ===", "DEBUG: shipping_start")
+    
+    # Kunden verarbeiten
+    frappe.log_error(f"Verarbeite {len(sammelbestellung_doc.kunden)} Kunden", "DEBUG: process_customers")
+    for idx, kunde_row in enumerate(sammelbestellung_doc.kunden):
+        if not kunde_row.kunde:
+            frappe.log_error(f"Kunde {idx+1}: Kein Kunde angegeben - überspringe", "DEBUG: customer_no_customer")
+            continue
+            
+        index = idx + 1
+        field_name = f"produktauswahl_für_kunde_{index}"
+        versand_field = f"versand_kunde_{index}"
+        
+        frappe.log_error(f"=== Verarbeite Kunde {index}: {kunde_row.kunde} ===", "DEBUG: customer_start")
+        
+        if not hasattr(sammelbestellung_doc, field_name) or not getattr(sammelbestellung_doc, field_name):
+            frappe.log_error(f"Kunde {index} ({kunde_row.kunde}): Keine Produkttabelle {field_name} gefunden", "DEBUG: no_product_table")
+            continue
+        
+        produkte_kunde = []
+        total_kunde = 0
+        
+        tabelle_inhalt = getattr(sammelbestellung_doc, field_name)
+        frappe.log_error(f"Kunde {index} ({kunde_row.kunde}) - Anzahl Zeilen in {field_name}: {len(tabelle_inhalt)}", "DEBUG: table_check")
+        
+        for idx_prod, produkt in enumerate(getattr(sammelbestellung_doc, field_name)):
+            frappe.log_error(f"  Kunde {index} Zeile {idx_prod}: item_code={produkt.item_code}, qty={produkt.qty}, rate={produkt.rate}", "DEBUG: customer_item")
+            if produkt.item_code and produkt.qty and produkt.qty > 0:
+                frappe.log_error(f"  -> Kunde {index} Produkt akzeptiert: {produkt.item_code}", "DEBUG: customer_accepted")
+                product_dict = {
+                    "item_code": produkt.item_code,
+                    "item_name": produkt.item_name or produkt.item_code,
+                    "qty": produkt.qty,
+                    "rate": produkt.rate or 0,
+                    "amount": produkt.amount or (flt(produkt.qty) * flt(produkt.rate or 0)),
+                    "uom": getattr(produkt, 'uom', 'Stk'),
+                    "stock_uom": getattr(produkt, 'stock_uom', 'Stk'),
+                    "conversion_factor": getattr(produkt, 'conversion_factor', 1.0),
+                    "stock_qty": getattr(produkt, 'stock_qty', flt(produkt.qty)),
+                    "base_amount": getattr(produkt, 'base_amount', produkt.amount or (flt(produkt.qty) * flt(produkt.rate or 0))),
+                    "base_rate": getattr(produkt, 'base_rate', produkt.rate or 0),
+                    "warehouse": getattr(produkt, 'warehouse', get_default_warehouse()),
+                    "delivery_date": frappe.utils.getdate(getattr(produkt, 'delivery_date', frappe.utils.add_days(frappe.utils.today(), 7))),
+                    "_force_zero_rate": float(produkt.rate or 0) == 0.0
+                }
+                
+                produkte_kunde.append(product_dict)
+                total_kunde += flt(produkt.qty) * flt(produkt.rate or 0)
+                frappe.log_error(f"  -> Kunde {index} Produkt hinzugefügt, neue Summe: {total_kunde}", "DEBUG: customer_added")
+        
+        if produkte_kunde:
+            # Versandziel für Kunde
+            versand_ziel = getattr(sammelbestellung_doc, versand_field, kunde_row.kunde)
+            if not versand_ziel:
+                versand_ziel = kunde_row.kunde
+                
+            frappe.log_error(f"Kunde {index} ({kunde_row.kunde}) hat {len(produkte_kunde)} Produkte, Total: {total_kunde}", "DEBUG: customer_order")
+                
+            all_orders.append({
+                "customer": kunde_row.kunde,
+                "shipping_target": versand_ziel,
+                "products": produkte_kunde,
+                "total": total_kunde,
+                "order_type": "kunde",
+                "customer_index": index
+            })
+        else:
+            frappe.log_error(f"Kunde {index} ({kunde_row.kunde}): Keine gültigen Produkte in {field_name} gefunden", "DEBUG: customer_no_products")
+    
+    # Gruppiere Bestellungen nach Versandziel
+    shipping_groups = {}
+    for order in all_orders:
+        target = order["shipping_target"]
+        if target not in shipping_groups:
+            shipping_groups[target] = []
+        shipping_groups[target].append(order)
+    
+    frappe.log_error(f"=== SHIPPING GROUPS ERSTELLUNG ===", "DEBUG: shipping_groups")
+    frappe.log_error(f"Anzahl Orders vor Gruppierung: {len(all_orders)}", "DEBUG: orders_count")
+    for target, orders in shipping_groups.items():
+        frappe.log_error(f"Versandziel {target}: {len(orders)} Orders", "DEBUG: group_detail")
+    
+    # VERSANDLOGIK: Berechne Versandkosten pro Gruppe und füge Versandartikel hinzu
+    for target, orders in shipping_groups.items():
+        total_value_for_target = sum(order["total"] for order in orders)
+        num_orders = len(orders)
+        
+        frappe.log_error(f"Versandziel {target}: {num_orders} Aufträge, Gesamtwert: {total_value_for_target}€", "DEBUG: shipping_calculation")
+        
+        if total_value_for_target >= 200:
+            shipping_cost_per_order = 0.0
+            shipping_item_code = None
+            shipping_note = f"Versandkostenfrei (Gesamtwert: {total_value_for_target:.2f}€ >= 200€)"
+            frappe.log_error(f"Versandkostenfrei für {target}", "DEBUG: shipping_free")
+        else:
+            shipping_cost_per_order = round(7.0 / num_orders, 2)
+            
+            shipping_items = {
+                1: "shipping-7",
+                2: "shipping-3.5",
+                3: "shipping-2.33",
+                4: "shipping-1.75",
+                5: "shipping-1.4",
+                6: "shipping-1.17",
+                7: "shipping-1"
+            }
+            
+            shipping_item_code = shipping_items.get(num_orders, "shipping-1")
+            
+            shipping_note = f"Versandkosten aufgeteilt: {num_orders} Bestellung(en) à {shipping_cost_per_order:.2f}€ (Gesamtwert: {total_value_for_target:.2f}€ < 200€) - Artikel: {shipping_item_code}"
+            frappe.log_error(f"Versandkosten für {target}: {shipping_item_code} à {shipping_cost_per_order}€", "DEBUG: shipping_charged")
+        
+        # Versandkosten zu jeder Bestellung hinzufügen
+        for order in orders:
+            order["shipping_cost"] = shipping_cost_per_order
+            order["shipping_note"] = shipping_note
+            order["shipping_item_code"] = shipping_item_code
+            
+            if shipping_cost_per_order > 0 and shipping_item_code:
+                try:
+                    shipping_item_doc = frappe.get_doc("Item", shipping_item_code)
+                    
+                    shipping_product = {
+                        "item_code": shipping_item_code,
+                        "item_name": shipping_item_doc.item_name or "Versand",
+                        "qty": 1,
+                        "rate": shipping_cost_per_order,
+                        "amount": shipping_cost_per_order,
+                        "uom": shipping_item_doc.stock_uom or "Stk",
+                        "stock_uom": shipping_item_doc.stock_uom or "Stk",
+                        "conversion_factor": 1.0,
+                        "stock_qty": 1.0,
+                        "base_amount": shipping_cost_per_order,
+                        "base_rate": shipping_cost_per_order,
+                        "warehouse": get_default_warehouse(),
+                        "delivery_date": frappe.utils.getdate(frappe.utils.add_days(frappe.utils.today(), 7)),
+                        "_force_zero_rate": False,
+                        "_shipping_item": True
+                    }
+                    
+                    order["products"].append(shipping_product)
+                    order["total"] += shipping_cost_per_order
+                    
+                    frappe.log_error(f"Versandartikel {shipping_item_code} hinzugefügt zu {order['customer']}: {shipping_cost_per_order}€", "DEBUG: shipping_item_added")
+                    
+                except Exception as e:
+                    frappe.log_error(f"Fehler beim Laden des Versandartikels {shipping_item_code}: {str(e)}", "ERROR: shipping_item_error")
+                    shipping_product = {
+                        "item_code": shipping_item_code,
+                        "item_name": "Versand",
+                        "qty": 1,
+                        "rate": shipping_cost_per_order,
+                        "amount": shipping_cost_per_order,
+                        "uom": "Stk",
+                        "stock_uom": "Stk",
+                        "conversion_factor": 1.0,
+                        "stock_qty": 1.0,
+                        "base_amount": shipping_cost_per_order,
+                        "base_rate": shipping_cost_per_order,
+                        "warehouse": get_default_warehouse(),
+                        "delivery_date": frappe.utils.getdate(frappe.utils.add_days(frappe.utils.today(), 7)),
+                        "_force_zero_rate": False,
+                        "_shipping_item": True
+                    }
+                    order["products"].append(shipping_product)
+                    order["total"] += shipping_cost_per_order
+    
+    frappe.log_error(f"=== ENDERGEBNIS calculate_shipping_costs_for_sammelbestellung ===", "DEBUG: shipping_calc_end")
+    frappe.log_error(f"FINALE Anzahl Orders: {len(all_orders)}", "DEBUG: orders_count")
+    for i, order in enumerate(all_orders):
+        frappe.log_error(f"Order {i+1}: Customer={order['customer']}, Produkte={len(order['products'])}, Total={order['total']}", "DEBUG: final_order")
+    frappe.log_error(f"SUCCESS: final_result", "SUCCESS: final_result")
+    return all_orders
+
+@frappe.whitelist()
+def create_invoices(sammelbestellung, from_submit=False, from_button=False):
+    """
+    Erstellt Sales Orders für eine Sammelbestellung
+    """
+    # BACKEND-SICHERUNG: Setze skip_total_calculation Flag falls vom Button aufgerufen
+    if from_button:
+        try:
+            sammelbestellung_doc = frappe.get_doc("Sammelbestellung", sammelbestellung)
+            if not getattr(sammelbestellung_doc, 'skip_total_calculation', False):
+                frappe.log_error(f"Backend-Sicherung: Setze skip_total_calculation für {sammelbestellung}", "INFO: backend_flag_set")
+                sammelbestellung_doc.skip_total_calculation = 1
+                sammelbestellung_doc.flags.ignore_permissions = True
+                sammelbestellung_doc.save()
+                frappe.db.commit()
+        except Exception as e:
+            frappe.log_error(f"Backend-Sicherung Fehler: {str(e)}", "WARNING: backend_flag_failed")
+    
+    try:
+        frappe.log_error(f"Starte Auftragserstellung für Sammelbestellung {sammelbestellung} (from_submit={from_submit}, from_button={from_button})", "DEBUG: create_orders Start")
+        
+        # Prüfen, ob die Sammelbestellung bereits Aufträge hat
+        existing_orders = frappe.get_all(
+            "Sales Order",
+            filters={"docstatus": ["!=", 2]},
+            or_filters=[
+                {"po_no": sammelbestellung},
+                {"customer_name": sammelbestellung}
+            ],
+            limit=1
+        )
+        
+        if existing_orders and from_button:
+            frappe.log_error(f"Aufträge gefunden: {existing_orders}", "DEBUG: create_orders - Gefundene Aufträge")
+            return existing_orders
+        
+        if from_button and from_submit:
+            frappe.log_error("Verhinderte doppelte Ausführung (from_button und from_submit sind beide True)", "DEBUG: create_orders")
+            return []
+        
+        # Hole Standard-Einstellungen
+        company = frappe.defaults.get_user_default("Company")
+        if not company:
+            frappe.log_error("Keine Standard-Firma gefunden!", "ERROR: create_orders")
+            frappe.throw("Bitte lege eine Standard-Firma in deinen Einstellungen fest.")
+            
+        currency = frappe.defaults.get_user_default("Currency")
+        if not currency:
+            frappe.log_error("Keine Standard-Währung gefunden!", "ERROR: create_orders")
+            frappe.throw("Bitte lege eine Standard-Währung in deinen Einstellungen fest.")
+            
+        # Sammelbestellung-Dokument laden
+        try:
+            sammelbestellung_doc = frappe.get_doc("Sammelbestellung", sammelbestellung)
+            sammelbestellung_doc.skip_total_calculation = 1
+                
+        except Exception as e:
+            frappe.log_error(f"Sammelbestellung-Dokument konnte nicht geladen werden: {str(e)}", "ERROR: create_orders")
+            frappe.throw("Das Sammelbestellung-Dokument konnte nicht geladen werden.")
+        
+        # Prüfen, ob die Sammelbestellung bereits abgeschlossen ist
+        if sammelbestellung_doc.status == "Abgeschlossen" and sammelbestellung_doc.docstatus == 1:
+            return []
+        
+        # Kundenliste prüfen
+        if not sammelbestellung_doc.kunden or len(sammelbestellung_doc.kunden) < 2:
+            frappe.throw("Es müssen mindestens 2 Kunden zur Sammelbestellung hinzugefügt werden.")
+            
+        # Vollständige Produktvalidierung für alle Kunden
+        kunden_ohne_produkte = []
+        
+        for idx, kunde_row in enumerate(sammelbestellung_doc.kunden):
+            if not kunde_row.kunde:
+                continue
+                
+            index = idx + 1
+            field_name = f"produktauswahl_für_kunde_{index}"
+            
+            hat_produkte = False
+            if hasattr(sammelbestellung_doc, field_name) and getattr(sammelbestellung_doc, field_name):
+                for produkt in getattr(sammelbestellung_doc, field_name):
+                    if produkt.item_code and produkt.qty and produkt.qty > 0:
+                        hat_produkte = True
+                        break
+            
+            if not hat_produkte:
+                kunden_ohne_produkte.append(f"Kunde {index} ({kunde_row.kunde})")
+        
+        if kunden_ohne_produkte:
+            frappe.throw(
+                f"Die folgenden Kunden haben noch keine Produkte ausgewählt: {', '.join(kunden_ohne_produkte)}. "
+                f"Bitte wähle für jeden Kunden mindestens ein Produkt aus, "
+                f"bevor du die Aufträge erstellst. Du kannst auch Kunden ohne Bestellung aus der Kundenliste entfernen."
+            )
+        
+        # Produkte-Check: Hat irgendein Kunde Produkte?
+        produkte_vorhanden = False
+        
+        for idx, _ in enumerate(sammelbestellung_doc.kunden or []):
+            field_name = f"produktauswahl_für_kunde_{idx+1}"
+            if hasattr(sammelbestellung_doc, field_name) and getattr(sammelbestellung_doc, field_name):
+                for produkt in getattr(sammelbestellung_doc, field_name):
+                    if produkt.item_code and produkt.qty and produkt.qty > 0:
+                        produkte_vorhanden = True
+                        break
+                if produkte_vorhanden:
+                    break
+        
+        if not produkte_vorhanden:
+            frappe.throw("Es wurden keine Produkte ausgewählt. Bitte wähle mindestens ein Produkt aus, bevor du Aufträge erstellst.")
+        
+        # VERSANDKOSTENLOGIK
+        frappe.log_error(f"=== AUFRUF calculate_shipping_costs_for_sammelbestellung ===", "DEBUG: before_calc")
+        all_orders_with_shipping = calculate_shipping_costs_for_sammelbestellung(sammelbestellung_doc)
+        frappe.log_error(f"=== RÜCKKEHR von calculate_shipping_costs_for_sammelbestellung ===", "DEBUG: after_calc")
+        
+        frappe.log_error(f"Anzahl Orders mit Versandkosten: {len(all_orders_with_shipping)}", "DEBUG: orders_count")
+        for i, order in enumerate(all_orders_with_shipping):
+            frappe.log_error(f"Erhaltene Order {i+1}: Customer={order.get('customer')}, Products={len(order.get('products', []))}, Total={order.get('total')}", "DEBUG: received_order")
+        
+        if not all_orders_with_shipping:
+            frappe.log_error("Keine Bestellungen gefunden - calculate_shipping_costs_for_sammelbestellung gab leere Liste zurück", "ERROR: no_orders_calculated")
+            return []
+        
+        if all_orders_with_shipping:
+            first_order = all_orders_with_shipping[0]
+            frappe.log_error(f"Erste Bestellung: Customer={first_order.get('customer')}, Products={len(first_order.get('products', []))}", "DEBUG: first_order")
+        
+        created_orders = []
+        
+        # Erstelle Aufträge basierend auf der Versandkostenberechnung
+        for order_info in all_orders_with_shipping:
+            try:
+                customer = order_info["customer"]
+                shipping_target = order_info["shipping_target"]
+                products = order_info["products"]
+                shipping_cost = order_info["shipping_cost"]
+                shipping_note = order_info["shipping_note"]
+                
+                frappe.log_error(f"Verarbeite: Customer={customer}, Shipping_Target={shipping_target}", "DEBUG: order_processing")
+                
+                billing_address = None
+                shipping_address = None
+                
+                frappe.log_error(f"=== ADRESS-DEBUG START für Customer: {customer}, Shipping_Target: {shipping_target} ===", "DEBUG: address_search")
+                
+                # RECHNUNGSADRESSE: Vom Kunden der bestellt
+                frappe.log_error(f"Suche Billing-Adresse für Customer: '{customer}'", "DEBUG: billing_search")
+                billing_address = find_existing_address(customer, "Billing")
+                frappe.log_error(f"DEBUG: billing_address für {customer} = {billing_address} (Typ: {type(billing_address)})", "DEBUG: address_result")
+                
+                if not billing_address:
+                    frappe.log_error(f"KRITISCH: Keine Adresse für Kunde '{customer}' gefunden", "ERROR: no_billing")
+                    continue
+                
+                frappe.log_error(f"✅ Billing-Adresse für Kunde '{customer}': {billing_address}", "INFO: billing_found")
+                
+                # VERSANDADRESSE: Erst Shipping vom Versandziel, dann Billing vom Versandziel
+                frappe.log_error(f"Suche Shipping-Adresse für Versandziel: '{shipping_target}'", "DEBUG: shipping_search")
+                shipping_address = find_existing_address(shipping_target, "Shipping")
+                frappe.log_error(f"DEBUG: shipping_address (Shipping) für {shipping_target} = {shipping_address} (Typ: {type(shipping_address)})", "DEBUG: address_result")
+                
+                if not shipping_address:
+                    frappe.log_error(f"Suche Billing-Fallback für Versandziel: '{shipping_target}'", "DEBUG: shipping_fallback_search")
+                    shipping_address = find_existing_address(shipping_target, "Billing")
+                    frappe.log_error(f"DEBUG: shipping_address (Billing Fallback) für {shipping_target} = {shipping_address} (Typ: {type(shipping_address)})", "DEBUG: address_result")
+                    
+                    if shipping_address:
+                        frappe.log_error(f"✅ Versand-Fallback: Billing-Adresse von '{shipping_target}': {shipping_address}", "INFO: shipping_fallback")
+                    else:
+                        frappe.log_error(f"KRITISCH: Keine Adresse für Versandziel '{shipping_target}' gefunden", "ERROR: no_shipping")
+                        continue
+                else:
+                    frappe.log_error(f"✅ Shipping-Adresse für Versandziel '{shipping_target}': {shipping_address}", "INFO: shipping_found")
+                
+                frappe.log_error(f"=== FINALE ADRESSEN: Billing={billing_address}, Shipping={shipping_address} ===", "DEBUG: final_addresses")
+
+                # Auftragsdaten
+                order_data = {
+                    "doctype": "Sales Order",
+                    "customer": customer,
+                    "transaction_date": today(),
+                    "delivery_date": today(),
+                    "items": [
+                        {
+                            **product,
+                            "doctype": "Sales Order Item"
+                        } for product in products
+                    ],
+                    "customer_address": billing_address,
+                    "shipping_address_name": shipping_address,
+                    "remarks": f"Erstellt aus Sammelbestellung: {sammelbestellung} | Kunde: {customer} | Versand an: {shipping_target}",
+                    "po_no": sammelbestellung,
+                    "company": company,
+                    "currency": currency,
+                    "status": "Draft",
+                    "order_type": "Sales",
+                    "sales_partner": sammelbestellung_doc.partnerin if sammelbestellung_doc.partnerin else None,
+                    "custom_party_reference": sammelbestellung,
+                    "custom_calculated_shipping_cost": shipping_cost,
+                    "sales_order": sammelbestellung_doc.name,
+                }
+                
+                frappe.log_error(f"DEBUG: Order-Daten für {customer}: customer_address={billing_address}, shipping_address_name={shipping_address}", "DEBUG: order_data")
+                frappe.log_error(f"Erstelle Auftrag für '{customer}'", "INFO: creating_order")
+                
+                order = frappe.get_doc(order_data)
+                
+                # Preise aus dem Sammelbestellung-Dokument setzen
+                for i, item in enumerate(order.items):
+                    original_product = products[i]
+                    
+                    is_shipping = original_product.get('_shipping_item', False)
+                    item_code = original_product.get('item_code', 'Unknown')
+                    frappe.log_error(f"DEBUG COMBO: Item {i}: {item_code}, Shipping: {is_shipping}, Rate: {original_product.get('rate', 'N/A')}", "DEBUG: combo_check")
+                    
+                    force_zero = original_product.get('_force_zero_rate', False)
+                    frappe.log_error(f"DEBUG: Item {item.item_code}, Rate: {original_product.get('rate', 'N/A')}, Force Zero: {force_zero}", "DEBUG: flag_check")
+                    
+                    if force_zero:
+                        frappe.log_error(f"Setze Aktions-Preis für {item.item_code}: 0€ (Force Zero Flag)", "INFO: action_price")
+                        item.rate = 0
+                        item.price_list_rate = 0
+                        item.base_rate = 0
+                        item.base_price_list_rate = 0
+                        item.amount = 0
+                        item.base_amount = 0
+                        if hasattr(item, 'custom_aktionsartikel'):
+                            item.custom_aktionsartikel = 1
+                    else:
+                        if hasattr(original_product, 'rate') and original_product.rate is not None:
+                            item.rate = original_product.rate
+                            item.base_rate = original_product.rate
+                            item.amount = flt(item.qty) * flt(original_product.rate) 
+                            item.base_amount = item.amount
+                
+                frappe.log_error(f"DEBUG FINAL ORDER: Customer={order.customer}, Items={len(order.items)}", "DEBUG: final_order_data")
+                for i, item in enumerate(order.items):
+                    frappe.log_error(f"  Item {i}: {item.item_code}, Qty: {item.qty}, Rate: {item.rate}, Amount: {item.amount}", "DEBUG: final_item_data")
+                
+                import types
+                
+                def safe_validate_party_address(self, *args, **kwargs):
+                    frappe.log_error(f"Überspringe party_address für {self.customer}", "INFO: skip_validation")
+                    pass
+                
+                def safe_validate_shipping_address(self, *args, **kwargs):
+                    frappe.log_error(f"Überspringe shipping_address für {self.customer}", "INFO: skip_validation")
+                    pass
+                
+                def safe_validate_billing_address(self, *args, **kwargs):
+                    frappe.log_error(f"Überspringe billing_address für {self.customer}", "INFO: skip_validation")
+                    pass
+                
+                order.validate_party_address = types.MethodType(safe_validate_party_address, order)
+                order.validate_shipping_address = types.MethodType(safe_validate_shipping_address, order)
+                order.validate_billing_address = types.MethodType(safe_validate_billing_address, order)
+                
+                frappe.log_error(f"Führe order.insert() aus für '{customer}'...", "INFO: order_insert")
+                
+                try:
+                    order.insert()
+                    frappe.log_error(f"Order.insert() erfolgreich für '{customer}': {order.name}", "INFO: order_created")
+                    
+                    frappe.log_error(f"Führe order.submit() aus für '{customer}'...", "INFO: order_submit")
+                    order.submit()
+                    frappe.log_error(f"Auftrag für {customer} eingereicht: {order.name}", "SUCCESS: order_complete")
+                    
+                except Exception as e:
+                    frappe.log_error(f"KRITISCHER FEHLER bei Order für {customer}: {str(e)}\nTraceback: {frappe.get_traceback()}", "ERROR: order_error_detailed")
+                    if hasattr(order, 'name') and order.name:
+                        created_orders.append(order.name)
+                        frappe.log_error(f"Fehlerhafter Auftrag {order.name} trotzdem hinzugefügt. Anzahl: {len(created_orders)}", "INFO: error_order_added")
+                    else:
+                        continue
+                
+                if not (hasattr(order, 'name') and order.name in created_orders):
+                    created_orders.append(order.name)
+                    frappe.log_error(f"Auftrag {order.name} hinzugefügt. Anzahl: {len(created_orders)}", "INFO: order_added")
+                
+            except Exception as e:
+                frappe.log_error(f"Kritischer Fehler für {order_info.get('customer', 'Unbekannt')}: {str(e)}", "ERROR: critical_order_error")
+                continue
+        
+        # Wenn mindestens ein Auftrag erstellt wurde, Sammelbestellung-Status aktualisieren
+        if created_orders:
+            try:
+                frappe.log_error(f"Starte Picklist Erstellung für {len(created_orders)} Aufträge", "INFO: picklist_start")
+                created_picklists = create_picklists_for_sammelbestellung(sammelbestellung_doc, all_orders_with_shipping, created_orders)
+                frappe.log_error(f"Picklists erstellt: {created_picklists}", "INFO: picklists_created")
+            except Exception as e:
+                frappe.log_error(f"Fehler bei Picklist Erstellung: {str(e)}", "ERROR: picklist_creation")
+                created_picklists = []
+            
+            sammelbestellung_doc.set_status = lambda: None
+            sammelbestellung_doc.status = "Abgeschlossen"
+            sammelbestellung_doc.save()
+            sammelbestellung_doc.submit()
+            
+            picklist_msg = f" und {len(created_picklists)} Auswahllisten" if created_picklists else ""
+            frappe.msgprint(
+                f"{len(created_orders)} Aufträge wurden erfolgreich erstellt und gebucht.<br><br>Das Fenster wird gleich automatisch neu geladen, um den aktuellen Status anzuzeigen.",
+                title="Erfolgreich gebuchte Sammelbestellung",
+                indicator="green"
+            )
+        else:
+            frappe.log_error(f"Keine Aufträge erstellt für Sammelbestellung {sammelbestellung}. Einträge: {len(all_orders_with_shipping)}", "ERROR: no_orders_created")
+            if all_orders_with_shipping:
+                frappe.log_error(f"Fehlgeschlagene Kunden: {[order.get('customer', 'Unknown') for order in all_orders_with_shipping]}", "ERROR: failed_customers")
+        
+        frappe.db.commit()
+        
+        if len(str(created_orders)) > 120:
+            log_message = f"create_invoices beendet. Rückgabe (gekürzt): {str(created_orders)[:120]}... (insgesamt {len(created_orders)} Aufträge)"
+        else:
+            log_message = f"create_invoices beendet. Rückgabe: {created_orders}"
+        frappe.log_error(log_message, "INFO: function_end")
+        
+        if hasattr(sammelbestellung_doc, 'skip_total_calculation'):
+            delattr(sammelbestellung_doc, 'skip_total_calculation')
+            frappe.log_error("skip_total_calculation Flag aufgeräumt", "INFO: flag_cleanup")
+        
+        if hasattr(frappe.local, 'message_log') and frappe.local.message_log:
+            original_count = len(frappe.local.message_log)
+            frappe.local.message_log = [
+                msg for msg in frappe.local.message_log 
+                if not (
+                    isinstance(msg, dict) and 
+                    msg.get('message') and 
+                    isinstance(msg['message'], str) and
+                    (
+                        ('adresse' in msg['message'].lower() and 'nicht gefunden' in msg['message'].lower()) or
+                        ('address' in msg['message'].lower() and 'not found' in msg['message'].lower()) or
+                        (msg['message'].startswith('Adresse -') and 'nicht gefunden' in msg['message'])
+                    )
+                )
+            ]
+            filtered_count = original_count - len(frappe.local.message_log)
+            if filtered_count > 0:
+                frappe.log_error(f"FILTERED: {filtered_count} störende Adressmeldungen entfernt", "INFO: messages_filtered")
+        
+        return created_orders
+        
+    except Exception as e:
+        frappe.db.rollback()
+        frappe.log_error(f"Allgemeiner Fehler: {str(e)}\n{frappe.get_traceback()}", f"ERROR: Auftragserstellung für Sammelbestellung {sammelbestellung}")
+        
+        try:
+            if hasattr(sammelbestellung_doc, 'skip_total_calculation'):
+                delattr(sammelbestellung_doc, 'skip_total_calculation')
+                frappe.log_error("skip_total_calculation Flag bei Fehler aufgeräumt", "INFO: error_flag_cleanup")
+        except:
+            pass
+        
+        if from_submit:
+            raise e
+        else:
+            frappe.throw(f"Fehler beim Erstellen der Aufträge: {str(e)}")
+
+@frappe.whitelist()
+def cancel_multiple_sammelbestellungen(sammelbestellungen):
+    """
+    Bricht mehrere Sammelbestellungen gleichzeitig ab
+    """
+    if not sammelbestellungen:
+        return
+        
+    if isinstance(sammelbestellungen, str):
+        sammelbestellung_list = sammelbestellungen.split(",")
+    else:
+        sammelbestellung_list = sammelbestellungen
+    
+    cancelled_count = 0
+    failed_count = 0
+    for sammelbestellung_name in sammelbestellung_list:
+        try:
+            sammelbestellung_doc = frappe.get_doc("Sammelbestellung", sammelbestellung_name)
+            
+            if sammelbestellung_doc.docstatus == 0 and sammelbestellung_doc.status in ["Kunden", "Produkte"]:
+                sammelbestellung_doc.status = "Cancelled"
+                sammelbestellung_doc.save()
+                cancelled_count += 1
+            elif sammelbestellung_doc.docstatus == 1:
+                sammelbestellung_doc.cancel()
+                cancelled_count += 1
+            else:
+                failed_count += 1
+                
+        except Exception as e:
+            frappe.log_error(f"Fehler beim Abbrechen der Sammelbestellung {sammelbestellung_name}: {str(e)}\n{frappe.get_traceback()}", "ERROR: cancel_sammelbestellung")
+            failed_count += 1
+            
+    frappe.db.commit()
+    
+    return {
+        "cancelled": cancelled_count,
+        "failed": failed_count,
+        "total": len(sammelbestellung_list)
+    }
+
+def find_existing_address(entity_name, preferred_type="Billing"):
+    """
+    Findet eine vorhandene Adresse für einen Kunden oder Sales Partner
+    """
+    frappe.log_error(f"=== find_existing_address START: Entity='{entity_name}', Type='{preferred_type}' ===", "DEBUG: find_address_start")
+    
+    try:
+        entity_type = None
+        entity_doc = None
+        display_name = entity_name
+        
+        if frappe.db.exists("Customer", entity_name):
+            entity_type = "Customer"
+            entity_doc = frappe.get_doc("Customer", entity_name)
+            display_name = entity_doc.customer_name or entity_name
+            frappe.log_error(f"✅ Customer '{entity_name}' existiert", "DEBUG: customer_exists")
+        elif frappe.db.exists("Sales Partner", entity_name):
+            entity_type = "Sales Partner"
+            entity_doc = frappe.get_doc("Sales Partner", entity_name)
+            display_name = entity_doc.partner_name or entity_name
+            frappe.log_error(f"✅ Sales Partner '{entity_name}' existiert", "DEBUG: sales_partner_exists")
+        else:
+            frappe.log_error(f"❌ Weder Customer noch Sales Partner '{entity_name}' existiert!", "ERROR: find_address")
+            return None
+        
+        frappe.log_error(f"Entity Display Name: '{display_name}' (Typ: {entity_type})", "DEBUG: entity_name")
+        
+        address_links = []
+        
+        frappe.log_error(f"Suche direkte {entity_type}-Links für '{entity_name}'...", "DEBUG: search_entity_links")
+        entity_links = frappe.get_all(
+            "Dynamic Link",
+            filters={"link_doctype": entity_type, "link_name": entity_name},
+            fields=["parent"]
+        )
+        frappe.log_error(f"Gefunden: {len(entity_links)} direkte {entity_type}-Links: {[link['parent'] for link in entity_links]}", "DEBUG: entity_links_found")
+        address_links.extend(entity_links)
+        
+        try:
+            frappe.log_error(f"Suche Contact-Links für '{entity_name}'...", "DEBUG: search_contact_links")
+            contact_links = frappe.get_all(
+                "Dynamic Link", 
+                filters={"link_doctype": "Contact"},
+                fields=["parent", "link_name"]
+            )
+            frappe.log_error(f"Alle Contact-Links gefunden: {len(contact_links)}", "DEBUG: all_contacts")
+            
+            contact_count = 0
+            for contact_link in contact_links:
+                if contact_link.parent and frappe.db.exists("Contact", contact_link.link_name):
+                    contact_entity_links = frappe.get_all(
+                        "Dynamic Link",
+                        filters={
+                            "parent": contact_link.link_name,
+                            "parenttype": "Contact", 
+                            "link_doctype": entity_type,
+                            "link_name": entity_name
+                        },
+                        fields=["parent"]
+                    )
+                    
+                    if contact_entity_links:
+                        address_links.append({"parent": contact_link.parent})
+                        contact_count += 1
+                        frappe.log_error(f"✅ Contact-Adresse #{contact_count} gefunden für '{display_name}': {contact_link.parent}", "INFO: contact_address_found")
+            
+            frappe.log_error(f"Gefunden: {contact_count} Contact-Adressen für '{entity_name}'", "DEBUG: contact_summary")
+        except Exception as e:
+            frappe.log_error(f"❌ Fehler beim Suchen von Contact-Adressen für '{display_name}': {str(e)}", "WARNING: contact_search_error")
+        
+        unique_addresses = list({link["parent"]: link for link in address_links if link.get("parent")}.values())
+        frappe.log_error(f"Unique Adressen gefunden: {len(unique_addresses)} - {[link['parent'] for link in unique_addresses]}", "DEBUG: unique_addresses")
+        
+        if not unique_addresses:
+            frappe.log_error(f"❌ Keine Adressen für {entity_type} '{display_name}' gefunden", "WARNING: no_addresses")
+            return None
+        
+        preferred_addresses = []
+        other_addresses = []
+        
+        frappe.log_error(f"Analysiere {len(unique_addresses)} Adressen nach Typ '{preferred_type}'...", "DEBUG: analyze_addresses")
+        
+        for i, link in enumerate(unique_addresses):
+            try:
+                addr_name = link["parent"]
+                frappe.log_error(f"Lade Adresse #{i+1}: {addr_name}...", "DEBUG: load_address")
+                addr = frappe.get_doc("Address", addr_name)
+                
+                if not addr.address_line1 or not addr.city or not addr.country:
+                    frappe.log_error(f"❌ Unvollständige Adresse #{i+1} für '{display_name}': {addr.name} (Line1: {bool(addr.address_line1)}, City: {bool(addr.city)}, Country: {bool(addr.country)})", "WARNING: incomplete_address")
+                    continue
+                
+                frappe.log_error(f"✅ Vollständige Adresse #{i+1}: {addr.name}, Typ: {addr.address_type}", "DEBUG: complete_address")
+                    
+                if addr.address_type == preferred_type:
+                    preferred_addresses.append(addr.name)
+                    frappe.log_error(f"✅ {preferred_type}-Adresse gefunden: {addr.name}", "DEBUG: preferred_found")
+                else:
+                    other_addresses.append(addr.name)
+                    frappe.log_error(f"📋 Andere Adresse gefunden: {addr.name} (Typ: {addr.address_type})", "DEBUG: other_found")
+            except Exception as e:
+                frappe.log_error(f"❌ Fehler beim Laden der Adresse {link['parent']}: {str(e)}", "ERROR: load_address")
+                continue
+        
+        frappe.log_error(f"Adress-Analyse abgeschlossen: {len(preferred_addresses)} {preferred_type}, {len(other_addresses)} andere", "DEBUG: analysis_complete")
+        
+        if preferred_addresses:
+            result = preferred_addresses[0]
+            frappe.log_error(f"🎯 RÜCKGABE: {preferred_type}-Adresse für '{display_name}': {result}", "INFO: address_found")
+            return result
+        elif other_addresses:
+            result = other_addresses[0]
+            frappe.log_error(f"🔄 RÜCKGABE: Fallback-Adresse für '{display_name}': {result} (kein {preferred_type} gefunden)", "INFO: address_fallback")
+            return result
+        else:
+            frappe.log_error(f"❌ RÜCKGABE: None - Keine verwendbaren Adressen für '{display_name}' gefunden", "WARNING: no_usable_address")
+            return None
+            
+    except Exception as e:
+        frappe.log_error(f"❌ Kritischer Fehler beim Suchen von Adressen für '{entity_name}': {str(e)}\n{frappe.get_traceback()}", "ERROR: find_address_error")
+        return None
+    
+    finally:
+        frappe.log_error(f"=== find_existing_address ENDE für '{entity_name}' ===", "DEBUG: find_address_end")
+
+def create_picklists_for_sammelbestellung(sammelbestellung_doc, all_orders_with_shipping, created_order_names):
+	"""
+	Erstellt Picklists (Auswahllisten) gruppiert nach Versandziel
+	"""
+	try:
+		frappe.log_error(f"🎯 create_picklists_for_sammelbestellung gestartet", "INFO: picklist_function")
+		
+		shipping_groups = {}
+		
+		for order_info in all_orders_with_shipping:
+			customer = order_info["customer"]
+			shipping_target = order_info["shipping_target"]
+			
+			sales_order_name = None
+			for order_name in created_order_names:
+				try:
+					order_doc = frappe.get_doc("Sales Order", order_name)
+					if order_doc.customer == customer:
+						sales_order_name = order_name
+						break
+				except:
+					continue
+			
+			if sales_order_name:
+				if shipping_target not in shipping_groups:
+					shipping_groups[shipping_target] = []
+				shipping_groups[shipping_target].append({
+					"customer": customer,
+					"sales_order": sales_order_name,
+					"order_info": order_info
+				})
+		
+		frappe.log_error(f"📦 Picklist Shipping Groups: {list(shipping_groups.keys())}", "INFO: picklist_groups")
+		
+		created_picklists = []
+		
+		for shipping_target, orders_for_target in shipping_groups.items():
+			try:
+				frappe.log_error(f"🏭 Erstelle Picklist für Versandziel: {shipping_target}", "INFO: creating_picklist")
+				
+				all_picklist_items = []
+				invoice_data = []
+				order_numbers = []
+				
+				for order_data in orders_for_target:
+					customer = order_data["customer"]
+					sales_order_name = order_data["sales_order"]
+					order_info = order_data["order_info"]
+					
+					order_numbers.append(sales_order_name)
+					
+					try:
+						frappe.log_error(f"🔍 Suche Sales Invoices für SO: {sales_order_name}", "DEBUG: invoice_search_start")
+						current_invoices = frappe.get_all(
+							"Sales Invoice",
+							filters={
+								"sales_order": sales_order_name,
+								"docstatus": 1
+							},
+							fields=["name"]
+						)
+						
+						frappe.log_error(f"📋 Gefundene Invoices für SO {sales_order_name}: {len(current_invoices)} - {[inv.name for inv in current_invoices]}", "DEBUG: invoice_search_result")
+						
+						for inv in current_invoices:
+							customer_name = customer
+							try:
+								customer_doc = frappe.get_doc("Customer", customer)
+								customer_display_name = customer_doc.customer_name or customer
+							except:
+								customer_display_name = customer
+							
+							invoice_with_customer = f"{inv.name} ({customer_display_name})"
+							invoice_data.append(invoice_with_customer)
+							frappe.log_error(f"💳 Sales Invoice für SO {sales_order_name} gefunden: {invoice_with_customer}", "INFO: invoice_found_for_picklist")
+							
+					except Exception as e:
+						frappe.log_error(f"⚠️ Fehler beim Finden der Sales Invoice für {sales_order_name}: {str(e)}", "WARNING: invoice_search")
+					
+					try:
+						so_doc = frappe.get_doc("Sales Order", sales_order_name)
+					except:
+						frappe.log_error(f"❌ Sales Order {sales_order_name} nicht gefunden", "ERROR: so_not_found")
+						continue
+					
+					for product in order_info["products"]:
+						if product.get("_shipping_item", False):
+							frappe.log_error(f"📦 Versandartikel übersprungen für Picklist: {product['item_code']}", "INFO: shipping_item_skipped")
+							continue
+						
+						so_warehouse = product.get("warehouse", get_default_warehouse())
+						so_item_name = None
+						for so_item in so_doc.items:
+							if so_item.item_code == product["item_code"] and so_item.qty == product["qty"]:
+								so_warehouse = so_item.warehouse or get_default_warehouse()
+								so_item_name = so_item.name
+								break
+						
+						picklist_item = {
+							"doctype": "Pick List Item",
+							"item_code": product["item_code"],
+							"item_name": product["item_name"],
+							"qty": float(product["qty"]),
+							"stock_qty": float(product.get("stock_qty", product["qty"])),
+							"picked_qty": 0.0,
+							"stock_reserved_qty": 0.0,
+							"uom": product.get("uom", "Stk"),
+							"stock_uom": product.get("stock_uom", "Stk"),
+							"conversion_factor": float(product.get("conversion_factor", 1.0)),
+							"warehouse": so_warehouse,
+							"sales_order": sales_order_name,
+							"sales_order_item": so_item_name,
+							"batch_no": None,
+							"serial_no": None,
+							"use_serial_batch_fields": 0,
+							"serial_and_batch_bundle": None,
+							"product_bundle_item": None,
+							"material_request": None,
+							"material_request_item": None
+						}
+						
+						all_picklist_items.append(picklist_item)
+						frappe.log_error(f"✅ Picklist Item hinzugefügt: {product['item_code']} (SO: {sales_order_name}, SO-Item: {so_item_name}, Customer: {customer})", "INFO: picklist_item_added")
+				
+				if not all_picklist_items:
+					frappe.log_error(f"⚠️ Keine Items für Versandziel {shipping_target} gefunden", "WARNING: no_picklist_items")
+					continue
+				
+				invoice_data = list(set(invoice_data))
+				order_numbers = list(set(order_numbers))
+				
+				if invoice_data:
+					invoice_text = "\n".join(sorted(invoice_data))
+					remarks = f"Sammelbestellung: {sammelbestellung_doc.name} | {len(invoice_data)} Rechnungen"
+					frappe.log_error(f"✅ Picklist mit {len(invoice_data)} Rechnungen erstellt", "INFO: picklist_created_with_invoices")
+				else:
+					order_text = ", ".join(sorted(order_numbers))
+					remarks = f"Sammelbestellung: {sammelbestellung_doc.name} | {len(order_numbers)} Aufträge"
+					frappe.log_error(f"⚠️ Picklist ohne Rechnungen - {len(order_numbers)} Aufträge", "WARNING: picklist_no_invoices")
+				
+				picklist_data = {
+					"doctype": "Pick List",
+					"purpose": "Delivery",
+					"company": frappe.defaults.get_user_default("Company"),
+					"customer": shipping_target,
+					"custom_invoice_references": "\n".join(sorted(invoice_data)) if invoice_data else None,
+					"remarks": remarks,
+					"locations": all_picklist_items
+				}
+				
+				frappe.log_error(f"🎯 Erstelle Picklist für {shipping_target} mit {len(all_picklist_items)} Items", "INFO: picklist_creation")
+				
+				picklist = frappe.get_doc(picklist_data)
+				picklist.insert()
+				frappe.log_error(f"✅ Picklist erstellt: {picklist.name}", "SUCCESS: picklist_created")
+				
+				try:
+					picklist.submit()
+					frappe.log_error(f"🎉 Picklist eingereicht: {picklist.name}", "SUCCESS: picklist_submitted")
+				except Exception as e:
+					frappe.log_error(f"⚠️ Picklist konnte nicht eingereicht werden: {str(e)}", "WARNING: picklist_submit_failed")
+				
+				created_picklists.append(picklist.name)
+				
+			except Exception as e:
+				frappe.log_error(f"❌ Fehler beim Erstellen der Picklist für {shipping_target}: {str(e)}", "ERROR: picklist_creation_error")
+				continue
+		
+		frappe.log_error(f"🎉 Picklists erstellt: {created_picklists}", "SUCCESS: all_picklists_created")
+		return created_picklists
+		
+	except Exception as e:
+		frappe.log_error(f"💥 Allgemeiner Fehler in create_picklists_for_sammelbestellung: {str(e)}\n{frappe.get_traceback()}", "ERROR: picklist_function_error")
+		return []
+

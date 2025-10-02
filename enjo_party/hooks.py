@@ -45,10 +45,14 @@ app_include_js = "/assets/enjo_party/js/customer_quick_entry.js"
 # include js in doctype views
 doctype_js = {
     "Party": "enjo_party/doctype/party/party.js",
+    "Sammelbestellung": "enjo_party/doctype/sammelbestellung/sammelbestellung.js",
     "Sales Invoice": "public/js/sales_invoice.js",
     "Sales Order": "public/js/sales_order.js"
 }
-doctype_list_js = {"Party" : "enjo_party/doctype/party/party_list.js"}
+doctype_list_js = {
+    "Party": "enjo_party/doctype/party/party_list.js",
+    "Sammelbestellung": "enjo_party/doctype/sammelbestellung/sammelbestellung_list.js"
+}
 # doctype_tree_js = {"doctype" : "public/js/doctype_tree.js"}
 # doctype_calendar_js = {"doctype" : "public/js/doctype_calendar.js"}
 

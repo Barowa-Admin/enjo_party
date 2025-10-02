@@ -1,0 +1,551 @@
+{
+ "actions": [],
+ "allow_rename": 1,
+ "autoname": "format:S{YY}{####}",
+ "creation": "2025-10-01 10:00:00.000000",
+ "doctype": "DocType",
+ "engine": "InnoDB",
+ "field_order": [
+  "section_break_xbgb",
+  "sammelbestellung_name",
+  "sammelbestellung_date",
+  "partnerin",
+  "column_break_info",
+  "gesamtumsatz",
+  "status",
+  "skip_total_calculation",
+  "section_break_kunden",
+  "kunden",
+  "amended_from",
+  "produktauswahl_für_kunde_1_section",
+  "produktauswahl_für_kunde_1",
+  "summe_kunde_1",
+  "versand_kunde_1",
+  "produktauswahl_für_kunde_2_section",
+  "produktauswahl_für_kunde_2",
+  "summe_kunde_2",
+  "versand_kunde_2",
+  "produktauswahl_für_kunde_3_section",
+  "produktauswahl_für_kunde_3",
+  "summe_kunde_3",
+  "versand_kunde_3",
+  "produktauswahl_für_kunde_4_section",
+  "produktauswahl_für_kunde_4",
+  "summe_kunde_4",
+  "versand_kunde_4",
+  "produktauswahl_für_kunde_5_section",
+  "produktauswahl_für_kunde_5",
+  "summe_kunde_5",
+  "versand_kunde_5",
+  "produktauswahl_für_kunde_6_section",
+  "produktauswahl_für_kunde_6",
+  "summe_kunde_6",
+  "versand_kunde_6",
+  "produktauswahl_für_kunde_7_section",
+  "produktauswahl_für_kunde_7",
+  "summe_kunde_7",
+  "versand_kunde_7",
+  "produktauswahl_für_kunde_8_section",
+  "produktauswahl_für_kunde_8",
+  "summe_kunde_8",
+  "versand_kunde_8",
+  "produktauswahl_für_kunde_9_section",
+  "produktauswahl_für_kunde_9",
+  "summe_kunde_9",
+  "versand_kunde_9",
+  "produktauswahl_für_kunde_10_section",
+  "produktauswahl_für_kunde_10",
+  "summe_kunde_10",
+  "versand_kunde_10",
+  "produktauswahl_für_kunde_11_section",
+  "produktauswahl_für_kunde_11",
+  "summe_kunde_11",
+  "versand_kunde_11",
+  "produktauswahl_für_kunde_12_section",
+  "produktauswahl_für_kunde_12",
+  "summe_kunde_12",
+  "versand_kunde_12",
+  "produktauswahl_für_kunde_13_section",
+  "produktauswahl_für_kunde_13",
+  "summe_kunde_13",
+  "versand_kunde_13",
+  "produktauswahl_für_kunde_14_section",
+  "produktauswahl_für_kunde_14",
+  "summe_kunde_14",
+  "versand_kunde_14",
+  "produktauswahl_für_kunde_15_section",
+  "produktauswahl_für_kunde_15",
+  "summe_kunde_15",
+  "versand_kunde_15"
+ ],
+ "fields": [
+  {
+   "fieldname": "section_break_xbgb",
+   "fieldtype": "Section Break",
+   "label": "Teilnehmer"
+  },
+  {
+   "fieldname": "amended_from",
+   "fieldtype": "Link",
+   "label": "Amended From",
+   "no_copy": 1,
+   "options": "Sammelbestellung",
+   "print_hide": 1,
+   "read_only": 1,
+   "search_index": 1
+  },
+  {
+   "fieldname": "sammelbestellung_name",
+   "fieldtype": "Data",
+   "in_list_view": 1,
+   "label": "Sammelbestellung Name",
+   "read_only": 1
+  },
+  {
+   "fieldname": "sammelbestellung_date",
+   "fieldtype": "Date",
+   "label": "Datum"
+  },
+  {
+   "fieldname": "partnerin",
+   "fieldtype": "Link",
+   "label": "Partnerin",
+   "options": "Sales Partner",
+   "reqd": 1
+  },
+  {
+   "fieldname": "column_break_info",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "gesamtumsatz",
+   "fieldtype": "Currency",
+   "label": "Gesamtumsatz",
+   "read_only": 1,
+   "hidden": 1
+  },
+  {
+   "default": "Kunden",
+   "fieldname": "status",
+   "fieldtype": "Select",
+   "label": "Status",
+   "options": "Kunden\nProdukte\nAbgeschlossen",
+   "read_only": 1
+  },
+  {
+   "default": 0,
+   "fieldname": "skip_total_calculation",
+   "fieldtype": "Check",
+   "hidden": 1,
+   "label": "Nur bei Problemen anhacken"
+  },
+  {
+   "fieldname": "section_break_kunden",
+   "fieldtype": "Section Break",
+   "label": "Kunden"
+  },
+  {
+   "fieldname": "kunden",
+   "fieldtype": "Table",
+   "label": "Kunden (min. 2)",
+   "options": "Party Kunde"
+  },
+  {
+   "fieldname": "produktauswahl_für_kunde_2",
+   "fieldtype": "Table",
+   "options": "Sales Order Item"
+  },
+  {
+   "fieldname": "produktauswahl_für_kunde_3",
+   "fieldtype": "Table",
+   "options": "Sales Order Item"
+  },
+  {
+   "fieldname": "produktauswahl_für_kunde_1",
+   "fieldtype": "Table",
+   "options": "Sales Order Item"
+  },
+  {
+   "fieldname": "versand_kunde_1",
+   "fieldtype": "Select",
+   "label": "Versand Kunde 1"
+  },
+  {
+   "fieldname": "produktauswahl_für_kunde_1_section",
+   "fieldtype": "Section Break",
+   "label": "Produktauswahl für Kunde 1"
+  },
+  {
+   "fieldname": "produktauswahl_für_kunde_2_section",
+   "fieldtype": "Section Break",
+   "label": "Produktauswahl für Kunde 2"
+  },
+  {
+   "fieldname": "versand_kunde_2",
+   "fieldtype": "Select",
+   "label": "Versand Kunde 2"
+  },
+  {
+   "fieldname": "produktauswahl_für_kunde_3_section",
+   "fieldtype": "Section Break",
+   "label": "Produktauswahl für Kunde 3"
+  },
+  {
+   "fieldname": "versand_kunde_3",
+   "fieldtype": "Select",
+   "label": "Versand Kunde 3"
+  },
+  {
+   "fieldname": "produktauswahl_für_kunde_4_section",
+   "fieldtype": "Section Break",
+   "label": "Produktauswahl für Kunde 4"
+  },
+  {
+   "fieldname": "produktauswahl_für_kunde_4",
+   "fieldtype": "Table",
+   "options": "Sales Order Item"
+  },
+  {
+   "fieldname": "versand_kunde_4",
+   "fieldtype": "Select",
+   "label": "Versand Kunde 4"
+  },
+  {
+   "fieldname": "produktauswahl_für_kunde_5_section",
+   "fieldtype": "Section Break",
+   "label": "Produktauswahl für Kunde 5"
+  },
+  {
+   "fieldname": "produktauswahl_für_kunde_5",
+   "fieldtype": "Table",
+   "options": "Sales Order Item"
+  },
+  {
+   "fieldname": "versand_kunde_5",
+   "fieldtype": "Select",
+   "label": "Versand Kunde 5"
+  },
+  {
+   "fieldname": "produktauswahl_für_kunde_6_section",
+   "fieldtype": "Section Break",
+   "label": "Produktauswahl für Kunde 6"
+  },
+  {
+   "fieldname": "produktauswahl_für_kunde_6",
+   "fieldtype": "Table",
+   "options": "Sales Order Item"
+  },
+  {
+   "fieldname": "versand_kunde_6",
+   "fieldtype": "Select",
+   "label": "Versand Kunde 6"
+  },
+  {
+   "fieldname": "produktauswahl_für_kunde_7_section",
+   "fieldtype": "Section Break",
+   "label": "Produktauswahl für Kunde 7"
+  },
+  {
+   "fieldname": "produktauswahl_für_kunde_7",
+   "fieldtype": "Table",
+   "options": "Sales Order Item"
+  },
+  {
+   "fieldname": "versand_kunde_7",
+   "fieldtype": "Select",
+   "label": "Versand Kunde 7"
+  },
+  {
+   "fieldname": "produktauswahl_für_kunde_8_section",
+   "fieldtype": "Section Break",
+   "label": "Produktauswahl für Kunde 8"
+  },
+  {
+   "fieldname": "produktauswahl_für_kunde_8",
+   "fieldtype": "Table",
+   "options": "Sales Order Item"
+  },
+  {
+   "fieldname": "versand_kunde_8",
+   "fieldtype": "Select",
+   "label": "Versand Kunde 8"
+  },
+  {
+   "fieldname": "produktauswahl_für_kunde_9_section",
+   "fieldtype": "Section Break",
+   "label": "Produktauswahl für Kunde 9"
+  },
+  {
+   "fieldname": "produktauswahl_für_kunde_9",
+   "fieldtype": "Table",
+   "options": "Sales Order Item"
+  },
+  {
+   "fieldname": "versand_kunde_9",
+   "fieldtype": "Select",
+   "label": "Versand Kunde 9"
+  },
+  {
+   "fieldname": "produktauswahl_für_kunde_10_section",
+   "fieldtype": "Section Break",
+   "label": "Produktauswahl für Kunde 10"
+  },
+  {
+   "fieldname": "produktauswahl_für_kunde_10",
+   "fieldtype": "Table",
+   "options": "Sales Order Item"
+  },
+  {
+   "fieldname": "versand_kunde_10",
+   "fieldtype": "Select",
+   "label": "Versand Kunde 10"
+  },
+  {
+   "fieldname": "produktauswahl_für_kunde_11_section",
+   "fieldtype": "Section Break",
+   "label": "Produktauswahl für Kunde 11"
+  },
+  {
+   "fieldname": "produktauswahl_für_kunde_11",
+   "fieldtype": "Table",
+   "options": "Sales Order Item"
+  },
+  {
+   "fieldname": "versand_kunde_11",
+   "fieldtype": "Select",
+   "label": "Versand Kunde 11"
+  },
+  {
+   "fieldname": "produktauswahl_für_kunde_12_section",
+   "fieldtype": "Section Break",
+   "label": "Produktauswahl für Kunde 12"
+  },
+  {
+   "fieldname": "produktauswahl_für_kunde_12",
+   "fieldtype": "Table",
+   "options": "Sales Order Item"
+  },
+  {
+   "fieldname": "versand_kunde_12",
+   "fieldtype": "Select",
+   "label": "Versand Kunde 12"
+  },
+  {
+   "fieldname": "produktauswahl_für_kunde_13_section",
+   "fieldtype": "Section Break",
+   "label": "Produktauswahl für Kunde 13"
+  },
+  {
+   "fieldname": "produktauswahl_für_kunde_13",
+   "fieldtype": "Table",
+   "options": "Sales Order Item"
+  },
+  {
+   "fieldname": "versand_kunde_13",
+   "fieldtype": "Select",
+   "label": "Versand Kunde 13"
+  },
+  {
+   "fieldname": "produktauswahl_für_kunde_14_section",
+   "fieldtype": "Section Break",
+   "label": "Produktauswahl für Kunde 14"
+  },
+  {
+   "fieldname": "produktauswahl_für_kunde_14",
+   "fieldtype": "Table",
+   "options": "Sales Order Item"
+  },
+  {
+   "fieldname": "versand_kunde_14",
+   "fieldtype": "Select",
+   "label": "Versand Kunde 14"
+  },
+  {
+   "fieldname": "produktauswahl_für_kunde_15_section",
+   "fieldtype": "Section Break",
+   "label": "Produktauswahl für Kunde 15"
+  },
+  {
+   "fieldname": "produktauswahl_für_kunde_15",
+   "fieldtype": "Table",
+   "options": "Sales Order Item"
+  },
+  {
+   "fieldname": "versand_kunde_15",
+   "fieldtype": "Select",
+   "label": "Versand Kunde 15"
+  },
+  {
+   "fieldname": "summe_kunde_1",
+   "fieldtype": "HTML",
+   "label": "Summe"
+  },
+  {
+   "fieldname": "summe_kunde_2",
+   "fieldtype": "HTML",
+   "label": "Summe"
+  },
+  {
+   "fieldname": "summe_kunde_3",
+   "fieldtype": "HTML",
+   "label": "Summe"
+  },
+  {
+   "fieldname": "summe_kunde_4",
+   "fieldtype": "HTML",
+   "label": "Summe"
+  },
+  {
+   "fieldname": "summe_kunde_5",
+   "fieldtype": "HTML",
+   "label": "Summe"
+  },
+  {
+   "fieldname": "summe_kunde_6",
+   "fieldtype": "HTML",
+   "label": "Summe"
+  },
+  {
+   "fieldname": "summe_kunde_7",
+   "fieldtype": "HTML",
+   "label": "Summe"
+  },
+  {
+   "fieldname": "summe_kunde_8",
+   "fieldtype": "HTML",
+   "label": "Summe"
+  },
+  {
+   "fieldname": "summe_kunde_9",
+   "fieldtype": "HTML",
+   "label": "Summe"
+  },
+  {
+   "fieldname": "summe_kunde_10",
+   "fieldtype": "HTML",
+   "label": "Summe"
+  },
+  {
+   "fieldname": "summe_kunde_11",
+   "fieldtype": "HTML",
+   "label": "Summe"
+  },
+  {
+   "fieldname": "summe_kunde_12",
+   "fieldtype": "HTML",
+   "label": "Summe"
+  },
+  {
+   "fieldname": "summe_kunde_13",
+   "fieldtype": "HTML",
+   "label": "Summe"
+  },
+  {
+   "fieldname": "summe_kunde_14",
+   "fieldtype": "HTML",
+   "label": "Summe"
+  },
+  {
+   "fieldname": "summe_kunde_15",
+   "fieldtype": "HTML",
+   "label": "Summe"
+  }
+ ],
+ "grid_page_length": 50,
+ "hide_in_navigation": 1,
+ "index_web_pages_for_search": 1,
+ "is_submittable": 1,
+ "links": [],
+ "modified": "2025-10-01 10:00:00.000000",
+ "modified_by": "Administrator",
+ "module": "Enjo Party",
+ "name": "Sammelbestellung",
+ "naming_rule": "Expression",
+ "owner": "Administrator",
+ "permissions": [
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "System Manager",
+   "share": 1,
+   "submit": 1,
+   "write": 1
+  },
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Sales User",
+   "share": 1,
+   "submit": 1,
+   "write": 1
+  },
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Sales Master",
+   "share": 1,
+   "submit": 1,
+   "write": 1
+  },
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Sales Manager",
+   "share": 1,
+   "submit": 1,
+   "write": 1
+  },
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Accounts User",
+   "share": 1,
+   "submit": 1,
+   "write": 1
+  },
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Accounts Manager",
+   "share": 1,
+   "submit": 1,
+   "write": 1
+  }
+ ],
+ "row_format": "Dynamic",
+ "sort_field": "modified",
+ "sort_order": "DESC",
+ "states": [],
+ "track_changes": 1
+}
+
