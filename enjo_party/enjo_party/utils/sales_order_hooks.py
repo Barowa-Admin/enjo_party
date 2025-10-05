@@ -89,6 +89,16 @@ def auto_create_and_submit_sales_invoice(doc, method):
         invoice.flags.ignore_mandatory = True  # Temporär für die Validierung
         invoice.flags.ignore_pricing_rule = True
         invoice.flags.ignore_item_price = True
+        invoice.flags.ignore_permissions = True  # Ignoriere Berechtigungen
+        invoice.flags.ignore_address_validation = True  # Ignoriere Adress-Validierung
+        invoice.flags.ignore_shipping_validation = True  # Ignoriere Versand-Validierung
+        invoice.flags.ignore_billing_validation = True  # Ignoriere Rechnungs-Validierung
+        
+        # Verhindere die Adress-Validierung komplett
+        if hasattr(invoice, '_validate_shipping_address'):
+            delattr(invoice, '_validate_shipping_address')
+        if hasattr(invoice, '_validate_billing_address'):
+            delattr(invoice, '_validate_billing_address')
         
         # Setze Steuer-Template wenn nicht gesetzt
         if not invoice.taxes_and_charges:

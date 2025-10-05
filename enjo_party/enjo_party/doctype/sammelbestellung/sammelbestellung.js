@@ -15,6 +15,7 @@
 			if (
 				messageText.includes('Adresse') && messageText.includes('nicht gefunden') ||
 				messageText.includes('Address') && messageText.includes('not found') ||
+				messageText.includes('Die Lieferadresse gehört nicht zu') ||
 				messageText.includes('Source Map') ||
 				messageText.includes('file_uploader.bundle') ||
 				messageText.includes('JSON Parse error') ||

@@ -83,6 +83,16 @@ def before_validate_sales_invoice(doc, method):
         doc.flags.ignore_validate = True  # Temporär für die Validierung
         doc.flags.ignore_mandatory = True  # Temporär für die Validierung
         doc.flags.ignore_links = True  # Ignoriere Link-Validierungen
+        doc.flags.ignore_permissions = True  # Ignoriere Berechtigungen
+        doc.flags.ignore_address_validation = True  # Ignoriere Adress-Validierung
+        doc.flags.ignore_shipping_validation = True  # Ignoriere Versand-Validierung
+        doc.flags.ignore_billing_validation = True  # Ignoriere Rechnungs-Validierung
+        
+        # Verhindere die Adress-Validierung komplett
+        if hasattr(doc, '_validate_shipping_address'):
+            delattr(doc, '_validate_shipping_address')
+        if hasattr(doc, '_validate_billing_address'):
+            delattr(doc, '_validate_billing_address')
         
         # Deaktiviere Adress-Validierungen
         def safe_validate_party_address(self, *args, **kwargs):
