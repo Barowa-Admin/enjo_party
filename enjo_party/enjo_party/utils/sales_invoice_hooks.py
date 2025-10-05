@@ -577,7 +577,11 @@ def auto_create_picklist_from_invoice(doc, method):
     """
     Hook für Sales Invoice on_submit
     Erstellt automatisch eine Picklist für die eingereichte Sales Invoice
+    WICHTIG: Die Picklist wird IMMER nur als Entwurf erstellt, nie automatisch gebucht!
     """
+    # Sicherstellen, dass die Picklist nie automatisch gebucht wird
+    if method == "auto":
+        method = None
     try:
         # Prüfe ob bereits eine Picklist existiert
         existing_picklists = frappe.get_all(
@@ -716,6 +720,8 @@ def auto_create_picklist_from_invoice(doc, method):
         # Flags setzen um Lagerbestand-Validierung zu umgehen
         picklist.flags.ignore_permissions = True
         picklist.flags.ignore_mandatory = True
+        picklist.flags.ignore_validate = True  # Ignoriere alle Validierungen
+        picklist.docstatus = 0  # Explizit als Entwurf markieren
         
         # Überschreibe validate_for_qty um Lagerbestand-Prüfung zu umgehen
         def safe_validate_for_qty(self):
@@ -724,6 +730,7 @@ def auto_create_picklist_from_invoice(doc, method):
         import types
         picklist.validate_for_qty = types.MethodType(safe_validate_for_qty, picklist)
         
+        # Stelle sicher, dass die Picklist als Entwurf erstellt wird
         picklist.insert()
         
         # NICHT automatisch einreichen - da Artikel möglicherweise nicht lagernd sind

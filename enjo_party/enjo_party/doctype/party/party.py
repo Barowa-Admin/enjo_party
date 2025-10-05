@@ -1286,13 +1286,8 @@ def create_invoices(party, from_submit=False, from_button=False):
         # Wenn mindestens ein Auftrag erstellt wurde, Party-Status aktualisieren
         if created_orders:
             # NEU: Erstelle Picklists (Auswahllisten) nach Versandzielen gruppiert
-            try:
-                frappe.log_error(f"Starte Picklist Erstellung für {len(created_orders)} Aufträge", "INFO: picklist_start")
-                created_picklists = create_picklists_for_party(party_doc, all_orders_with_shipping, created_orders)
-                frappe.log_error(f"Picklists erstellt: {created_picklists}", "INFO: picklists_created")
-            except Exception as e:
-                frappe.log_error(f"Fehler bei Picklist Erstellung: {str(e)}", "ERROR: picklist_creation")
-                created_picklists = []  # Fallback für Fehlerfälle
+            # Picklist wird automatisch über Sales Order Hooks erstellt
+            created_picklists = []  # Fallback für Fehlerfälle
             
             # Status auf "Abgeschlossen" setzen
             party_doc.set_status = lambda: None  # Überschreibe die Methode temporär

@@ -814,13 +814,8 @@ def create_invoices(sammelbestellung, from_submit=False, from_button=False):
         
         # Wenn mindestens ein Auftrag erstellt wurde, Sammelbestellung-Status aktualisieren
         if created_orders:
-            try:
-                frappe.log_error(f"Starte Picklist Erstellung für {len(created_orders)} Aufträge", "INFO: picklist_start")
-                created_picklists = create_picklists_for_sammelbestellung(sammelbestellung_doc, all_orders_with_shipping, created_orders)
-                frappe.log_error(f"Picklists erstellt: {created_picklists}", "INFO: picklists_created")
-            except Exception as e:
-                frappe.log_error(f"Fehler bei Picklist Erstellung: {str(e)}", "ERROR: picklist_creation")
-                created_picklists = []
+            # Picklist wird automatisch über Sales Order Hooks erstellt
+            created_picklists = []
             
             sammelbestellung_doc.set_status = lambda: None
             sammelbestellung_doc.status = "Abgeschlossen"
