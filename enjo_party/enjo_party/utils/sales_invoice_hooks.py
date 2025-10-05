@@ -15,6 +15,11 @@ def before_validate_sales_invoice(doc, method):
     if doc.doctype != "Sales Invoice":
         return
     
+    # Ignoriere nur Preisregeln für Party/Sammelbestellung-Rechnungen (wie bei Party)
+    if hasattr(doc, "custom_party_reference") and doc.custom_party_reference:
+        doc.flags.ignore_pricing_rule = True
+        doc.flags.ignore_item_price = True
+    
     # NEU: Adress-Synchronisation im Entwurfsmodus
     if doc.docstatus == 0:  # Nur im Entwurfsmodus
         sync_addresses_in_draft(doc)
@@ -23,7 +28,7 @@ def before_validate_sales_invoice(doc, method):
     if doc.docstatus == 1 and hasattr(doc, '_doc_before_save'):
         sync_addresses_before_submit(doc)
     
-    # Prüfe, ob es sich um eine Party-Rechnung handelt und übertrage Party-Referenz
+    # Prüfe, ob es sich um eine Party/Sammelbestellung-Rechnung handelt und übertrage Referenz
     is_party_invoice = False
     party_reference = None
     
@@ -36,10 +41,10 @@ def before_validate_sales_invoice(doc, method):
                     party_reference = party_ref
                     break
     
-    # Setze Party-Referenz, falls noch nicht gesetzt
+    # Setze Party/Sammelbestellung-Referenz, falls noch nicht gesetzt
     if party_reference and not getattr(doc, "custom_party_reference", None):
         doc.custom_party_reference = party_reference
-        frappe.log_error(f"Party-Referenz {party_reference} zu Sales Invoice {doc.name} übertragen", "INFO: party_reference_transferred")
+        frappe.log_error(f"Party/Sammelbestellung-Referenz {party_reference} zu Sales Invoice {doc.name} übertragen", "INFO: party_reference_transferred")
     
     # Prüfe, ob fremde Lieferadresse verwendet wird
     is_foreign_shipping = False
@@ -61,13 +66,26 @@ def before_validate_sales_invoice(doc, method):
     # Deaktiviere Adressvalidierung wenn nötig
     if is_party_invoice or is_foreign_shipping:
         def safe_validate_party_address(self, *args, **kwargs):
+            frappe.log_error(f"✅ Überspringe validate_party_address für {self.customer}", "INFO: skip_party_address_validation")
             pass
         
         def safe_validate_party_address_and_contact(self):
+            frappe.log_error(f"✅ Überspringe validate_party_address_and_contact für {self.customer}", "INFO: skip_party_validation")
             pass
         
+        def safe_validate_shipping_address(self):
+            frappe.log_error(f"✅ Überspringe validate_shipping_address für {self.customer}", "INFO: skip_shipping_validation")
+            pass
+        
+        def safe_validate_billing_address(self):
+            frappe.log_error(f"✅ Überspringe validate_billing_address für {self.customer}", "INFO: skip_billing_validation")
+            pass
+        
+        # Überschreibe nur die Adress-Validierungsmethoden (wie bei Party)
         doc.validate_party_address = types.MethodType(safe_validate_party_address, doc)
         doc.validate_party_address_and_contact = types.MethodType(safe_validate_party_address_and_contact, doc)
+        doc.validate_shipping_address = types.MethodType(safe_validate_shipping_address, doc)
+        doc.validate_billing_address = types.MethodType(safe_validate_billing_address, doc)
 
 def sync_addresses_in_draft(doc):
     """

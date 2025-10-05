@@ -721,6 +721,9 @@ def create_invoices(sammelbestellung, from_submit=False, from_button=False):
                     "custom_party_reference": sammelbestellung,
                     "custom_calculated_shipping_cost": shipping_cost,
                     "sales_order": sammelbestellung_doc.name,
+                    # Steuer-Template korrekt setzen
+                    "taxes_and_charges": None,  # Wird automatisch von ERPNext gesetzt
+                    "selling_price_list": frappe.defaults.get_global_default("selling_price_list"),
                 }
                 
                 frappe.log_error(f"DEBUG: Order-Daten für {customer}: customer_address={billing_address}, shipping_address_name={shipping_address}", "DEBUG: order_data")
@@ -728,7 +731,8 @@ def create_invoices(sammelbestellung, from_submit=False, from_button=False):
                 
                 order = frappe.get_doc(order_data)
                 
-                # Preise aus dem Sammelbestellung-Dokument setzen
+                # WICHTIG: Nach der Erstellung die korrekten Preise aus dem Sammelbestellung-Dokument setzen
+                # um zu verhindern, dass Preise überschrieben werden
                 for i, item in enumerate(order.items):
                     original_product = products[i]
                     
@@ -755,6 +759,10 @@ def create_invoices(sammelbestellung, from_submit=False, from_button=False):
                             item.base_rate = original_product.rate
                             item.amount = flt(item.qty) * flt(original_product.rate) 
                             item.base_amount = item.amount
+                
+                # WICHTIG: Steuern und Totals korrekt berechnen (wie bei Party)
+                order.run_method("set_missing_values")
+                order.calculate_taxes_and_totals()
                 
                 frappe.log_error(f"DEBUG FINAL ORDER: Customer={order.customer}, Items={len(order.items)}", "DEBUG: final_order_data")
                 for i, item in enumerate(order.items):

@@ -22,12 +22,28 @@ frappe.ui.form.CustomerQuickEntryForm = class CustomerQuickEntryForm extends fra
 		this.mandatory = this.get_variant_fields();
 		super.render_dialog();
 		
-		// "Vollständiges Formular bearbeiten" Button verstecken
+		// "Vollständiges Formular bearbeiten" Button verstecken (DE + EN)
 		setTimeout(() => {
 			if (this.dialog && this.dialog.$wrapper) {
-				this.dialog.$wrapper.find('.edit-full').hide();
-				this.dialog.$wrapper.find('[data-label="Edit Full Form"]').hide();
-				this.dialog.$wrapper.find('button:contains("Vollständiges Formular bearbeiten")').hide();
+				// Alle möglichen Selektoren für den Button
+				const buttonSelectors = [
+					'.edit-full',                                      // CSS Klasse
+					'[data-label="Edit Full Form"]',                   // Data Attribut (EN)
+					'button:contains("Edit Full Form")',               // Button Text (EN)
+					'button:contains("Vollständiges Formular")',       // Button Text (DE)
+					'button:contains("Vollständiges Formular bearbeiten")', // Button Text (DE - alt)
+					'a:contains("Edit Full Form")',                    // Link Text (EN)
+					'a:contains("Vollständiges Formular")',            // Link Text (DE)
+					'a:contains("Vollständiges Formular bearbeiten")'  // Link Text (DE - alt)
+				];
+
+				// Jeden Selektor durchgehen und Element ausblenden falls gefunden
+				buttonSelectors.forEach(selector => {
+					const elements = this.dialog.$wrapper.find(selector);
+					if (elements.length) {
+						elements.hide();
+					}
+				});
 			}
 			
 			// Event-Handler für Kundentyp-Änderung
