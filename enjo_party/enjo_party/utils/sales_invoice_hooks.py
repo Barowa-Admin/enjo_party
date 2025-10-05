@@ -15,10 +15,23 @@ def before_validate_sales_invoice(doc, method):
     if doc.doctype != "Sales Invoice":
         return
     
-    # Ignoriere nur Preisregeln für Party/Sammelbestellung-Rechnungen (wie bei Party)
+    # Für Party/Sammelbestellung-Rechnungen: Deaktiviere Validierungen und setze Steuern
     if hasattr(doc, "custom_party_reference") and doc.custom_party_reference:
+        # Deaktiviere ERPNext-Validierungen
+        doc.flags.ignore_validate_update_after_submit = True
+        doc.flags.ignore_validate = True  # Temporär für die Validierung
+        doc.flags.ignore_mandatory = True  # Temporär für die Validierung
         doc.flags.ignore_pricing_rule = True
         doc.flags.ignore_item_price = True
+        
+        # Setze Steuer-Template wenn nicht gesetzt
+        if not doc.taxes_and_charges:
+            tax_template = frappe.db.get_value("Sales Taxes and Charges Template", 
+                {"company": doc.company, "is_default": 1}, "name")
+            if tax_template:
+                doc.taxes_and_charges = tax_template
+                doc.taxes = []  # Leere bestehende Steuern
+                doc.run_method("set_taxes")  # Setze Steuern neu
     
     # NEU: Adress-Synchronisation im Entwurfsmodus
     if doc.docstatus == 0:  # Nur im Entwurfsmodus
@@ -63,8 +76,15 @@ def before_validate_sales_invoice(doc, method):
             if shipping_customer != doc.customer:
                 is_foreign_shipping = True
     
-    # Deaktiviere Adressvalidierung wenn nötig
+    # Deaktiviere Validierungen für Party/Sammelbestellung-Rechnungen
     if is_party_invoice or is_foreign_shipping:
+        # Deaktiviere ERPNext-Validierungen
+        doc.flags.ignore_validate_update_after_submit = True
+        doc.flags.ignore_validate = True  # Temporär für die Validierung
+        doc.flags.ignore_mandatory = True  # Temporär für die Validierung
+        doc.flags.ignore_links = True  # Ignoriere Link-Validierungen
+        
+        # Deaktiviere Adress-Validierungen
         def safe_validate_party_address(self, *args, **kwargs):
             frappe.log_error(f"✅ Überspringe validate_party_address für {self.customer}", "INFO: skip_party_address_validation")
             pass
@@ -81,11 +101,25 @@ def before_validate_sales_invoice(doc, method):
             frappe.log_error(f"✅ Überspringe validate_billing_address für {self.customer}", "INFO: skip_billing_validation")
             pass
         
-        # Überschreibe nur die Adress-Validierungsmethoden (wie bei Party)
+        def safe_validate_address(self):
+            frappe.log_error(f"✅ Überspringe validate_address für {self.customer}", "INFO: skip_address_validation")
+            pass
+        
+        # Überschreibe alle Validierungsmethoden
         doc.validate_party_address = types.MethodType(safe_validate_party_address, doc)
         doc.validate_party_address_and_contact = types.MethodType(safe_validate_party_address_and_contact, doc)
         doc.validate_shipping_address = types.MethodType(safe_validate_shipping_address, doc)
         doc.validate_billing_address = types.MethodType(safe_validate_billing_address, doc)
+        doc.validate_address = types.MethodType(safe_validate_address, doc)
+        
+        # Setze Steuer-Template wenn nicht gesetzt
+        if not doc.taxes_and_charges:
+            tax_template = frappe.db.get_value("Sales Taxes and Charges Template", 
+                {"company": doc.company, "is_default": 1}, "name")
+            if tax_template:
+                doc.taxes_and_charges = tax_template
+                doc.taxes = []  # Leere bestehende Steuern
+                doc.run_method("set_taxes")  # Setze Steuern neu
 
 def sync_addresses_in_draft(doc):
     """

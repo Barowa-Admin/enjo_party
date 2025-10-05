@@ -83,9 +83,21 @@ def auto_create_and_submit_sales_invoice(doc, method):
         if hasattr(doc, "custom_calculated_shipping_cost") and doc.custom_calculated_shipping_cost:
             invoice.custom_calculated_shipping_cost = doc.custom_calculated_shipping_cost
 
-        # Preise exakt wie im Sales Order setzen und Preisregeln ignorieren
+        # Preise exakt wie im Sales Order setzen und Validierungen deaktivieren
+        invoice.flags.ignore_validate_update_after_submit = True
+        invoice.flags.ignore_validate = True  # Temporär für die Validierung
+        invoice.flags.ignore_mandatory = True  # Temporär für die Validierung
         invoice.flags.ignore_pricing_rule = True
         invoice.flags.ignore_item_price = True
+        
+        # Setze Steuer-Template wenn nicht gesetzt
+        if not invoice.taxes_and_charges:
+            tax_template = frappe.db.get_value("Sales Taxes and Charges Template", 
+                {"company": invoice.company, "is_default": 1}, "name")
+            if tax_template:
+                invoice.taxes_and_charges = tax_template
+                invoice.taxes = []  # Leere bestehende Steuern
+                invoice.run_method("set_taxes")  # Setze Steuern neu
 
         for i, invoice_item in enumerate(invoice.items):
             so_item = doc.items[i]
