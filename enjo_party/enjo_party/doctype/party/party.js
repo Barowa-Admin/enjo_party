@@ -128,13 +128,19 @@ function refreshButtons(frm) {
 		}
 	} else {
 		console.log("Dokument ist eingereicht (docstatus !== 0)");
-		// Für gebuchte Parties: "Zu den Aufträgen" Button anzeigen
+		// Für gebuchte Parties: "Zu den Aufträgen" und "Zu den Rechnungen" Buttons anzeigen
 		if (frm.doc.docstatus === 1) {
 			frm.add_custom_button(__("Zu den Aufträgen"), function() {
 				frappe.set_route("List", "Sales Order", {
 					"custom_party_reference": frm.doc.name
 				});
-			}).addClass("btn-primary");
+			});
+
+			frm.add_custom_button(__("Zu den Rechnungen"), function() {
+				frappe.set_route("List", "Sales Invoice", {
+					"custom_party_reference": frm.doc.name
+				});
+			});
 		}
 	}
 }

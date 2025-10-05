@@ -104,7 +104,13 @@ function refreshButtons(frm) {
 				frappe.set_route("List", "Sales Order", {
 					"custom_party_reference": frm.doc.name
 				});
-			}).addClass("btn-primary");
+			});
+
+			frm.add_custom_button(__("Zu den Rechnungen"), function() {
+				frappe.set_route("List", "Sales Invoice", {
+					"custom_party_reference": frm.doc.name
+				});
+			});
 		}
 	}
 }
