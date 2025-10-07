@@ -378,8 +378,8 @@ def get_current_customer_addresses(customer):
             "shipping_display": None
         }
 
-def after_save_sales_invoice(doc, method):
-    """Hook für Sales Invoice after_save - cleanup nicht nötig"""
+def after_insert_sales_invoice(doc, method):
+    """Hook für Sales Invoice after_insert - keine spezielle Logik mehr nötig"""
     pass
 
 def onload_sales_invoice(doc, method):

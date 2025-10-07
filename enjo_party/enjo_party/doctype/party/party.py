@@ -1552,8 +1552,7 @@ def find_existing_address(entity_name, preferred_type="Billing"):
             
     except Exception as e:
         frappe.log_error(f"❌ Kritischer Fehler beim Suchen von Adressen für '{entity_name}': {str(e)}\n{frappe.get_traceback()}", "ERROR: find_address_error")
-        return None
-    
+        return None    
     finally:
         frappe.log_error(f"=== find_existing_address ENDE für '{entity_name}' ===", "DEBUG: find_address_end")
 
@@ -1760,6 +1759,7 @@ def create_picklists_for_party(party_doc, all_orders_with_shipping, created_orde
 	except Exception as e:
 		frappe.log_error(f"💥 Allgemeiner Fehler in create_picklists_for_party: {str(e)}\n{frappe.get_traceback()}", "ERROR: picklist_function_error")
 		return []
+
 
 
 

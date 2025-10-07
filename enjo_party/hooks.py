@@ -164,6 +164,9 @@ doc_events = {
 	},
 	"Sales Order": {
 		"on_submit": "enjo_party.enjo_party.utils.sales_order_hooks.auto_create_and_submit_sales_invoice"
+	},
+	"Delivery Note": {
+		"before_validate": "enjo_party.enjo_party.utils.delivery_note_hooks.before_validate_delivery_note"
 	}
 }
 
