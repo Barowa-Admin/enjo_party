@@ -2470,10 +2470,13 @@ function calculate_party_totals(frm) {
 	// (um Gutschrift-reduzierten Gesamtumsatz zu bewahren)
 	if (!frm._skipTotalCalculation) {
 		frm.set_value('gesamtumsatz', total_amount);
-		
+
 		// Berechne Gutscheinwert basierend auf Präsentationsumsatz-Stufen
-		const gutschein_wert = calculate_gutschein_value(total_amount);
-		frm.set_value('gastgeber_gutschein_wert', gutschein_wert);
+		// NUR für Party-Dokumente (prüfe ob das Feld existiert)
+		if (frm.doc.gastgeberin && frm.fields_dict.gastgeber_gutschein_wert) {
+			const gutschein_wert = calculate_gutschein_value(total_amount);
+			frm.set_value('gastgeber_gutschein_wert', gutschein_wert);
+		}
 	}
 }
 
