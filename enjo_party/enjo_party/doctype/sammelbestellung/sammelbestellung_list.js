@@ -3,6 +3,39 @@
 
 frappe.listview_settings['Sammelbestellung'] = {
     refresh: function(listview) {
+        // CSS für bessere Formatierung der Listenansicht
+        function addListFormattingCSS() {
+            if (document.getElementById('sammelbestellung-list-css')) {
+                return;
+            }
+            
+            let css = `
+                /* Fix für Sammelbestellung Listenansicht - Abstand links */
+                .list-container .list-row-head {
+                    padding-left: 15px !important;
+                }
+                
+                /* Sicherstellen, dass die Header-Zeile korrekt formatiert ist */
+                .list-container .list-row-head .list-row-col {
+                    padding-left: 8px !important;
+                }
+                
+                /* Zusätzlicher Abstand für die erste Spalte */
+                .list-container .list-row-head .list-row-col:first-child {
+                    padding-left: 15px !important;
+                }
+            `;
+            
+            let style = document.createElement('style');
+            style.id = 'sammelbestellung-list-css';
+            style.type = 'text/css';
+            style.innerHTML = css;
+            document.head.appendChild(style);
+        }
+        
+        // CSS hinzufügen
+        addListFormattingCSS();
+        
         // Titel-Anpassungen
         function changeTitleToSammelbestellung() {
             if (document.title.includes('Sammelbestellung')) {
