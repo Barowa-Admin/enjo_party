@@ -27,9 +27,46 @@ def auto_create_and_submit_sales_invoice(doc, method):
         frappe.log_error("AUTO SALES INVOICE HOOKS ist aktuell deaktiviert (ENABLE_AUTO_SALES_INVOICE_HOOKS = False)", "INFO: auto_invoice_hooks_deactivated")
         return
 
-    # Prüfe ob es ein Partner-Auftrag ist (po_no enthält "-SHIP-")
+    # Prüfe ob es ein Partner-Auftrag ist
+    is_partner_order = False
+    
+    # 1. Prüfe po_no enthält "-SHIP-" (alte Logik)
     if doc.po_no and "-SHIP-" in doc.po_no:
-        frappe.log_error(f"Partner-Auftrag {doc.name} - überspringe Ausgangsrechnung", "INFO: skip_partner_invoice")
+        is_partner_order = True
+        frappe.log_error(f"Partner-Auftrag erkannt (po_no): {doc.name}", "DEBUG: partner_order_po_no")
+    
+    # 2. Prüfe ob es ein Partner-Auftrag aus Sammelbestellung ist
+    elif (doc.po_no and 
+          doc.custom_party_reference and 
+          frappe.db.exists("Sammelbestellung", doc.custom_party_reference)):
+        
+        # Prüfe ob der Kunde die Partnerin der Sammelbestellung ist
+        try:
+            sammelbestellung_doc = frappe.get_doc("Sammelbestellung", doc.custom_party_reference)
+            if sammelbestellung_doc.partnerin == doc.customer:
+                is_partner_order = True
+                frappe.log_error(f"Partner-Auftrag aus Sammelbestellung erkannt: {doc.name} (Partnerin: {doc.customer})", "DEBUG: partner_order_sammelbestellung")
+        except Exception as e:
+            frappe.log_error(f"Fehler beim Prüfen der Sammelbestellung: {str(e)}", "ERROR: sammelbestellung_check")
+    
+    # 3. Prüfe ob es ein Partner-Auftrag aus Party ist
+    elif (doc.po_no and 
+          doc.custom_party_reference and 
+          frappe.db.exists("Party", doc.custom_party_reference)):
+        
+        # Prüfe ob der Kunde die Gastgeberin der Party ist
+        try:
+            party_doc = frappe.get_doc("Party", doc.custom_party_reference)
+            if party_doc.gastgeberin == doc.customer:
+                is_partner_order = True
+                frappe.log_error(f"Partner-Auftrag aus Party erkannt: {doc.name} (Gastgeberin: {doc.customer})", "DEBUG: partner_order_party")
+        except Exception as e:
+            frappe.log_error(f"Fehler beim Prüfen der Party: {str(e)}", "ERROR: party_check")
+    
+    if is_partner_order:
+        frappe.log_error(f"Partner-Auftrag {doc.name} - überspringe Ausgangsrechnung, erstelle aber Packliste und Lieferschein", "INFO: skip_partner_invoice")
+        # Erstelle Packliste und Lieferschein für Partner-Auftrag (ohne Ausgangsrechnung)
+        create_picklist_and_delivery_note_for_partner_order(doc)
         return
 
     try:
@@ -733,4 +770,100 @@ def create_partner_order(original_order_doc, partner_name):
 
     except Exception as e:
         frappe.log_error(f"Allgemeiner Fehler beim Erstellen des Partner-Auftrags für {partner_name}: {str(e)}", "ERROR: create_partner_order_failed")
+        return None
+
+
+def create_picklist_and_delivery_note_for_partner_order(sales_order_doc):
+    """
+    Erstellt Packliste und Lieferschein für Partner-Aufträge (ohne Ausgangsrechnung).
+    Beide werden als Entwurf gespeichert.
+    """
+    try:
+        frappe.log_error(f"Erstelle Packliste und Lieferschein für Partner-Auftrag {sales_order_doc.name}", "INFO: create_partner_docs")
+        
+        # 1. Erstelle Lieferschein (Delivery Note)
+        if ENABLE_AUTO_DELIVERY_NOTE:
+            try:
+                dn = create_delivery_note_for_sales_order(sales_order_doc)
+                if dn:
+                    frappe.log_error(f"Lieferschein für Partner-Auftrag erstellt: {dn.name}", "SUCCESS: partner_delivery_note_created")
+                else:
+                    frappe.log_error(f"Lieferschein für Partner-Auftrag konnte nicht erstellt werden", "WARNING: partner_delivery_note_failed")
+            except Exception as e:
+                frappe.log_error(f"Fehler beim Erstellen des Lieferscheins für Partner-Auftrag {sales_order_doc.name}: {str(e)}", "ERROR: partner_delivery_note_error")
+        
+        # 2. Erstelle Packliste (Pick List)
+        if ENABLE_AUTO_PICKLIST:
+            try:
+                # Erstelle eine temporäre "Dummy"-Sales Invoice für die Packlisten-Erstellung
+                # (da die Packlisten-Funktion eine Sales Invoice erwartet)
+                dummy_invoice = create_dummy_invoice_for_picklist(sales_order_doc)
+                if dummy_invoice:
+                    from enjo_party.enjo_party.utils.sales_invoice_hooks import auto_create_picklist_from_invoice
+                    auto_create_picklist_from_invoice(dummy_invoice, "auto")
+                    frappe.log_error(f"Packliste für Partner-Auftrag erstellt", "SUCCESS: partner_picklist_created")
+                    
+                    # Lösche die Dummy-Invoice wieder
+                    frappe.delete_doc("Sales Invoice", dummy_invoice.name, ignore_permissions=True)
+                    frappe.log_error(f"Dummy-Invoice {dummy_invoice.name} gelöscht", "INFO: dummy_invoice_deleted")
+                else:
+                    frappe.log_error(f"Dummy-Invoice für Packliste konnte nicht erstellt werden", "WARNING: dummy_invoice_failed")
+            except Exception as e:
+                frappe.log_error(f"Fehler beim Erstellen der Packliste für Partner-Auftrag {sales_order_doc.name}: {str(e)}", "ERROR: partner_picklist_error")
+        
+    except Exception as e:
+        frappe.log_error(f"Allgemeiner Fehler beim Erstellen der Dokumente für Partner-Auftrag {sales_order_doc.name}: {str(e)}", "ERROR: partner_docs_creation_failed")
+
+
+def create_dummy_invoice_for_picklist(sales_order_doc):
+    """
+    Erstellt eine temporäre Dummy-Sales Invoice für die Packlisten-Erstellung.
+    Diese wird nach der Packlisten-Erstellung wieder gelöscht.
+    """
+    try:
+        # Erstelle Dummy-Sales Invoice
+        dummy_invoice_data = {
+            "doctype": "Sales Invoice",
+            "customer": sales_order_doc.customer,
+            "posting_date": today(),
+            "due_date": today(),
+            "items": [
+                {
+                    "doctype": "Sales Invoice Item",
+                    "item_code": item.item_code,
+                    "item_name": item.item_name,
+                    "qty": item.qty,
+                    "rate": item.rate,
+                    "amount": item.amount,
+                    "uom": item.uom,
+                    "stock_uom": item.stock_uom,
+                    "conversion_factor": item.conversion_factor,
+                    "stock_qty": item.stock_qty,
+                    "base_amount": item.base_amount,
+                    "base_rate": item.base_rate,
+                    "warehouse": item.warehouse,
+                    "delivery_date": item.delivery_date,
+                    "sales_order": sales_order_doc.name,
+                    "sales_order_item": item.name
+                } for item in sales_order_doc.items
+            ],
+            "customer_address": sales_order_doc.customer_address,
+            "shipping_address_name": sales_order_doc.shipping_address_name,
+            "remarks": f"Dummy-Invoice für Packliste (Partner-Auftrag: {sales_order_doc.name})",
+            "po_no": sales_order_doc.po_no,
+            "company": sales_order_doc.company,
+            "currency": sales_order_doc.currency,
+            "status": "Draft",
+            "custom_party_reference": sales_order_doc.custom_party_reference,
+            "taxes_and_charges": None,
+            "selling_price_list": sales_order_doc.selling_price_list,
+        }
+        
+        dummy_invoice = frappe.get_doc(dummy_invoice_data)
+        dummy_invoice.insert()
+        frappe.log_error(f"Dummy-Invoice erstellt: {dummy_invoice.name}", "INFO: dummy_invoice_created")
+        return dummy_invoice
+        
+    except Exception as e:
+        frappe.log_error(f"Fehler beim Erstellen der Dummy-Invoice: {str(e)}", "ERROR: dummy_invoice_creation_failed")
         return None 

@@ -814,6 +814,15 @@ def create_invoices(sammelbestellung, from_submit=False, from_button=False):
         
         # Wenn mindestens ein Auftrag erstellt wurde, Sammelbestellung-Status aktualisieren
         if created_orders:
+            # Partner-Auftrag erstellen (falls Produkte an Partnerin gehen)
+            try:
+                partner_order = create_single_partner_order_for_sammelbestellung(sammelbestellung_doc, all_orders_with_shipping)
+                if partner_order:
+                    created_orders.append(partner_order)
+                    frappe.log_error(f"Partner-Auftrag erstellt: {partner_order}", "SUCCESS: partner_order_created")
+            except Exception as e:
+                frappe.log_error(f"Fehler beim Erstellen des Partner-Auftrags: {str(e)}", "ERROR: partner_order_failed")
+            
             # Picklist wird automatisch über Sales Order Hooks erstellt
             created_picklists = []
             
@@ -1222,4 +1231,113 @@ def create_picklists_for_sammelbestellung(sammelbestellung_doc, all_orders_with_
 	except Exception as e:
 		frappe.log_error(f"💥 Allgemeiner Fehler in create_picklists_for_sammelbestellung: {str(e)}\n{frappe.get_traceback()}", "ERROR: picklist_function_error")
 		return []
+
+
+def create_single_partner_order_for_sammelbestellung(sammelbestellung_doc, all_orders_with_shipping):
+    """
+    Erstellt EINEN einzigen Partner-Auftrag für alle Produkte, die an die Partnerin gehen.
+    Nur erstellt, wenn tatsächlich Produkte an die Partnerin geschickt werden.
+    """
+    try:
+        # Prüfe ob es eine Partnerin gibt
+        if not sammelbestellung_doc.partnerin:
+            frappe.log_error("Keine Partnerin in Sammelbestellung - kein Partner-Auftrag nötig", "INFO: no_partnerin")
+            return None
+        
+        # Sammle alle Produkte, die an die Partnerin gehen
+        partner_products = []
+        
+        for order_info in all_orders_with_shipping:
+            customer = order_info.get('customer')
+            shipping_target = order_info.get('shipping_target')
+            products = order_info.get('products', [])
+            
+            # Nur wenn das Versandziel die Partnerin ist
+            if shipping_target == sammelbestellung_doc.partnerin:
+                frappe.log_error(f"Kunde {customer} sendet an Partnerin {shipping_target} - {len(products)} Produkte", "DEBUG: partner_shipping")
+                
+                # Füge alle Produkte hinzu (außer Versandkosten)
+                for product in products:
+                    if product.get('item_code') and not product.get('item_code', '').startswith('shipping-'):
+                        partner_products.append(product)
+                        frappe.log_error(f"  -> Produkt hinzugefügt: {product.get('item_code')} x{product.get('qty')}", "DEBUG: product_added")
+        
+        # Wenn keine Produkte an die Partnerin gehen, keinen Partner-Auftrag erstellen
+        if not partner_products:
+            frappe.log_error("Keine Produkte gehen an die Partnerin - kein Partner-Auftrag nötig", "INFO: no_partner_products")
+            return None
+        
+        frappe.log_error(f"Erstelle Partner-Auftrag für Partnerin {sammelbestellung_doc.partnerin} mit {len(partner_products)} Produkten", "INFO: create_partner_order")
+        
+        # Hole Partner-Adresse
+        try:
+            partner_address = frappe.db.get_value("Address", 
+                {"customer": sammelbestellung_doc.partnerin, "is_primary_address": 1}, 
+                "name")
+            if not partner_address:
+                partner_address = frappe.db.get_value("Address", 
+                    {"customer": sammelbestellung_doc.partnerin}, 
+                    "name", order_by="creation desc")
+        except Exception as e:
+            frappe.log_error(f"Partner-Adresse nicht gefunden: {str(e)}", "WARNING: partner_address_not_found")
+            partner_address = None
+        
+        # Hole Dummy-Artikel "Partnerversand"
+        dummy_item_code = "Partnerversand"
+        try:
+            dummy_item = frappe.get_doc("Item", dummy_item_code)
+        except Exception as e:
+            frappe.log_error(f"Dummy-Artikel {dummy_item_code} nicht gefunden: {str(e)}", "ERROR: dummy_item_not_found")
+            return None
+        
+        # Erstelle Sales Order für die Partnerin
+        partner_order_data = {
+            "doctype": "Sales Order",
+            "customer": sammelbestellung_doc.partnerin,
+            "transaction_date": today(),
+            "delivery_date": today(),
+            "items": [
+                {
+                    "doctype": "Sales Order Item",
+                    "item_code": dummy_item_code,
+                    "item_name": dummy_item.item_name,
+                    "qty": 1,
+                    "rate": 0,  # Kostenloser Dummy-Artikel
+                    "amount": 0,
+                    "uom": dummy_item.stock_uom or "Stk",
+                    "stock_uom": dummy_item.stock_uom or "Stk",
+                    "conversion_factor": 1.0,
+                    "stock_qty": 1.0,
+                    "base_amount": 0,
+                    "base_rate": 0,
+                    "warehouse": get_default_warehouse(),
+                    "delivery_date": today(),
+                }
+            ],
+            "customer_address": partner_address,
+            "shipping_address_name": partner_address,
+            "remarks": f"Partner-Versandauftrag aus Sammelbestellung: {sammelbestellung_doc.name} | Partnerin: {sammelbestellung_doc.partnerin} | {len(partner_products)} Produkte",
+            "po_no": sammelbestellung_doc.name,
+            "company": frappe.defaults.get_global_default("company"),
+            "currency": frappe.defaults.get_global_default("currency"),
+            "status": "Draft",
+            "order_type": "Sales",
+            "custom_party_reference": sammelbestellung_doc.name,
+            "custom_calculated_shipping_cost": 0.0,
+            "sales_order": sammelbestellung_doc.name,
+            "taxes_and_charges": None,
+            "selling_price_list": frappe.defaults.get_global_default("selling_price_list"),
+        }
+        
+        # Erstelle und buche den Partner-Auftrag
+        partner_order = frappe.get_doc(partner_order_data)
+        partner_order.insert()
+        partner_order.submit()
+        
+        frappe.log_error(f"Partner-Auftrag erfolgreich erstellt und gebucht: {partner_order.name}", "SUCCESS: partner_order_created")
+        return partner_order.name
+        
+    except Exception as e:
+        frappe.log_error(f"Fehler beim Erstellen des Partner-Auftrags: {str(e)}", "ERROR: partner_order_creation_failed")
+        return None
 
