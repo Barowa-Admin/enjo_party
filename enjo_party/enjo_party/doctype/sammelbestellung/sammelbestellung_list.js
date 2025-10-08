@@ -3,25 +3,47 @@
 
 frappe.listview_settings['Sammelbestellung'] = {
     refresh: function(listview) {
-        // CSS für bessere Formatierung der Listenansicht
+        // CSS für bessere Formatierung der Listenansicht - wie bei Party
         function addListFormattingCSS() {
             if (document.getElementById('sammelbestellung-list-css')) {
                 return;
             }
             
             let css = `
-                /* Fix für Sammelbestellung Listenansicht - Abstand links */
+                /* Fix für Sammelbestellung Listenansicht - Abstand links wie bei Party */
                 .list-container .list-row-head {
+                    padding-left: 15px !important;
+                    margin-left: 0 !important;
+                }
+                
+                /* Alle Header-Spalten */
+                .list-container .list-row-head .list-row-col {
+                    padding-left: 8px !important;
+                    margin-left: 0 !important;
+                }
+                
+                /* Erste Spalte extra Abstand */
+                .list-container .list-row-head .list-row-col:first-child {
                     padding-left: 15px !important;
                 }
                 
-                /* Sicherstellen, dass die Header-Zeile korrekt formatiert ist */
-                .list-container .list-row-head .list-row-col {
+                /* Alternative Selektoren für verschiedene ERPNext Versionen */
+                .list-view .list-row-head {
+                    padding-left: 15px !important;
+                }
+                
+                .list-view .list-row-head .list-row-col {
                     padding-left: 8px !important;
                 }
                 
-                /* Zusätzlicher Abstand für die erste Spalte */
-                .list-container .list-row-head .list-row-col:first-child {
+                .list-view .list-row-head .list-row-col:first-child {
+                    padding-left: 15px !important;
+                }
+                
+                /* Noch mehr alternative Selektoren */
+                .list-container .list-row-head,
+                .list-view .list-row-head,
+                .list-row-head {
                     padding-left: 15px !important;
                 }
             `;
@@ -35,6 +57,30 @@ frappe.listview_settings['Sammelbestellung'] = {
         
         // CSS hinzufügen
         addListFormattingCSS();
+        
+        // JavaScript Fix für Header-Formatierung - direkter Ansatz
+        function fixHeaderFormatting() {
+            // Finde alle Header-Zeilen und setze Abstand
+            $('.list-row-head').each(function() {
+                $(this).css('padding-left', '15px');
+            });
+            
+            // Finde alle Header-Spalten und setze Abstand
+            $('.list-row-head .list-row-col').each(function() {
+                $(this).css('padding-left', '8px');
+            });
+            
+            // Erste Spalte extra Abstand
+            $('.list-row-head .list-row-col:first-child').each(function() {
+                $(this).css('padding-left', '15px');
+            });
+        }
+        
+        // Formatierung sofort und nach Verzögerung anwenden
+        fixHeaderFormatting();
+        setTimeout(fixHeaderFormatting, 100);
+        setTimeout(fixHeaderFormatting, 500);
+        setTimeout(fixHeaderFormatting, 1000);
         
         // Titel-Anpassungen
         function changeTitleToSammelbestellung() {
