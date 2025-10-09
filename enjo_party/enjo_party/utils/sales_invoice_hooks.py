@@ -11,9 +11,17 @@ def before_validate_sales_invoice(doc, method):
     Umgeht die Adress-Validierung für Party-Rechnungen und fremde Lieferadressen
     Überträgt Party-Referenz von Sales Order zu Sales Invoice
     Aktualisiert Adressen automatisch im Entwurfsmodus
+    Setzt custom_auftrag Feld aus Sales Order
     """
     if doc.doctype != "Sales Invoice":
         return
+    
+    # Setze custom_auftrag Feld aus Sales Order
+    if doc.items and not doc.custom_auftrag:
+        for item in doc.items:
+            if item.sales_order:
+                doc.custom_auftrag = item.sales_order
+                break
     
     # Für Party/Sammelbestellung-Rechnungen: Deaktiviere Validierungen und setze Steuern
     if hasattr(doc, "custom_party_reference") and doc.custom_party_reference:

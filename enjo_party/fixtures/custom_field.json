@@ -61,5 +61,16 @@
   "read_only": 1,
   "hidden": 0,
   "insert_after": "po_no"
+ },
+ {
+  "doctype": "Custom Field",
+  "name": "Sales Invoice-custom_auftrag",
+  "dt": "Sales Invoice",
+  "fieldname": "custom_auftrag",
+  "fieldtype": "Data",
+  "label": "Auftrag",
+  "read_only": 1,
+  "hidden": 0,
+  "insert_after": "custom_party_reference"
  }
 ] 

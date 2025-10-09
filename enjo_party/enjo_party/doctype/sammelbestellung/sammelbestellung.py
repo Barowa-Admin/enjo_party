@@ -6,6 +6,36 @@ from frappe.model.document import Document
 from frappe.utils import flt, today
 
 
+def get_default_warehouse():
+    """
+    Holt das Standard-Lager für das aktuelle Unternehmen.
+    """
+    try:
+        company = frappe.defaults.get_global_default("company")
+        if company:
+            # Versuche das Standard-Lager für das Unternehmen zu finden
+            warehouse = frappe.db.get_value("Warehouse", 
+                {"company": company, "is_group": 0}, 
+                "name", 
+                order_by="creation desc")
+            if warehouse:
+                return warehouse
+        
+        # Fallback: Erstes verfügbares Lager
+        warehouse = frappe.db.get_value("Warehouse", 
+            {"is_group": 0}, 
+            "name", 
+            order_by="creation desc")
+        if warehouse:
+            return warehouse
+            
+        # Letzter Fallback
+        return "Stores - " + (company or "Default")
+        
+    except Exception:
+        return "Stores - Default"
+
+
 class Sammelbestellung(Document):
 	def before_validate(self):
 		"""
@@ -823,8 +853,18 @@ def create_invoices(sammelbestellung, from_submit=False, from_button=False):
             except Exception as e:
                 frappe.log_error(f"Fehler beim Erstellen des Partner-Auftrags: {str(e)}", "ERROR: partner_order_failed")
             
-            # Picklist wird automatisch über Sales Order Hooks erstellt
-            created_picklists = []
+            # Pick Lists nach Versandzielen erstellen (nur für Kunden, die Produkte empfangen)
+            try:
+                created_picklists = create_picklists_for_sammelbestellung(sammelbestellung_doc, all_orders_with_shipping, created_orders)
+            except Exception as e:
+                frappe.log_error(f"Fehler beim Erstellen der Pick Lists: {str(e)}", "ERROR: picklist_creation_failed")
+                created_picklists = []
+            
+            # Delivery Notes für Kunden erstellen, die Produkte empfangen
+            try:
+                create_delivery_notes_for_receiving_customers(sammelbestellung_doc, all_orders_with_shipping, created_orders)
+            except Exception as e:
+                frappe.log_error(f"Fehler beim Erstellen der Delivery Notes: {str(e)}", "ERROR: delivery_notes_failed")
             
             sammelbestellung_doc.set_status = lambda: None
             sammelbestellung_doc.status = "Abgeschlossen"
@@ -1282,15 +1322,7 @@ def create_single_partner_order_for_sammelbestellung(sammelbestellung_doc, all_o
             frappe.log_error(f"Partner-Adresse nicht gefunden: {str(e)}", "WARNING: partner_address_not_found")
             partner_address = None
         
-        # Hole Dummy-Artikel "Partnerversand"
-        dummy_item_code = "Partnerversand"
-        try:
-            dummy_item = frappe.get_doc("Item", dummy_item_code)
-        except Exception as e:
-            frappe.log_error(f"Dummy-Artikel {dummy_item_code} nicht gefunden: {str(e)}", "ERROR: dummy_item_not_found")
-            return None
-        
-        # Erstelle Sales Order für die Partnerin
+        # Erstelle Sales Order für die Partnerin mit echten Produkten
         partner_order_data = {
             "doctype": "Sales Order",
             "customer": sammelbestellung_doc.partnerin,
@@ -1299,20 +1331,20 @@ def create_single_partner_order_for_sammelbestellung(sammelbestellung_doc, all_o
             "items": [
                 {
                     "doctype": "Sales Order Item",
-                    "item_code": dummy_item_code,
-                    "item_name": dummy_item.item_name,
-                    "qty": 1,
-                    "rate": 0,  # Kostenloser Dummy-Artikel
-                    "amount": 0,
-                    "uom": dummy_item.stock_uom or "Stk",
-                    "stock_uom": dummy_item.stock_uom or "Stk",
-                    "conversion_factor": 1.0,
-                    "stock_qty": 1.0,
-                    "base_amount": 0,
-                    "base_rate": 0,
-                    "warehouse": get_default_warehouse(),
-                    "delivery_date": today(),
-                }
+                    "item_code": product.get('item_code'),
+                    "item_name": product.get('item_name', product.get('item_code')),
+                    "qty": product.get('qty', 1),
+                    "rate": product.get('rate', 0),
+                    "amount": product.get('amount', 0),
+                    "uom": product.get('uom', 'Stk'),
+                    "stock_uom": product.get('stock_uom', 'Stk'),
+                    "conversion_factor": product.get('conversion_factor', 1.0),
+                    "stock_qty": product.get('stock_qty', product.get('qty', 1)),
+                    "base_amount": product.get('base_amount', product.get('amount', 0)),
+                    "base_rate": product.get('base_rate', product.get('rate', 0)),
+                    "warehouse": product.get('warehouse', get_default_warehouse()),
+                    "delivery_date": product.get('delivery_date', today()),
+                } for product in partner_products
             ],
             "customer_address": partner_address,
             "shipping_address_name": partner_address,
@@ -1340,4 +1372,147 @@ def create_single_partner_order_for_sammelbestellung(sammelbestellung_doc, all_o
     except Exception as e:
         frappe.log_error(f"Fehler beim Erstellen des Partner-Auftrags: {str(e)}", "ERROR: partner_order_creation_failed")
         return None
+
+
+def create_delivery_notes_for_receiving_customers(sammelbestellung_doc, all_orders_with_shipping, created_orders):
+    """
+    Erstellt Delivery Notes für Kunden, die Produkte empfangen.
+    Gruppiert nach Versandziel (shipping_target).
+    """
+    try:
+        # Gruppiere nach Versandziel
+        shipping_groups = {}
+        
+        for order_info in all_orders_with_shipping:
+            customer = order_info["customer"]
+            shipping_target = order_info["shipping_target"]
+            
+            # Finde den Sales Order für diesen Kunden
+            sales_order_name = None
+            for order_name in created_orders:
+                try:
+                    order_doc = frappe.get_doc("Sales Order", order_name)
+                    if order_doc.customer == customer:
+                        sales_order_name = order_name
+                        break
+                except:
+                    continue
+            
+            if sales_order_name:
+                if shipping_target not in shipping_groups:
+                    shipping_groups[shipping_target] = []
+                shipping_groups[shipping_target].append({
+                    "customer": customer,
+                    "sales_order": sales_order_name,
+                    "order_info": order_info
+                })
+        
+        frappe.log_error(f"📦 Delivery Note Shipping Groups: {list(shipping_groups.keys())}", "INFO: delivery_note_groups")
+        
+        created_delivery_notes = []
+        
+        for shipping_target, orders_for_target in shipping_groups.items():
+            try:
+                frappe.log_error(f"🏭 Erstelle Delivery Note für Versandziel: {shipping_target}", "INFO: creating_delivery_note")
+                
+                # Sammle alle Produkte für dieses Versandziel
+                all_products = []
+                invoice_data = []
+                order_numbers = []
+                
+                for order_data in orders_for_target:
+                    customer = order_data["customer"]
+                    sales_order_name = order_data["sales_order"]
+                    order_info = order_data["order_info"]
+                    products = order_info.get("products", [])
+                    
+                    order_numbers.append(sales_order_name)
+                    
+                    # Füge alle Produkte hinzu (außer Versandkosten)
+                    for product in products:
+                        if product.get('item_code') and not product.get('item_code', '').startswith('shipping-'):
+                            all_products.append({
+                                'product': product,
+                                'from_customer': customer,
+                                'sales_order': sales_order_name
+                            })
+                
+                if not all_products:
+                    frappe.log_error(f"⚠️ Keine Produkte für Versandziel {shipping_target} gefunden", "WARNING: no_delivery_note_products")
+                    continue
+                
+                # Finde den Sales Order für das Versandziel (für Adressdaten)
+                target_sales_order = None
+                for order_name in created_orders:
+                    try:
+                        order_doc = frappe.get_doc("Sales Order", order_name)
+                        if order_doc.customer == shipping_target:
+                            target_sales_order = order_doc
+                            break
+                    except:
+                        continue
+                
+                if not target_sales_order:
+                    frappe.log_error(f"Kein Sales Order für Versandziel {shipping_target} gefunden", "WARNING: no_target_sales_order")
+                    continue
+                
+                # Erstelle Delivery Note
+                delivery_note_data = {
+                    "doctype": "Delivery Note",
+                    "customer": shipping_target,
+                    "posting_date": today(),
+                    "posting_time": frappe.utils.nowtime(),
+                    "items": [
+                        {
+                            "doctype": "Delivery Note Item",
+                            "item_code": item['product'].get('item_code'),
+                            "item_name": item['product'].get('item_name', item['product'].get('item_code')),
+                            "qty": item['product'].get('qty', 1),
+                            "rate": item['product'].get('rate', 0),
+                            "amount": item['product'].get('amount', 0),
+                            "uom": item['product'].get('uom', 'Stk'),
+                            "stock_uom": item['product'].get('stock_uom', 'Stk'),
+                            "conversion_factor": item['product'].get('conversion_factor', 1.0),
+                            "stock_qty": item['product'].get('stock_qty', item['product'].get('qty', 1)),
+                            "base_amount": item['product'].get('base_amount', item['product'].get('amount', 0)),
+                            "base_rate": item['product'].get('base_rate', item['product'].get('rate', 0)),
+                            "warehouse": item['product'].get('warehouse', get_default_warehouse()),
+                            "delivery_date": item['product'].get('delivery_date', today()),
+                            "sales_order": item['sales_order'],
+                            "sales_order_item": None,
+                        } for item in all_products
+                    ],
+                    "customer_address": target_sales_order.customer_address,
+                    "shipping_address_name": target_sales_order.shipping_address_name,
+                    "remarks": f"Delivery Note aus Sammelbestellung: {sammelbestellung_doc.name} | Versandziel: {shipping_target} | {len(all_products)} Produkte von {len(orders_for_target)} Kunden",
+                    "po_no": target_sales_order.po_no,
+                    "company": target_sales_order.company,
+                    "currency": target_sales_order.currency,
+                    "status": "Draft",
+                    "custom_party_reference": target_sales_order.custom_party_reference,
+                    "taxes_and_charges": None,
+                    "selling_price_list": target_sales_order.selling_price_list,
+                }
+                
+                delivery_note = frappe.get_doc(delivery_note_data)
+                delivery_note.insert()
+                frappe.log_error(f"✅ Delivery Note erstellt: {delivery_note.name} für {shipping_target}", "SUCCESS: delivery_note_created")
+                
+                # Delivery Note NICHT einreichen - nur als Entwurf speichern
+                # Das Buchen kommt später von woanders
+                
+                created_delivery_notes.append(delivery_note.name)
+                
+            except Exception as e:
+                frappe.log_error(f"❌ Fehler beim Erstellen der Delivery Note für {shipping_target}: {str(e)}", "ERROR: delivery_note_creation_error")
+                continue
+        
+        frappe.log_error(f"🎉 Delivery Notes erstellt: {created_delivery_notes}", "SUCCESS: all_delivery_notes_created")
+        return created_delivery_notes
+        
+    except Exception as e:
+        frappe.log_error(f"💥 Allgemeiner Fehler in create_delivery_notes_for_receiving_customers: {str(e)}\n{frappe.get_traceback()}", "ERROR: delivery_note_function_error")
+        return []
+
+
 
