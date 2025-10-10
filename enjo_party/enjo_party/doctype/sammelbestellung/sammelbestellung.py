@@ -853,12 +853,19 @@ def create_invoices(sammelbestellung, from_submit=False, from_button=False):
             except Exception as e:
                 frappe.log_error(f"Fehler beim Erstellen des Partner-Auftrags: {str(e)}", "ERROR: partner_order_failed")
             
-            # Pick Lists nach Versandzielen erstellen (nur für Kunden, die Produkte empfangen)
+            # Versandaufträge für andere Kunden erstellen (falls Produkte an andere Kunden gehen)
             try:
-                created_picklists = create_picklists_for_sammelbestellung(sammelbestellung_doc, all_orders_with_shipping, created_orders)
+                shipping_orders = create_shipping_orders_for_customers(sammelbestellung_doc, all_orders_with_shipping)
+                if shipping_orders:
+                    created_orders.extend(shipping_orders)
+                    frappe.log_error(f"Versandaufträge erstellt: {shipping_orders}", "SUCCESS: shipping_orders_created")
             except Exception as e:
-                frappe.log_error(f"Fehler beim Erstellen der Pick Lists: {str(e)}", "ERROR: picklist_creation_failed")
-                created_picklists = []
+                frappe.log_error(f"Fehler beim Erstellen der Versandaufträge: {str(e)}", "ERROR: shipping_orders_failed")
+            
+            # Pick Lists werden jetzt über das Versandauftrag-System erstellt
+            # (automatische Picklist-Erstellung deaktiviert)
+            frappe.log_error("Picklists werden über Versandauftrag-System erstellt", "INFO: picklists_via_shipping_orders")
+            created_picklists = []
             
             # Delivery Notes für Kunden erstellen, die Produkte empfangen
             try:
@@ -884,8 +891,9 @@ def create_invoices(sammelbestellung, from_submit=False, from_button=False):
         
         frappe.db.commit()
         
-        if len(str(created_orders)) > 120:
-            log_message = f"create_invoices beendet. Rückgabe (gekürzt): {str(created_orders)[:120]}... (insgesamt {len(created_orders)} Aufträge)"
+        # Kürze die Log-Nachricht um Fehler zu vermeiden
+        if len(str(created_orders)) > 100:
+            log_message = f"create_invoices beendet. {len(created_orders)} Aufträge erstellt"
         else:
             log_message = f"create_invoices beendet. Rückgabe: {created_orders}"
         frappe.log_error(log_message, "INFO: function_end")
@@ -1271,6 +1279,132 @@ def create_picklists_for_sammelbestellung(sammelbestellung_doc, all_orders_with_
 	except Exception as e:
 		frappe.log_error(f"💥 Allgemeiner Fehler in create_picklists_for_sammelbestellung: {str(e)}\n{frappe.get_traceback()}", "ERROR: picklist_function_error")
 		return []
+
+
+def create_shipping_orders_for_customers(sammelbestellung_doc, all_orders_with_shipping):
+    """
+    Erstellt Versandaufträge für alle Kunden, die als Versandziel fungieren.
+    Gruppiert Produkte nach Versandziel und erstellt einen Versandauftrag pro Ziel.
+    """
+    try:
+        frappe.log_error(f"=== create_shipping_orders_for_customers START ===", "INFO: shipping_orders_start")
+        
+        # Gruppiere nach Versandziel (außer Partnerin, die wird separat behandelt)
+        shipping_groups = {}
+        
+        for order_info in all_orders_with_shipping:
+            customer = order_info.get('customer')
+            shipping_target = order_info.get('shipping_target')
+            products = order_info.get('products', [])
+            
+            # Überspringe wenn Versandziel = Kunde selbst oder Partnerin
+            if shipping_target == customer or shipping_target == sammelbestellung_doc.partnerin:
+                continue
+                
+            # Sammle alle Produkte für dieses Versandziel
+            if shipping_target not in shipping_groups:
+                shipping_groups[shipping_target] = []
+            
+            # Füge alle Produkte hinzu (außer Versandkosten)
+            for product in products:
+                if product.get('item_code') and not product.get('item_code', '').startswith('shipping-'):
+                    shipping_groups[shipping_target].append({
+                        'product': product,
+                        'from_customer': customer
+                    })
+        
+        if not shipping_groups:
+            frappe.log_error("Keine Versandaufträge nötig - alle Ware geht an Kunden selbst oder Partnerin", "INFO: no_shipping_orders_needed")
+            return []
+        
+        created_shipping_orders = []
+        
+        for shipping_target, products_list in shipping_groups.items():
+            try:
+                frappe.log_error(f"Erstelle Versandauftrag für {shipping_target} mit {len(products_list)} Produkten", "INFO: create_shipping_order")
+                
+                # Hole Adresse des Versandziels
+                shipping_address = find_existing_address(shipping_target, "Shipping")
+                if not shipping_address:
+                    shipping_address = find_existing_address(shipping_target, "Billing")
+                
+                if not shipping_address:
+                    frappe.log_error(f"Keine Adresse für Versandziel {shipping_target} gefunden - überspringe", "WARNING: no_shipping_address")
+                    continue
+                
+                # Sammle ALLE Produkte die an dieses Versandziel gehen (auch die eigenen!)
+                all_products_for_target = []
+                
+                # Füge alle Produkte hinzu, die an dieses Versandziel gehen
+                for order_info in all_orders_with_shipping:
+                    if order_info.get('shipping_target') == shipping_target:
+                        for product in order_info.get('products', []):
+                            if product.get('item_code') and not product.get('item_code', '').startswith('shipping-'):
+                                all_products_for_target.append({
+                                    'product': product,
+                                    'from_customer': order_info.get('customer')
+                                })
+                
+                frappe.log_error(f"Versandauftrag für {shipping_target}: {len(all_products_for_target)} Produkte (inkl. eigene)", "INFO: shipping_order_products")
+                
+                # Erstelle Versandauftrag
+                shipping_order_data = {
+                    "doctype": "Sales Order",
+                    "customer": shipping_target,
+                    "transaction_date": today(),
+                    "delivery_date": today(),
+                    "items": [
+                        {
+                            "doctype": "Sales Order Item",
+                            "item_code": item['product'].get('item_code'),
+                            "item_name": item['product'].get('item_name', item['product'].get('item_code')),
+                            "qty": item['product'].get('qty', 1),
+                            "rate": 0,  # WICHTIG: Keine Rechnung = 0€ Rate
+                            "amount": 0,  # WICHTIG: Keine Rechnung = 0€ Amount
+                            "uom": item['product'].get('uom', 'Stk'),
+                            "stock_uom": item['product'].get('stock_uom', 'Stk'),
+                            "conversion_factor": item['product'].get('conversion_factor', 1.0),
+                            "stock_qty": item['product'].get('stock_qty', item['product'].get('qty', 1)),
+                            "base_amount": 0,  # WICHTIG: Keine Rechnung = 0€ Base Amount
+                            "base_rate": 0,  # WICHTIG: Keine Rechnung = 0€ Base Rate
+                            "warehouse": item['product'].get('warehouse', get_default_warehouse()),
+                            "delivery_date": item['product'].get('delivery_date', today()),
+                        } for item in all_products_for_target
+                    ],
+                    "customer_address": shipping_address,
+                    "shipping_address_name": shipping_address,
+                    "remarks": f"Versandauftrag aus Sammelbestellung: {sammelbestellung_doc.name} | Versandziel: {shipping_target} | {len(all_products_for_target)} Produkte (inkl. eigene)",
+                    "po_no": sammelbestellung_doc.name,
+                    "company": frappe.defaults.get_global_default("company"),
+                    "currency": frappe.defaults.get_global_default("currency"),
+                    "status": "Draft",
+                    "order_type": "Sales",
+                    "custom_party_reference": sammelbestellung_doc.name,
+                    "custom_calculated_shipping_cost": 0.0,
+                    "custom_shipping_order": 1,  # Markierung als Versandauftrag
+                    "sales_order": sammelbestellung_doc.name,
+                    "taxes_and_charges": None,
+                    "selling_price_list": frappe.defaults.get_global_default("selling_price_list"),
+                }
+                
+                # Erstelle und buche den Versandauftrag
+                shipping_order = frappe.get_doc(shipping_order_data)
+                shipping_order.insert()
+                shipping_order.submit()
+                
+                frappe.log_error(f"Versandauftrag erfolgreich erstellt: {shipping_order.name}", "SUCCESS: shipping_order_created")
+                created_shipping_orders.append(shipping_order.name)
+                
+            except Exception as e:
+                frappe.log_error(f"Fehler beim Erstellen des Versandauftrags für {shipping_target}: {str(e)}", "ERROR: shipping_order_creation_failed")
+                continue
+        
+        frappe.log_error(f"=== create_shipping_orders_for_customers ENDE: {len(created_shipping_orders)} Aufträge erstellt ===", "INFO: shipping_orders_end")
+        return created_shipping_orders
+        
+    except Exception as e:
+        frappe.log_error(f"Fehler in create_shipping_orders_for_customers: {str(e)}", "ERROR: shipping_orders_function_failed")
+        return []
 
 
 def create_single_partner_order_for_sammelbestellung(sammelbestellung_doc, all_orders_with_shipping):

@@ -42,6 +42,17 @@
  },
  {
   "doctype": "Custom Field",
+  "name": "Sales Order-custom_shipping_order",
+  "dt": "Sales Order",
+  "fieldname": "custom_shipping_order",
+  "fieldtype": "Check",
+  "label": "Versandauftrag",
+  "description": "Markiert Aufträge die nur für Versandzwecke erstellt wurden (keine Rechnung)",
+  "read_only": 1,
+  "insert_after": "custom_shipping_note"
+ },
+ {
+  "doctype": "Custom Field",
   "name": "Pick List-custom_invoice_references",
   "dt": "Pick List",
   "fieldname": "custom_invoice_references",

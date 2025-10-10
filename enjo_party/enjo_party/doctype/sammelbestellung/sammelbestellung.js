@@ -19,7 +19,9 @@
 				messageText.includes('Source Map') ||
 				messageText.includes('file_uploader.bundle') ||
 				messageText.includes('JSON Parse error') ||
-				messageText.includes('localStorage quota exceeded')
+				messageText.includes('localStorage quota exceeded') ||
+				messageText.includes('bereits vorhanden') ||
+				messageText.includes('zu Kunden-Bestellung bereits vorhanden')
 			) {
 				console.log("GEFILTERTE BENUTZER-MELDUNG:", messageText);
 				return;

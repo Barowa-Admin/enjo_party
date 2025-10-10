@@ -27,15 +27,21 @@ def auto_create_and_submit_sales_invoice(doc, method):
         frappe.log_error("AUTO SALES INVOICE HOOKS ist aktuell deaktiviert (ENABLE_AUTO_SALES_INVOICE_HOOKS = False)", "INFO: auto_invoice_hooks_deactivated")
         return
 
-    # Prüfe ob es ein Partner-Auftrag ist
+    # Prüfe ob es ein Partner-Auftrag oder Versandauftrag ist
     is_partner_order = False
+    is_shipping_order = False
     
-    # 1. Prüfe po_no enthält "-SHIP-" (alte Logik)
-    if doc.po_no and "-SHIP-" in doc.po_no:
+    # 1. Prüfe custom_shipping_order Flag (neue Logik für Versandaufträge)
+    if hasattr(doc, 'custom_shipping_order') and doc.custom_shipping_order:
+        is_shipping_order = True
+        frappe.log_error(f"Versandauftrag erkannt (custom_shipping_order): {doc.name}", "DEBUG: shipping_order_flag")
+    
+    # 2. Prüfe po_no enthält "-SHIP-" (alte Logik)
+    elif doc.po_no and "-SHIP-" in doc.po_no:
         is_partner_order = True
         frappe.log_error(f"Partner-Auftrag erkannt (po_no): {doc.name}", "DEBUG: partner_order_po_no")
     
-    # 2. Prüfe ob es ein Partner-Auftrag aus Sammelbestellung ist
+    # 3. Prüfe ob es ein Partner-Auftrag aus Sammelbestellung ist
     elif (doc.po_no and 
           doc.custom_party_reference and 
           frappe.db.exists("Sammelbestellung", doc.custom_party_reference)):
@@ -63,9 +69,10 @@ def auto_create_and_submit_sales_invoice(doc, method):
         except Exception as e:
             frappe.log_error(f"Fehler beim Prüfen der Party: {str(e)}", "ERROR: party_check")
     
-    if is_partner_order:
-        frappe.log_error(f"Partner-Auftrag {doc.name} - überspringe Ausgangsrechnung, erstelle aber Packliste und Lieferschein", "INFO: skip_partner_invoice")
-        # Erstelle Packliste und Lieferschein für Partner-Auftrag (ohne Ausgangsrechnung)
+    if is_partner_order or is_shipping_order:
+        order_type = "Versandauftrag" if is_shipping_order else "Partner-Auftrag"
+        frappe.log_error(f"{order_type} {doc.name} - überspringe Ausgangsrechnung, erstelle aber Packliste und Lieferschein", "INFO: skip_special_order_invoice")
+        # Erstelle Packliste und Lieferschein für Partner-/Versandauftrag (ohne Ausgangsrechnung)
         create_picklist_and_delivery_note_for_partner_order(doc)
         return
 
@@ -235,53 +242,121 @@ def auto_create_and_submit_sales_invoice(doc, method):
                     if party_doc.gastgeberin == doc.customer:
                         frappe.log_error(f"DEBUG: Kunde ist Gastgeberin, prüfe Versandziel: {party_doc.versand_gastgeberin}", "DEBUG: hostess_check")
                         if party_doc.versand_gastgeberin == doc.customer:
-                            create_shipping_docs = True
-                            frappe.log_error(f"DEBUG: Gastgeberin ist ihr eigenes Versandziel", "DEBUG: hostess_own_target")
+                            # Gastgeberin sendet an sich selbst - prüfe ob andere auch an Gastgeberin senden
+                            other_customers_send_to_gastgeberin = False
+                            
+                            # Prüfe alle Gäste
+                            for idx, kunde_row in enumerate(party_doc.kunden or []):
+                                versand_field = f"versand_gast_{idx+1}"
+                                if hasattr(party_doc, versand_field):
+                                    versand_ziel_gast = getattr(party_doc, versand_field)
+                                    if versand_ziel_gast == party_doc.gastgeberin:
+                                        other_customers_send_to_gastgeberin = True
+                                        break
+                            
+                            if other_customers_send_to_gastgeberin:
+                                # Andere senden auch an die Gastgeberin - KEINE Dokumente für diesen Auftrag
+                                create_shipping_docs = False
+                                frappe.log_error(f"DEBUG: Gastgeberin {doc.customer} empfängt auch Ware von anderen - überspringe Dokumente für diesen Auftrag", "DEBUG: gastgeberin_receives_from_others")
+                            else:
+                                # Nur die Gastgeberin sendet an sich selbst - normale Dokumente erstellen
+                                create_shipping_docs = True
+                                frappe.log_error(f"DEBUG: Gastgeberin {doc.customer} sendet nur an sich selbst - erstelle normale Dokumente", "DEBUG: gastgeberin_own_target_only")
                         else:
-                            # Partner als Versandziel - zusätzlichen leeren Auftrag erstellen
-                            partner_orders_to_create.append(party_doc.versand_gastgeberin)
-                            frappe.log_error(f"DEBUG: Partner als Versandziel für Gastgeberin: {party_doc.versand_gastgeberin}", "DEBUG: partner_for_hostess")
+                            # Gastgeberin sendet an andere - KEINE Dokumente für diesen Auftrag erstellen
+                            create_shipping_docs = False
+                            frappe.log_error(f"DEBUG: Gastgeberin sendet an andere ({party_doc.versand_gastgeberin}) - überspringe Dokumente für diesen Auftrag", "DEBUG: gastgeberin_sends_to_other")
 
-                    # Prüfe für Gäste
+                    # Prüfe für Gäste - verwende die korrekten Felder
                     for idx, kunde_row in enumerate(party_doc.kunden or []):
                         if kunde_row.kunde == doc.customer:
+                            # Verwende das Versandziel-Feld aus dem Dokument (nicht aus der Tabelle)
                             versand_field = f"versand_gast_{idx+1}"
-                            frappe.log_error(f"DEBUG: Prüfe Gast {idx+1}, Feld: {versand_field}", "DEBUG: guest_check")
+                            if not hasattr(party_doc, versand_field):
+                                frappe.log_error(f"DEBUG: Feld {versand_field} existiert nicht", "DEBUG: field_missing")
+                                break
+                            
+                            versand_ziel = getattr(party_doc, versand_field)
+                            frappe.log_error(f"DEBUG: Prüfe Gast {idx+1}, Versandziel: {versand_ziel}", "DEBUG: guest_check")
 
-                            if hasattr(party_doc, versand_field):
-                                versand_ziel = getattr(party_doc, versand_field)
-                                frappe.log_error(f"DEBUG: Versandziel für Gast {idx+1}: {versand_ziel}", "DEBUG: guest_shipping_target")
-
-                                if versand_ziel == doc.customer:
-                                    create_shipping_docs = True
-                                    frappe.log_error(f"DEBUG: Gast ist sein eigenes Versandziel", "DEBUG: guest_own_target")
+                            if versand_ziel == doc.customer:
+                                # Gast sendet an sich selbst - prüfe ob andere auch an diesen Gast senden
+                                other_customers_send_to_this_guest = False
+                                
+                                # Prüfe alle anderen Gäste
+                                for other_idx, other_kunde_row in enumerate(party_doc.kunden or []):
+                                    if other_idx != idx:  # Nicht der aktuelle Gast
+                                        other_versand_field = f"versand_gast_{other_idx+1}"
+                                        if hasattr(party_doc, other_versand_field):
+                                            other_versand_ziel = getattr(party_doc, other_versand_field)
+                                            if other_versand_ziel == doc.customer:
+                                                other_customers_send_to_this_guest = True
+                                                break
+                                
+                                # Prüfe auch Gastgeberin
+                                if party_doc.gastgeberin and party_doc.gastgeberin != doc.customer:
+                                    # Prüfe ob Gastgeberin an diesen Gast sendet
+                                    if hasattr(party_doc, 'versand_gastgeberin'):
+                                        gastgeberin_versand_ziel = getattr(party_doc, 'versand_gastgeberin')
+                                        if gastgeberin_versand_ziel == doc.customer:
+                                            other_customers_send_to_this_guest = True
+                                
+                                if other_customers_send_to_this_guest:
+                                    # Andere senden auch an diesen Gast - KEINE Dokumente für diesen Auftrag
+                                    create_shipping_docs = False
+                                    frappe.log_error(f"DEBUG: Gast {doc.customer} empfängt auch Ware von anderen - überspringe Dokumente für diesen Auftrag", "DEBUG: guest_receives_from_others")
                                 else:
-                                    # Partner als Versandziel - zusätzlichen leeren Auftrag erstellen
-                                    partner_orders_to_create.append(versand_ziel)
-                                    frappe.log_error(f"DEBUG: Partner als Versandziel für Gast: {versand_ziel}", "DEBUG: partner_for_guest")
+                                    # Nur dieser Gast sendet an sich selbst - normale Dokumente erstellen
+                                    create_shipping_docs = True
+                                    frappe.log_error(f"DEBUG: Gast {doc.customer} sendet nur an sich selbst - erstelle normale Dokumente", "DEBUG: guest_own_target_only")
+                            else:
+                                # Gast sendet an andere - KEINE Dokumente für diesen Auftrag erstellen
+                                create_shipping_docs = False
+                                frappe.log_error(f"DEBUG: Gast sendet an andere ({versand_ziel}) - überspringe Dokumente für diesen Auftrag", "DEBUG: guest_sends_to_other")
                             break
 
                 elif frappe.db.exists("Sammelbestellung", doc.custom_party_reference):
                     sammelbestellung_doc = frappe.get_doc("Sammelbestellung", doc.custom_party_reference)
                     frappe.log_error(f"DEBUG: Sammelbestellung-Dokument geladen, prüfe Kunden", "DEBUG: sammelbestellung_check")
 
-                    # Prüfe für Kunden
+                    # Prüfe für Kunden - verwende die korrekten Felder
                     for idx, kunde_row in enumerate(sammelbestellung_doc.kunden or []):
                         if kunde_row.kunde == doc.customer:
+                            # Verwende das Versandziel-Feld aus dem Dokument (nicht aus der Tabelle)
                             versand_field = f"versand_kunde_{idx+1}"
-                            frappe.log_error(f"DEBUG: Prüfe Kunde {idx+1}, Feld: {versand_field}", "DEBUG: customer_check")
+                            if not hasattr(sammelbestellung_doc, versand_field):
+                                frappe.log_error(f"DEBUG: Feld {versand_field} existiert nicht", "DEBUG: field_missing")
+                                break
+                            
+                            versand_ziel = getattr(sammelbestellung_doc, versand_field)
+                            frappe.log_error(f"DEBUG: Prüfe Kunde {idx+1}, Versandziel: {versand_ziel}", "DEBUG: customer_check")
 
-                            if hasattr(sammelbestellung_doc, versand_field):
-                                versand_ziel = getattr(sammelbestellung_doc, versand_field)
-                                frappe.log_error(f"DEBUG: Versandziel für Kunde {idx+1}: {versand_ziel}", "DEBUG: customer_shipping_target")
-
-                                if versand_ziel == doc.customer:
-                                    create_shipping_docs = True
-                                    frappe.log_error(f"DEBUG: Kunde ist sein eigenes Versandziel", "DEBUG: customer_own_target")
+                            if versand_ziel == doc.customer:
+                                # Kunde sendet an sich selbst - prüfe ob er auch Ware von anderen empfängt
+                                other_customers_send_to_this_customer = False
+                                
+                                # Prüfe alle anderen Kunden in der Tabelle
+                                for other_idx, other_kunde_row in enumerate(sammelbestellung_doc.kunden or []):
+                                    if other_idx != idx:  # Nicht der aktuelle Kunde
+                                        other_versand_field = f"versand_kunde_{other_idx+1}"
+                                        if hasattr(sammelbestellung_doc, other_versand_field):
+                                            other_versand_ziel = getattr(sammelbestellung_doc, other_versand_field)
+                                            if other_versand_ziel == doc.customer:
+                                                other_customers_send_to_this_customer = True
+                                                break
+                                
+                                if other_customers_send_to_this_customer:
+                                    # Andere Kunden senden auch an diesen Kunden - KEINE Dokumente für diesen Auftrag
+                                    create_shipping_docs = False
+                                    frappe.log_error(f"DEBUG: Kunde {doc.customer} empfängt auch Ware von anderen - überspringe Dokumente für diesen Auftrag", "DEBUG: customer_receives_from_others")
                                 else:
-                                    # Partner als Versandziel - zusätzlichen leeren Auftrag erstellen
-                                    partner_orders_to_create.append(versand_ziel)
-                                    frappe.log_error(f"DEBUG: Partner als Versandziel für Kunde: {versand_ziel}", "DEBUG: partner_for_customer")
+                                    # Nur dieser Kunde sendet an sich selbst - normale Dokumente erstellen
+                                    create_shipping_docs = True
+                                    frappe.log_error(f"DEBUG: Kunde {doc.customer} sendet nur an sich selbst - erstelle normale Dokumente", "DEBUG: customer_own_target_only")
+                            else:
+                                # Kunde sendet an andere - KEINE Dokumente für diesen Auftrag erstellen
+                                create_shipping_docs = False
+                                frappe.log_error(f"DEBUG: Kunde sendet an andere ({versand_ziel}) - überspringe Dokumente für diesen Auftrag", "DEBUG: customer_sends_to_other")
                             break
 
                 frappe.log_error(f"DEBUG: Partner-Aufträge zu erstellen: {partner_orders_to_create}", "DEBUG: partner_orders_summary")
@@ -290,6 +365,10 @@ def auto_create_and_submit_sales_invoice(doc, method):
                 frappe.log_error(f"Fehler beim Prüfen des Versandziels: {str(e)}", "ERROR: check_shipping_target")
 
         # 1) Lieferschein für aktuellen Auftrag
+        # WICHTIG: create_shipping_docs ist nur TRUE für Kunden die ALLEINE ihre Ware empfangen
+        # Für Kunden in Sammelbestellungen/Parties ist es FALSE (außer sie sind das einzige Versandziel)
+        frappe.log_error(f"DEBUG: create_shipping_docs = {create_shipping_docs} für {doc.name}", "DEBUG: shipping_docs_flag")
+        
         if ENABLE_AUTO_DELIVERY_NOTE and create_shipping_docs:
             try:
                 dn = create_delivery_note_for_sales_order(doc)
@@ -299,25 +378,22 @@ def auto_create_and_submit_sales_invoice(doc, method):
                 frappe.log_error(f"Error creating Delivery Note for SO {doc.name}: {str(e)}", "ERROR: delivery_note_failed")
 
         # 2) Packliste für aktuellen Auftrag
+        # WICHTIG: Nur für Kunden die ALLEINE ihre Ware empfangen
         if ENABLE_AUTO_PICKLIST and create_shipping_docs:
             try:
                 from enjo_party.enjo_party.utils.sales_invoice_hooks import auto_create_picklist_from_invoice
                 auto_create_picklist_from_invoice(invoice, "auto")
+                frappe.log_error(f"Picklist für normalen Auftrag erstellt", "INFO: picklist_created")
             except Exception as e:
                 frappe.log_error(f"Error creating Pick List for Invoice {invoice.name}: {str(e)}", "ERROR: picklist_create_failed")
+        
+        # 3) Versandaufträge werden bereits in create_picklist_and_delivery_note_for_partner_order behandelt
+        # (wird oben in der Funktion aufgerufen, wenn is_shipping_order = True)
 
-        # 3) Zusätzliche leere Aufträge für Partner als Versandziel erstellen
-        frappe.log_error(f"DEBUG: Erstelle Partner-Aufträge für: {partner_orders_to_create}", "DEBUG: partner_creation_start")
-        for partner_name in partner_orders_to_create:
-            try:
-                if partner_name and partner_name != doc.customer:
-                    frappe.log_error(f"DEBUG: Erstelle Partner-Auftrag für {partner_name}", "DEBUG: creating_partner_order")
-                    result = create_partner_order(doc, partner_name)
-                    frappe.log_error(f"DEBUG: Partner-Auftrag erstellt: {result}", "DEBUG: partner_order_result")
-                else:
-                    frappe.log_error(f"DEBUG: Überspringe Partner {partner_name} - ist leer oder gleicher Kunde", "DEBUG: skip_partner")
-            except Exception as e:
-                frappe.log_error(f"Error creating partner order for {partner_name}: {str(e)}", "ERROR: partner_order_failed")
+        # 3) Partner-Aufträge werden jetzt über das neue Versandauftrag-System erstellt
+        # (wird in sammelbestellung.py/party.py gehandhabt)
+        if partner_orders_to_create:
+            frappe.log_error(f"DEBUG: Partner-Aufträge werden über Versandauftrag-System erstellt: {partner_orders_to_create}", "DEBUG: shipping_order_system")
         
         # Reiche die Sales Invoice ein
         # invoice.submit()  # <--- AUSKOMMENTIERT: Rechnung wird NICHT gebucht, nur erstellt
@@ -591,6 +667,88 @@ def create_delivery_note_for_sales_order(sales_order_doc):
         return None
 
 
+def create_picklist_for_sales_order(sales_order_doc):
+    """Erstellt eine Packliste (Pick List) für den gegebenen Sales Order und gibt das Pick List-Dokument zurück.
+    Nutzt die gleiche Logik wie der Lieferschein. Bei Fehlern wird None zurückgegeben."""
+
+    try:
+        # Erstelle Pick List direkt aus Sales Order
+        picklist_data = {
+            "doctype": "Pick List",
+            "purpose": "Delivery",
+            "company": sales_order_doc.company,
+            "customer": sales_order_doc.customer,
+            "custom_invoice_references": f"Sales Order: {sales_order_doc.name}",
+            "remarks": f"Automatisch erstellt für Sales Order: {sales_order_doc.name}",
+            "locations": []
+        }
+        
+        # Sammle Pick List Items aus Sales Order
+        for item in sales_order_doc.items:
+            if item.item_code and item.item_code.startswith("shipping-"):
+                continue  # Überspringe Versandartikel
+            
+            warehouse = item.warehouse
+            if not warehouse:
+                warehouse = frappe.defaults.get_user_default("Warehouse")
+                if not warehouse:
+                    warehouses = frappe.get_all("Warehouse", filters={"is_group": 0}, fields=["name"], limit=1)
+                    warehouse = warehouses[0].name if warehouses else "Stores - Main"
+            
+            picklist_item = {
+                "doctype": "Pick List Item",
+                "item_code": item.item_code,
+                "item_name": item.item_name,
+                "qty": float(item.qty),
+                "stock_qty": float(item.stock_qty or item.qty),
+                "picked_qty": 0.0,
+                "stock_reserved_qty": 0.0,
+                "uom": item.uom,
+                "stock_uom": item.stock_uom or item.uom,
+                "conversion_factor": float(item.conversion_factor or 1.0),
+                "warehouse": warehouse,
+                "sales_order": sales_order_doc.name,
+                "sales_order_item": item.name,
+                "batch_no": None,
+                "serial_no": None,
+                "use_serial_batch_fields": 0,
+                "serial_and_batch_bundle": None,
+                "product_bundle_item": None,
+                "material_request": None,
+                "material_request_item": None
+            }
+            
+            picklist_data["locations"].append(picklist_item)
+        
+        if not picklist_data["locations"]:
+            frappe.log_error(f"Keine Items für Pick List gefunden in Sales Order {sales_order_doc.name}", "WARNING: no_picklist_items")
+            return None
+        
+        # Erstelle Pick List
+        picklist = frappe.get_doc(picklist_data)
+        
+        # Flags setzen um Lagerbestand-Validierung zu umgehen
+        picklist.flags.ignore_permissions = True
+        picklist.flags.ignore_mandatory = True
+        picklist.flags.ignore_validate = True
+        picklist.docstatus = 0  # Explizit als Entwurf markieren
+        
+        # Überschreibe validate_for_qty um Lagerbestand-Prüfung zu umgehen
+        def safe_validate_for_qty(self):
+            pass
+        
+        import types
+        picklist.validate_for_qty = types.MethodType(safe_validate_for_qty, picklist)
+        
+        # Erstelle Pick List
+        picklist.insert()
+        return picklist
+        
+    except Exception as e:
+        frappe.log_error(f"Pick List konnte nicht erstellt werden: {str(e)}", "ERROR: picklist_creation_failed")
+        return None
+
+
 def create_partner_order(original_order_doc, partner_name):
     """
     Erstellt einen Sales Order für einen Partner als Versandziel mit einem Dummy-Artikel.
@@ -775,11 +933,14 @@ def create_partner_order(original_order_doc, partner_name):
 
 def create_picklist_and_delivery_note_for_partner_order(sales_order_doc):
     """
-    Erstellt Packliste und Lieferschein für Partner-Aufträge (ohne Ausgangsrechnung).
+    Erstellt Packliste und Lieferschein für Partner-/Versandaufträge (ohne Ausgangsrechnung).
     Beide werden als Entwurf gespeichert.
     """
     try:
-        frappe.log_error(f"Erstelle Packliste und Lieferschein für Partner-Auftrag {sales_order_doc.name}", "INFO: create_partner_docs")
+        # Prüfe ob es ein Versandauftrag oder Partner-Auftrag ist
+        is_shipping_order = hasattr(sales_order_doc, 'custom_shipping_order') and sales_order_doc.custom_shipping_order
+        order_type = "Versandauftrag" if is_shipping_order else "Partner-Auftrag"
+        frappe.log_error(f"Erstelle Packliste und Lieferschein für {order_type} {sales_order_doc.name}", "INFO: create_partner_docs")
         
         # 1. Erstelle Lieferschein (Delivery Note)
         if ENABLE_AUTO_DELIVERY_NOTE:
@@ -792,24 +953,17 @@ def create_picklist_and_delivery_note_for_partner_order(sales_order_doc):
             except Exception as e:
                 frappe.log_error(f"Fehler beim Erstellen des Lieferscheins für Partner-Auftrag {sales_order_doc.name}: {str(e)}", "ERROR: partner_delivery_note_error")
         
-        # 2. Erstelle Packliste (Pick List)
+        # 2. Erstelle Packliste (Pick List) - nur als Entwurf!
         if ENABLE_AUTO_PICKLIST:
             try:
-                # Erstelle eine temporäre "Dummy"-Sales Invoice für die Packlisten-Erstellung
-                # (da die Packlisten-Funktion eine Sales Invoice erwartet)
-                dummy_invoice = create_dummy_invoice_for_picklist(sales_order_doc)
-                if dummy_invoice:
-                    from enjo_party.enjo_party.utils.sales_invoice_hooks import auto_create_picklist_from_invoice
-                    auto_create_picklist_from_invoice(dummy_invoice, "auto")
-                    frappe.log_error(f"Packliste für Partner-Auftrag erstellt", "SUCCESS: partner_picklist_created")
-                    
-                    # Lösche die Dummy-Invoice wieder
-                    frappe.delete_doc("Sales Invoice", dummy_invoice.name, ignore_permissions=True)
-                    frappe.log_error(f"Dummy-Invoice {dummy_invoice.name} gelöscht", "INFO: dummy_invoice_deleted")
+                picklist = create_picklist_for_sales_order(sales_order_doc)
+                if picklist:
+                    # Packliste nur als Entwurf speichern, nicht buchen
+                    frappe.log_error(f"Packliste für {order_type} erstellt (Entwurf): {picklist.name}", "SUCCESS: partner_picklist_created")
                 else:
-                    frappe.log_error(f"Dummy-Invoice für Packliste konnte nicht erstellt werden", "WARNING: dummy_invoice_failed")
+                    frappe.log_error(f"Packliste für {order_type} konnte nicht erstellt werden", "WARNING: partner_picklist_failed")
             except Exception as e:
-                frappe.log_error(f"Fehler beim Erstellen der Packliste für Partner-Auftrag {sales_order_doc.name}: {str(e)}", "ERROR: partner_picklist_error")
+                frappe.log_error(f"Fehler beim Erstellen der Packliste für {order_type} {sales_order_doc.name}: {str(e)}", "ERROR: partner_picklist_error")
         
     except Exception as e:
         frappe.log_error(f"Allgemeiner Fehler beim Erstellen der Dokumente für Partner-Auftrag {sales_order_doc.name}: {str(e)}", "ERROR: partner_docs_creation_failed")

@@ -26,7 +26,10 @@
 				messageText.includes('file_uploader.bundle') ||
 				messageText.includes('JSON Parse error') ||
 				// localStorage Meldungen
-				messageText.includes('localStorage quota exceeded')
+				messageText.includes('localStorage quota exceeded') ||
+				// Auftrag bereits vorhanden Meldungen
+				messageText.includes('bereits vorhanden') ||
+				messageText.includes('zu Kunden-Bestellung bereits vorhanden')
 			) {
 				// Diese Meldungen nicht dem Benutzer zeigen
 				console.log("GEFILTERTE BENUTZER-MELDUNG:", messageText);
