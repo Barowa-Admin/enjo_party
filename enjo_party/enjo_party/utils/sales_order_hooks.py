@@ -164,6 +164,13 @@ def auto_create_and_submit_sales_invoice(doc, method):
                 invoice.taxes_and_charges = tax_template
                 invoice.taxes = []  # Leere bestehende Steuern
                 invoice.run_method("set_taxes")  # Setze Steuern neu
+                
+                # Setze alle Steuern auf "inklusive"
+                if invoice.taxes:
+                    for tax in invoice.taxes:
+                        tax.included_in_print_rate = 1
+                    # Neuberechnung mit inklusiven Steuern
+                    invoice.calculate_taxes_and_totals()
 
         for i, invoice_item in enumerate(invoice.items):
             so_item = doc.items[i]
@@ -930,6 +937,13 @@ def create_partner_order(original_order_doc, partner_name):
                     invoice.taxes_and_charges = tax_template
                     invoice.taxes = []  # Leere bestehende Steuern
                     invoice.run_method("set_taxes")  # Setze Steuern neu
+                    
+                    # Setze alle Steuern auf "inklusive"
+                    if invoice.taxes:
+                        for tax in invoice.taxes:
+                            tax.included_in_print_rate = 1
+                        # Neuberechnung mit inklusiven Steuern
+                        invoice.calculate_taxes_and_totals()
 
             # Setze Preise exakt wie im Sales Order
             for i, invoice_item in enumerate(invoice.items):

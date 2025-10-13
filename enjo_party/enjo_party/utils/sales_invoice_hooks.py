@@ -40,6 +40,13 @@ def before_validate_sales_invoice(doc, method):
                 doc.taxes_and_charges = tax_template
                 doc.taxes = []  # Leere bestehende Steuern
                 doc.run_method("set_taxes")  # Setze Steuern neu
+                
+                # Setze alle Steuern auf "inklusive"
+                if doc.taxes:
+                    for tax in doc.taxes:
+                        tax.included_in_print_rate = 1
+                    # Neuberechnung mit inklusiven Steuern
+                    doc.calculate_taxes_and_totals()
     
     # NEU: Adress-Synchronisation im Entwurfsmodus
     if doc.docstatus == 0:  # Nur im Entwurfsmodus
@@ -138,6 +145,13 @@ def before_validate_sales_invoice(doc, method):
                 doc.taxes_and_charges = tax_template
                 doc.taxes = []  # Leere bestehende Steuern
                 doc.run_method("set_taxes")  # Setze Steuern neu
+                
+                # Setze alle Steuern auf "inklusive"
+                if doc.taxes:
+                    for tax in doc.taxes:
+                        tax.included_in_print_rate = 1
+                    # Neuberechnung mit inklusiven Steuern
+                    doc.calculate_taxes_and_totals()
 
 def sync_addresses_in_draft(doc):
     """

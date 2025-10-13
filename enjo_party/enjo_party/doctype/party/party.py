@@ -1221,6 +1221,13 @@ def create_invoices(party, from_submit=False, from_button=False):
                 for i, item in enumerate(order.items):
                     frappe.log_error(f"  Item {i}: {item.item_code}, Qty: {item.qty}, Rate: {item.rate}, Amount: {item.amount}", "DEBUG: final_item_data")
                 
+                # Setze alle Steuern auf "inklusive"
+                if order.taxes:
+                    for tax in order.taxes:
+                        tax.included_in_print_rate = 1
+                    # Neuberechnung mit inklusiven Steuern
+                    order.calculate_taxes_and_totals()
+                
                 # SAUBERE LÖSUNG: Nur spezifische Adress-Validierungen umgehen, 
                 # aber Sales Partner Provisionsberechnung NICHT beeinträchtigen
                 import types
@@ -1687,6 +1694,13 @@ def create_shipping_orders_for_party_customers(party_doc, all_orders_with_shippi
                 shipping_order.flags.ignore_address_validation = True
                 shipping_order.flags.ignore_shipping_validation = True
                 shipping_order.flags.ignore_billing_validation = True
+                
+                # Setze alle Steuern auf "inklusive"
+                if shipping_order.taxes:
+                    for tax in shipping_order.taxes:
+                        tax.included_in_print_rate = 1
+                    # Neuberechnung mit inklusiven Steuern
+                    shipping_order.calculate_taxes_and_totals()
                 
                 shipping_order.insert()
                 shipping_order.submit()

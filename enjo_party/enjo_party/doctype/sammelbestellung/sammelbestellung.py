@@ -794,6 +794,13 @@ def create_invoices(sammelbestellung, from_submit=False, from_button=False):
                 order.run_method("set_missing_values")
                 order.calculate_taxes_and_totals()
                 
+                # Setze alle Steuern auf "inklusive"
+                if order.taxes:
+                    for tax in order.taxes:
+                        tax.included_in_print_rate = 1
+                    # Neuberechnung mit inklusiven Steuern
+                    order.calculate_taxes_and_totals()
+                
                 frappe.log_error(f"DEBUG FINAL ORDER: Customer={order.customer}, Items={len(order.items)}", "DEBUG: final_order_data")
                 for i, item in enumerate(order.items):
                     frappe.log_error(f"  Item {i}: {item.item_code}, Qty: {item.qty}, Rate: {item.rate}, Amount: {item.amount}", "DEBUG: final_item_data")
