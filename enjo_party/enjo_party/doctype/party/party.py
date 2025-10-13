@@ -1318,12 +1318,8 @@ def create_invoices(party, from_submit=False, from_button=False):
             # ENTFERNT: frappe.msgprint("Es wurden keine Aufträge erstellt. Bitte prüfe die Logs und versuche es erneut.", alert=True)
         
         frappe.db.commit()
-        # Logging: Ergebnis der Auftragserstellung
-        if len(str(created_orders)) > 120:
-            # Wenn die Liste sehr lang ist, kürze sie für das Log
-            log_message = f"create_invoices beendet. Rückgabe (gekürzt): {str(created_orders)[:120]}... (insgesamt {len(created_orders)} Aufträge)"
-        else:
-            log_message = f"create_invoices beendet. Rückgabe: {created_orders}"
+        # Logging: Ergebnis der Auftragserstellung (gekürzt für 140-Zeichen-Limit)
+        log_message = f"create_invoices beendet. {len(created_orders)} Aufträge erstellt"
         frappe.log_error(log_message, "INFO: function_end")
         
         # WICHTIG: Räume das skip_total_calculation Flag auf, damit es nicht hängen bleibt
