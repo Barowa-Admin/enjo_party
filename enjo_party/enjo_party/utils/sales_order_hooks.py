@@ -111,6 +111,15 @@ def auto_create_and_submit_sales_invoice(doc, method):
 
         invoice = make_sales_invoice(doc.name)  # noch nicht gespeichert
 
+        # Setze den Titel nur mit Kundennamen
+        try:
+            customer_doc = frappe.get_doc("Customer", doc.customer)
+            customer_name = customer_doc.customer_name or doc.customer
+            invoice.title = customer_name
+        except Exception as e:
+            frappe.log_error(f"Fehler beim Setzen des Invoice-Titels: {str(e)}", "WARNING: title_setting_error")
+            invoice.title = doc.customer
+
         # Zusätzliche/benutzerdefinierte Felder anpassen
         invoice.remarks = f"Automatisch erstellt aus Sales Order: {doc.name}"
         invoice.sales_order = doc.name  # Custom-Feld für Duplikat-Prüfung
@@ -896,6 +905,15 @@ def create_partner_order(original_order_doc, partner_name):
             from erpnext.selling.doctype.sales_order.sales_order import make_sales_invoice
 
             invoice = make_sales_invoice(partner_order.name)
+
+            # Setze den Titel nur mit Kundennamen
+            try:
+                customer_doc = frappe.get_doc("Customer", partner_order.customer)
+                customer_name = customer_doc.customer_name or partner_order.customer
+                invoice.title = customer_name
+            except Exception as e:
+                frappe.log_error(f"Fehler beim Setzen des Partner-Invoice-Titels: {str(e)}", "WARNING: partner_title_setting_error")
+                invoice.title = partner_order.customer
 
             # Setze ALLE Flags um Validierungen komplett zu umgehen
             invoice.flags.ignore_permissions = True
