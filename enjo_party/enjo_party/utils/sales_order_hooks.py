@@ -660,6 +660,37 @@ def create_delivery_note_for_sales_order(sales_order_doc):
 
     try:
         dn = make_delivery_note(sales_order_doc.name)
+        
+        # Spezielle Behandlung für "Gruppenversand" Aufträge
+        if sales_order_doc.customer == "Gruppenversand":
+            # Deaktiviere Adressvalidierung für Gruppenversand-Aufträge
+            dn.flags.ignore_permissions = True
+            dn.flags.ignore_mandatory = True
+            dn.flags.ignore_validate = True
+            
+            # Überschreibe Adressvalidierungsmethoden
+            import types
+            
+            def safe_validate_shipping_address(self, *args, **kwargs):
+                frappe.log_error(f"✅ Fremde Lieferadresse erkannt für Delivery Note {self.name} - Validierung deaktiviert", "INFO: foreign_shipping_detected")
+                pass
+            
+            def safe_validate_billing_address(self, *args, **kwargs):
+                frappe.log_error(f"✅ Fremde Rechnungsadresse erkannt für Delivery Note {self.name} - Validierung deaktiviert", "INFO: foreign_billing_detected")
+                pass
+            
+            def safe_validate_address(self, *args, **kwargs):
+                frappe.log_error(f"✅ Adressvalidierung für Delivery Note {self.name} deaktiviert (Gruppenversand)", "INFO: address_validation_disabled")
+                pass
+            
+            dn.validate_shipping_address = types.MethodType(safe_validate_shipping_address, dn)
+            dn.validate_billing_address = types.MethodType(safe_validate_billing_address, dn)
+            dn.validate_address = types.MethodType(safe_validate_address, dn)
+            
+            # Logge die Adressinformationen für Debugging
+            if hasattr(dn, 'shipping_address_name') and dn.shipping_address_name:
+                frappe.log_error(f"Fremde Lieferadresse erkannt: {dn.shipping_address_name} gehört zu Kunde {dn.customer}, aber Delivery Note ist für Kunde Gruppenversand", "INFO: foreign_shipping_detected")
+        
         dn.insert()
         return dn
     except Exception as e:
