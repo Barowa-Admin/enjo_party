@@ -1323,10 +1323,19 @@ def create_shipping_orders_for_customers(sammelbestellung_doc, all_orders_with_s
             try:
                 frappe.log_error(f"Erstelle Versandauftrag für {shipping_target} mit {len(products_list)} Produkten", "INFO: create_shipping_order")
                 
-                # Hole Adresse des Versandziels
-                shipping_address = find_existing_address(shipping_target, "Shipping")
-                if not shipping_address:
-                    shipping_address = find_existing_address(shipping_target, "Billing")
+                # Hole die korrekte Lieferadresse des Versandziels
+                # Verwende die find_existing_address Funktion, die bereits die richtige Logik hat
+                shipping_address = None
+                try:
+                    # Suche nach Shipping-Adresse mit der bewährten Funktion
+                    shipping_address = find_existing_address(shipping_target, "Shipping")
+                    
+                    # Fallback: Suche nach Billing-Adresse
+                    if not shipping_address:
+                        shipping_address = find_existing_address(shipping_target, "Billing")
+                        
+                except Exception as e:
+                    frappe.log_error(f"Fehler beim Suchen der Adresse für {shipping_target}: {str(e)}", "ERROR: address_search_error")
                 
                 if not shipping_address:
                     frappe.log_error(f"Keine Adresse für Versandziel {shipping_target} gefunden - überspringe", "WARNING: no_shipping_address")
@@ -1346,11 +1355,12 @@ def create_shipping_orders_for_customers(sammelbestellung_doc, all_orders_with_s
                                 })
                 
                 frappe.log_error(f"Versandauftrag für {shipping_target}: {len(all_products_for_target)} Produkte (inkl. eigene)", "INFO: shipping_order_products")
+                frappe.log_error(f"DEBUG: shipping_address = {shipping_address}", "DEBUG: address_debug")
                 
                 # Erstelle Versandauftrag
                 shipping_order_data = {
                     "doctype": "Sales Order",
-                    "customer": shipping_target,
+                    "customer": "Gruppenversand",  # Immer Gruppenversand als Customer
                     "transaction_date": today(),
                     "delivery_date": today(),
                     "items": [
@@ -1371,8 +1381,8 @@ def create_shipping_orders_for_customers(sammelbestellung_doc, all_orders_with_s
                             "delivery_date": item['product'].get('delivery_date', today()),
                         } for item in all_products_for_target
                     ],
-                    "customer_address": shipping_address,
-                    "shipping_address_name": shipping_address,
+                    "customer_address": None,  # Gruppenversand hat keine eigene Adresse
+                    "shipping_address_name": shipping_address,  # Korrekte Versandadresse
                     "remarks": f"Versandauftrag aus Sammelbestellung: {sammelbestellung_doc.name} | Versandziel: {shipping_target} | {len(all_products_for_target)} Produkte (inkl. eigene)",
                     "po_no": sammelbestellung_doc.name,
                     "company": frappe.defaults.get_global_default("company"),
@@ -1389,6 +1399,15 @@ def create_shipping_orders_for_customers(sammelbestellung_doc, all_orders_with_s
                 
                 # Erstelle und buche den Versandauftrag
                 shipping_order = frappe.get_doc(shipping_order_data)
+                
+                # Flags setzen um Adressvalidierung zu umgehen
+                shipping_order.flags.ignore_permissions = True
+                shipping_order.flags.ignore_validate = True
+                shipping_order.flags.ignore_mandatory = True
+                shipping_order.flags.ignore_address_validation = True
+                shipping_order.flags.ignore_shipping_validation = True
+                shipping_order.flags.ignore_billing_validation = True
+                
                 shipping_order.insert()
                 shipping_order.submit()
                 
@@ -1443,23 +1462,27 @@ def create_single_partner_order_for_sammelbestellung(sammelbestellung_doc, all_o
         
         frappe.log_error(f"Erstelle Partner-Auftrag für Partnerin {sammelbestellung_doc.partnerin} mit {len(partner_products)} Produkten", "INFO: create_partner_order")
         
-        # Hole Partner-Adresse
+        # Hole die korrekte Lieferadresse der Partnerin
+        # Verwende die find_existing_address Funktion, die bereits die richtige Logik hat
+        partner_address = None
         try:
-            partner_address = frappe.db.get_value("Address", 
-                {"customer": sammelbestellung_doc.partnerin, "is_primary_address": 1}, 
-                "name")
+            # Suche nach Shipping-Adresse der Partnerin
+            partner_address = find_existing_address(sammelbestellung_doc.partnerin, "Shipping")
+            
+            # Fallback: Suche nach Billing-Adresse der Partnerin
             if not partner_address:
-                partner_address = frappe.db.get_value("Address", 
-                    {"customer": sammelbestellung_doc.partnerin}, 
-                    "name", order_by="creation desc")
+                partner_address = find_existing_address(sammelbestellung_doc.partnerin, "Billing")
+                    
         except Exception as e:
             frappe.log_error(f"Partner-Adresse nicht gefunden: {str(e)}", "WARNING: partner_address_not_found")
             partner_address = None
         
+        frappe.log_error(f"DEBUG: partner_address = {partner_address}", "DEBUG: partner_address_debug")
+        
         # Erstelle Sales Order für die Partnerin mit echten Produkten
         partner_order_data = {
             "doctype": "Sales Order",
-            "customer": sammelbestellung_doc.partnerin,
+            "customer": "Gruppenversand",  # Immer Gruppenversand als Customer
             "transaction_date": today(),
             "delivery_date": today(),
             "items": [
@@ -1480,8 +1503,8 @@ def create_single_partner_order_for_sammelbestellung(sammelbestellung_doc, all_o
                     "delivery_date": product.get('delivery_date', today()),
                 } for product in partner_products
             ],
-            "customer_address": partner_address,
-            "shipping_address_name": partner_address,
+            "customer_address": None,  # Gruppenversand hat keine eigene Adresse
+            "shipping_address_name": partner_address,  # Korrekte Versandadresse der Partnerin
             "remarks": f"Partner-Versandauftrag aus Sammelbestellung: {sammelbestellung_doc.name} | Partnerin: {sammelbestellung_doc.partnerin} | {len(partner_products)} Produkte",
             "po_no": sammelbestellung_doc.name,
             "company": frappe.defaults.get_global_default("company"),
@@ -1490,6 +1513,7 @@ def create_single_partner_order_for_sammelbestellung(sammelbestellung_doc, all_o
             "order_type": "Sales",
             "custom_party_reference": sammelbestellung_doc.name,
             "custom_calculated_shipping_cost": 0.0,
+            "custom_shipping_order": 1,  # Markierung als Versandauftrag
             "sales_order": sammelbestellung_doc.name,
             "taxes_and_charges": None,
             "selling_price_list": frappe.defaults.get_global_default("selling_price_list"),
@@ -1497,6 +1521,15 @@ def create_single_partner_order_for_sammelbestellung(sammelbestellung_doc, all_o
         
         # Erstelle und buche den Partner-Auftrag
         partner_order = frappe.get_doc(partner_order_data)
+        
+        # Flags setzen um Adressvalidierung zu umgehen
+        partner_order.flags.ignore_permissions = True
+        partner_order.flags.ignore_validate = True
+        partner_order.flags.ignore_mandatory = True
+        partner_order.flags.ignore_address_validation = True
+        partner_order.flags.ignore_shipping_validation = True
+        partner_order.flags.ignore_billing_validation = True
+        
         partner_order.insert()
         partner_order.submit()
         

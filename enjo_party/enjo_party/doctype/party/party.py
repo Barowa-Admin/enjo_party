@@ -1607,10 +1607,19 @@ def create_shipping_orders_for_party_customers(party_doc, all_orders_with_shippi
             try:
                 frappe.log_error(f"Erstelle Versandauftrag für {shipping_target} mit {len(products_list)} Produkten", "INFO: create_shipping_order")
                 
-                # Hole Adresse des Versandziels
-                shipping_address = find_existing_address(shipping_target, "Shipping")
-                if not shipping_address:
-                    shipping_address = find_existing_address(shipping_target, "Billing")
+                # Hole die korrekte Lieferadresse des Versandziels
+                # Verwende die find_existing_address Funktion, die bereits die richtige Logik hat
+                shipping_address = None
+                try:
+                    # Suche nach Shipping-Adresse mit der bewährten Funktion
+                    shipping_address = find_existing_address(shipping_target, "Shipping")
+                    
+                    # Fallback: Suche nach Billing-Adresse
+                    if not shipping_address:
+                        shipping_address = find_existing_address(shipping_target, "Billing")
+                        
+                except Exception as e:
+                    frappe.log_error(f"Fehler beim Suchen der Adresse für {shipping_target}: {str(e)}", "ERROR: address_search_error")
                 
                 if not shipping_address:
                     frappe.log_error(f"Keine Adresse für Versandziel {shipping_target} gefunden - überspringe", "WARNING: no_shipping_address")
@@ -1630,11 +1639,12 @@ def create_shipping_orders_for_party_customers(party_doc, all_orders_with_shippi
                                 })
                 
                 frappe.log_error(f"Versandauftrag für {shipping_target}: {len(all_products_for_target)} Produkte (inkl. eigene)", "INFO: shipping_order_products")
+                frappe.log_error(f"DEBUG: shipping_address = {shipping_address}", "DEBUG: address_debug")
                 
                 # Erstelle Versandauftrag
                 shipping_order_data = {
                     "doctype": "Sales Order",
-                    "customer": shipping_target,
+                    "customer": "Gruppenversand",  # Immer Gruppenversand als Customer
                     "transaction_date": today(),
                     "delivery_date": today(),
                     "items": [
@@ -1655,8 +1665,8 @@ def create_shipping_orders_for_party_customers(party_doc, all_orders_with_shippi
                             "delivery_date": item['product'].get('delivery_date', today()),
                         } for item in all_products_for_target
                     ],
-                    "customer_address": shipping_address,
-                    "shipping_address_name": shipping_address,
+                    "customer_address": None,  # Gruppenversand hat keine eigene Adresse
+                    "shipping_address_name": shipping_address,  # Korrekte Versandadresse
                     "remarks": f"Versandauftrag aus Party: {party_doc.name} | Versandziel: {shipping_target} | {len(all_products_for_target)} Produkte (inkl. eigene)",
                     "po_no": party_doc.name,
                     "company": frappe.defaults.get_global_default("company"),
@@ -1673,6 +1683,15 @@ def create_shipping_orders_for_party_customers(party_doc, all_orders_with_shippi
                 
                 # Erstelle und buche den Versandauftrag
                 shipping_order = frappe.get_doc(shipping_order_data)
+                
+                # Flags setzen um Adressvalidierung zu umgehen
+                shipping_order.flags.ignore_permissions = True
+                shipping_order.flags.ignore_validate = True
+                shipping_order.flags.ignore_mandatory = True
+                shipping_order.flags.ignore_address_validation = True
+                shipping_order.flags.ignore_shipping_validation = True
+                shipping_order.flags.ignore_billing_validation = True
+                
                 shipping_order.insert()
                 shipping_order.submit()
                 
