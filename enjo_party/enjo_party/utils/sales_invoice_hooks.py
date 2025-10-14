@@ -48,13 +48,13 @@ def before_validate_sales_invoice(doc, method):
                     # Neuberechnung mit inklusiven Steuern
                     doc.calculate_taxes_and_totals()
     
-    # NEU: Adress-Synchronisation im Entwurfsmodus
-    if doc.docstatus == 0:  # Nur im Entwurfsmodus
-        sync_addresses_in_draft(doc)
+    # AUSKOMMENTIERT: Adress-Synchronisation im Entwurfsmodus deaktiviert
+    # if doc.docstatus == 0:  # Nur im Entwurfsmodus
+    #     sync_addresses_in_draft(doc)
     
-    # NEU: Adress-Synchronisation beim Buchen (docstatus wird von 0 auf 1)
-    if doc.docstatus == 1 and hasattr(doc, '_doc_before_save'):
-        sync_addresses_before_submit(doc)
+    # AUSKOMMENTIERT: Adress-Synchronisation beim Buchen deaktiviert
+    # if doc.docstatus == 1 and hasattr(doc, '_doc_before_save'):
+    #     sync_addresses_before_submit(doc)
     
     # Prüfe, ob es sich um eine Party/Sammelbestellung-Rechnung handelt und übertrage Referenz
     is_party_invoice = False
@@ -411,8 +411,12 @@ def after_insert_sales_invoice(doc, method):
 def onload_sales_invoice(doc, method):
     """
     Hook für Sales Invoice onload
-    Synchronisiert Adressen automatisch beim Laden der Rechnung im Entwurfsmodus
+    AUSKOMMENTIERT: Adress-Synchronisation beim Laden deaktiviert
     """
+    # AUSKOMMENTIERT: Adress-Synchronisation beim Laden deaktiviert
+    # Das überschreibt manuell ausgewählte Adressen
+    return
+    
     if doc.doctype != "Sales Invoice":
         return
     
