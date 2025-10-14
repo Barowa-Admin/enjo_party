@@ -190,7 +190,10 @@ def sync_addresses_in_draft(doc):
                     "INFO: address_sync_draft"
                 )
         
+        # AUSKOMMENTIERT: Automatische Versandadresse-Synchronisation deaktiviert
+        # Das überschreibt manuell ausgewählte Versandadressen
         # Optional: Auch Versandadresse synchronisieren, falls sie zum gleichen Kunden gehört
+        """
         if doc.shipping_address_name:
             # Prüfe, ob die Versandadresse zum Kunden gehört
             shipping_links = frappe.get_all("Dynamic Link",
@@ -230,6 +233,7 @@ def sync_addresses_in_draft(doc):
                             f"Versandadresse in Rechnung {doc.name} aktualisiert: {doc.shipping_address_name} -> {current_shipping_address}",
                             "INFO: shipping_address_sync_draft"
                         )
+        """
     
     except Exception as e:
         frappe.log_error(f"Fehler beim Synchronisieren der Adressen in Rechnung {doc.name}: {str(e)}", "ERROR: address_sync")

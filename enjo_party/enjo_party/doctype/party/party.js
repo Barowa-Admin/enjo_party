@@ -136,10 +136,13 @@ function refreshButtons(frm) {
 		} else if (frm.doc.status === "Gastgeber Geschenke") {
 			console.log("Status Gastgeber Geschenke: Aufträge erstellen + Speichern Buttons hinzufügen");
 			// Status "Gastgeber Geschenke": Speichern und "Aufträge erstellen"-Button
+			// AUSKOMMENTIERT: Gastgebergeschenke-Button temporär deaktiviert
+			/*
 			frm.add_custom_button(__("Aufträge erstellen"), function() {
 				// Die komplette Aufträge-Erstellungslogik hier einfügen
 				startAuftraegeErstellung(frm);
 			}).addClass("btn-primary");
+			*/
 			
 			// Auch einen Speichern-Button anzeigen (ohne Primärfarbe)
 			frm.add_custom_button(__("Speichern"), function() {
