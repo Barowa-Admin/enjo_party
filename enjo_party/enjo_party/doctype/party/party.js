@@ -115,8 +115,15 @@ function refreshButtons(frm) {
 				frm.save();
 			}).addClass("btn-primary");
 		} else if (frm.doc.status === "Produkte") {
-			console.log("Status Produkte: Gastgeber Geschenke + Speichern Buttons hinzufügen");
-			// Status "Produkte": Speichern und "Gastgeber Geschenke"-Button
+			console.log("Status Produkte: Aufträge erstellen + Speichern Buttons hinzufügen");
+			// Status "Produkte": Speichern und "Aufträge erstellen"-Button
+			frm.add_custom_button(__("Aufträge erstellen"), function() {
+				// Die komplette Aufträge-Erstellungslogik hier einfügen
+				startAuftraegeErstellung(frm);
+			}).addClass("btn-primary");
+			
+			// AUSKOMMENTIERT: Gastgebergeschenke-Button temporär deaktiviert
+			/*
 			frm.add_custom_button(__("Gastgeber Geschenke"), function() {
 				// Status zu "Gastgeber Geschenke" ändern
 				frm.set_value("status", "Gastgeber Geschenke");
@@ -128,6 +135,7 @@ function refreshButtons(frm) {
 				
 				frm.save();
 			}).addClass("btn-primary");
+			*/
 			
 			// Auch einen Speichern-Button anzeigen (ohne Primärfarbe)
 			frm.add_custom_button(__("Speichern"), function() {
