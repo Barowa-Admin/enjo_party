@@ -82,6 +82,8 @@
   "produktauswahl_für_gastgeberin_section",
   "produktauswahl_für_gastgeberin",
   "summe_gastgeberin",
+  "gastgeber_geschenke_section",
+  "gastgeber_geschenke",
   "versand_gastgeberin"
  ],
  "fields": [
@@ -147,7 +149,7 @@
    "fieldname": "status",
    "fieldtype": "Select",
    "label": "Status",
-   "options": "Gäste\nProdukte\nAbgeschlossen",
+   "options": "Gäste\nProdukte\nGastgeber Geschenke\nAbgeschlossen",
    "read_only": 1
   },
   {
@@ -402,6 +404,13 @@
    "fieldname": "produktauswahl_für_gastgeberin",
    "fieldtype": "Table",
    "options": "Sales Order Item"
+  },
+  {
+   "fieldname": "gastgeber_geschenke",
+   "fieldtype": "Table",
+   "label": "Gastgeber Geschenke",
+   "options": "Sales Order Item",
+   "hidden": 1
   },
   {
    "fieldname": "versand_gastgeberin",

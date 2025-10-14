@@ -41,6 +41,17 @@ class Party(Document):
 			if removed_count > 0:
 				frappe.log_error(f"Entfernt {removed_count} unvollständige Zeilen aus Gastgeberin-Produkttabelle", "INFO: remove_empty_rows")
 		
+		# Gastgeber Geschenke Tabelle bereinigen
+		if hasattr(self, 'gastgeber_geschenke') and self.gastgeber_geschenke:
+			original_count = len(self.gastgeber_geschenke)
+			self.gastgeber_geschenke = [
+				row for row in self.gastgeber_geschenke 
+				if (row.item_code and row.item_code.strip()) and (row.qty and row.qty > 0)
+			]
+			removed_count = original_count - len(self.gastgeber_geschenke)
+			if removed_count > 0:
+				frappe.log_error(f"Entfernt {removed_count} unvollständige Zeilen aus Gastgeber-Geschenke-Tabelle", "INFO: remove_empty_rows")
+		
 		# Gäste-Tabellen bereinigen
 		for i in range(1, 16):
 			field_name = f'produktauswahl_für_gast_{i}'

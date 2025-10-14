@@ -115,8 +115,27 @@ function refreshButtons(frm) {
 				frm.save();
 			}).addClass("btn-primary");
 		} else if (frm.doc.status === "Produkte") {
-			console.log("Status Produkte: Aufträge erstellen + Speichern Buttons hinzufügen");
-			// Status "Produkte": Speichern und "Aufträge erstellen"-Button
+			console.log("Status Produkte: Gastgeber Geschenke + Speichern Buttons hinzufügen");
+			// Status "Produkte": Speichern und "Gastgeber Geschenke"-Button
+			frm.add_custom_button(__("Gastgeber Geschenke"), function() {
+				// Status zu "Gastgeber Geschenke" ändern
+				frm.set_value("status", "Gastgeber Geschenke");
+				
+				// Gastgeber Geschenke Tabelle einblenden
+				if (frm.fields_dict['gastgeber_geschenke']) {
+					frm.set_df_property('gastgeber_geschenke', "hidden", 0);
+				}
+				
+				frm.save();
+			}).addClass("btn-primary");
+			
+			// Auch einen Speichern-Button anzeigen (ohne Primärfarbe)
+			frm.add_custom_button(__("Speichern"), function() {
+				frm.save();
+			});
+		} else if (frm.doc.status === "Gastgeber Geschenke") {
+			console.log("Status Gastgeber Geschenke: Aufträge erstellen + Speichern Buttons hinzufügen");
+			// Status "Gastgeber Geschenke": Speichern und "Aufträge erstellen"-Button
 			frm.add_custom_button(__("Aufträge erstellen"), function() {
 				// Die komplette Aufträge-Erstellungslogik hier einfügen
 				startAuftraegeErstellung(frm);
@@ -1940,6 +1959,13 @@ frappe.ui.form.on('Party', {
 		// Verzögere den Aufruf, damit alle anderen Initialisierungen abgeschlossen sind
 		setTimeout(() => {
 			refreshButtons(frm);
+			
+			// Wenn Status "Gastgeber Geschenke", blende die Tabelle ein
+			if (frm.doc.status === "Gastgeber Geschenke") {
+				if (frm.fields_dict['gastgeber_geschenke']) {
+					frm.set_df_property('gastgeber_geschenke', "hidden", 0);
+				}
+			}
 		}, 200);
 		
 		// Blauen Submit-Banner ausblenden
