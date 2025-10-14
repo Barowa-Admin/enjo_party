@@ -8,9 +8,15 @@ def before_validate_delivery_note(doc, method):
     """
     Hook für Delivery Note before_validate
     Umgeht die Adress-Validierung für fremde Lieferadressen
+    Deaktiviert Lager-Validierung für alle Delivery Notes
     """
     if doc.doctype != "Delivery Note":
         return
+    
+    # ALLGEMEIN: Lager-Validierung für alle Delivery Notes deaktivieren
+    # Das ermöglicht das Buchen auch wenn Artikel nicht im Lager verfügbar sind
+    doc.flags.ignore_warehouse_validation = True
+    doc.flags.ignore_stock_validation = True
     
     # Prüfe, ob es sich um eine fremde Lieferadresse handelt
     is_foreign_shipping = False
@@ -46,6 +52,8 @@ def before_validate_delivery_note(doc, method):
         doc.flags.ignore_address_validation = True
         doc.flags.ignore_shipping_validation = True
         doc.flags.ignore_billing_validation = True
+        doc.flags.ignore_warehouse_validation = True  # Ignoriere Lager-Validierung
+        doc.flags.ignore_stock_validation = True     # Ignoriere Bestand-Validierung
         
         # Überschreibe die Adress-Validierungsmethoden
         def safe_validate_party_address(self, *args, **kwargs):

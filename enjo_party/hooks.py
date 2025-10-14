@@ -167,6 +167,9 @@ doc_events = {
 	},
 	"Delivery Note": {
 		"before_validate": "enjo_party.enjo_party.utils.delivery_note_hooks.before_validate_delivery_note"
+	},
+	"Pick List": {
+		"before_validate": "enjo_party.enjo_party.utils.pick_list_hooks.before_validate_pick_list"
 	}
 }
 
