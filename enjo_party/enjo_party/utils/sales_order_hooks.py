@@ -30,6 +30,7 @@ def auto_create_and_submit_sales_invoice(doc, method):
     # Prüfe ob es ein Partner-Auftrag oder Versandauftrag ist
     is_partner_order = False
     is_shipping_order = False
+    is_partner_shipping_order = False  # NEUE FLAG für Partner-Versand-Aufträge (nur Invoice, kein Lieferschein)
     
     # 1. Prüfe custom_shipping_order Flag (neue Logik für Versandaufträge)
     if hasattr(doc, 'custom_shipping_order') and doc.custom_shipping_order:
@@ -50,8 +51,18 @@ def auto_create_and_submit_sales_invoice(doc, method):
         try:
             sammelbestellung_doc = frappe.get_doc("Sammelbestellung", doc.custom_party_reference)
             if sammelbestellung_doc.partnerin == doc.customer:
-                is_partner_order = True
-                frappe.log_error(f"Partner-Auftrag aus Sammelbestellung erkannt: {doc.name} (Partnerin: {doc.customer})", "DEBUG: partner_order_sammelbestellung")
+                # NEUE LOGIK: Prüfe ob es nur Versandartikel sind (Partner-Versand-Auftrag)
+                all_items_are_shipping = all(
+                    item.item_code and item.item_code.startswith('shipping-')
+                    for item in doc.items
+                )
+                
+                if all_items_are_shipping:
+                    is_partner_shipping_order = True
+                    frappe.log_error(f"Partner-Versand-Auftrag erkannt (nur Versand-Artikel): {doc.name}", "DEBUG: partner_shipping_order")
+                else:
+                    is_partner_order = True
+                    frappe.log_error(f"Partner-Auftrag aus Sammelbestellung erkannt: {doc.name} (Partnerin: {doc.customer})", "DEBUG: partner_order_sammelbestellung")
         except Exception as e:
             frappe.log_error(f"Fehler beim Prüfen der Sammelbestellung: {str(e)}", "ERROR: sammelbestellung_check")
     
@@ -69,7 +80,11 @@ def auto_create_and_submit_sales_invoice(doc, method):
         except Exception as e:
             frappe.log_error(f"Fehler beim Prüfen der Party: {str(e)}", "ERROR: party_check")
     
-    if is_partner_order or is_shipping_order:
+    # Partner-Versand-Aufträge (nur Versand-Artikel) sollen NORMAL behandelt werden (mit Invoice)
+    if is_partner_shipping_order:
+        frappe.log_error(f"Partner-Versand-Auftrag {doc.name} - wird NORMAL behandelt (mit Invoice, OHNE Lieferschein)", "INFO: partner_shipping_order_normal")
+        # CONTINUE mit normaler Invoice-Erstellung (kein return)
+    elif is_partner_order or is_shipping_order:
         order_type = "Versandauftrag" if is_shipping_order else "Partner-Auftrag"
         frappe.log_error(f"{order_type} {doc.name} - überspringe Ausgangsrechnung, erstelle aber Packliste und Lieferschein", "INFO: skip_special_order_invoice")
         # Erstelle Packliste und Lieferschein für Partner-/Versandauftrag (ohne Ausgangsrechnung)

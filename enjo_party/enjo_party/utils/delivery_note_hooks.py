@@ -13,8 +13,16 @@ def before_validate_delivery_note(doc, method):
     if doc.doctype != "Delivery Note":
         return
     
-    # ALLGEMEIN: Lager-Validierung für alle Delivery Notes deaktivieren
-    # Das ermöglicht das Buchen auch wenn Artikel nicht im Lager verfügbar sind
+    # ===================================================================================
+    # WICHTIG: LAGER-VALIDIERUNG DEAKTIVIERT
+    # ===================================================================================
+    # Diese Einstellungen ermöglichen das Buchen von Delivery Notes auch wenn:
+    # - Artikel nicht im Lager verfügbar sind
+    # - Negative Bestände entstehen
+    # - Keine Buchhaltungseinträge erstellt werden sollen
+    #
+    # ZUM DEAKTIVIEREN: Kommentiere die folgenden 3 Zeilen aus
+    # ===================================================================================
     doc.flags.ignore_warehouse_validation = True
     doc.flags.ignore_stock_validation = True
     doc.flags.ignore_gl_entries = True  # KEINE Buchhaltungseinträge erstellen

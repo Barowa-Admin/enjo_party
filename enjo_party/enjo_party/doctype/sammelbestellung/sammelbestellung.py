@@ -434,13 +434,22 @@ def calculate_shipping_costs_for_sammelbestellung(sammelbestellung_doc):
                 
             frappe.log_error(f"Kunde {index} ({kunde_row.kunde}) hat {len(produkte_kunde)} Produkte, Total: {total_kunde}", "DEBUG: customer_order")
                 
+            # Bestimme shipping_target_type
+            shipping_target_type = "customer"
+            if versand_ziel == sammelbestellung_doc.partnerin:
+                shipping_target_type = "partner"
+            
             all_orders.append({
                 "customer": kunde_row.kunde,
                 "shipping_target": versand_ziel,
                 "products": produkte_kunde,
                 "total": total_kunde,
                 "order_type": "kunde",
-                "customer_index": index
+                "customer_index": index,
+                "shipping_target_type": shipping_target_type,
+                "shipping_cost": 0.0,  # Wird später berechnet
+                "shipping_note": None,
+                "shipping_item_code": None
             })
         else:
             frappe.log_error(f"Kunde {index} ({kunde_row.kunde}): Keine gültigen Produkte in {field_name} gefunden", "DEBUG: customer_no_products")
@@ -458,43 +467,47 @@ def calculate_shipping_costs_for_sammelbestellung(sammelbestellung_doc):
     for target, orders in shipping_groups.items():
         frappe.log_error(f"Versandziel {target}: {len(orders)} Orders", "DEBUG: group_detail")
     
-    # VERSANDLOGIK: Berechne Versandkosten pro Gruppe und füge Versandartikel hinzu
+    # NEUE VERSANDLOGIK: Versand nur an Versandziel, keine Aufteilung mehr
     for target, orders in shipping_groups.items():
         total_value_for_target = sum(order["total"] for order in orders)
         num_orders = len(orders)
         
         frappe.log_error(f"Versandziel {target}: {num_orders} Aufträge, Gesamtwert: {total_value_for_target}€", "DEBUG: shipping_calculation")
         
+        # Prüfe ob alle Artikel an Partnerin gehen
+        all_to_partner = all(order.get("shipping_target_type") == "partner" for order in orders)
+        frappe.log_error(f"Partner-Erkennung für {target}: all_to_partner={all_to_partner}, shipping_target_types={[order.get('shipping_target_type') for order in orders]}", "DEBUG: partner_detection")
+        
         if total_value_for_target >= 200:
-            shipping_cost_per_order = 0.0
+            # Versandkostenfrei - keine Versandkosten
+            shipping_cost = 0.0
             shipping_item_code = None
             shipping_note = f"Versandkostenfrei (Gesamtwert: {total_value_for_target:.2f}€ >= 200€)"
             frappe.log_error(f"Versandkostenfrei für {target}", "DEBUG: shipping_free")
         else:
-            shipping_cost_per_order = round(7.0 / num_orders, 2)
-            
-            shipping_items = {
-                1: "shipping-7",
-                2: "shipping-3.5",
-                3: "shipping-2.33",
-                4: "shipping-1.75",
-                5: "shipping-1.4",
-                6: "shipping-1.17",
-                7: "shipping-1"
+            # Versandkosten: 7€ nur an Versandziel
+            shipping_cost = 7.0
+            shipping_item_code = "shipping-7"
+            shipping_note = f"Versandkosten: 7€ an Versandziel {target} (Gesamtwert: {total_value_for_target:.2f}€ < 200€)"
+            frappe.log_error(f"Versandkosten für {target}: 7€ shipping-7", "DEBUG: shipping_charged")
+        
+        # SPEZIALFALL: Wenn alle Artikel an Partnerin gehen, erstelle separaten Partner-Versand-Auftrag
+        if all_to_partner and total_value_for_target < 200 and shipping_cost > 0:
+            # Erstelle zusätzlichen Partner-Versand-Auftrag
+            partner_shipping_order = {
+                "customer": target,  # Partnerin
+                "shipping_target": target,  # Partnerin (Versand an sich selbst)
+                "products": [],
+                "total": shipping_cost,
+                "shipping_cost": shipping_cost,
+                "shipping_note": f"Partner-Versand: 7€ (Gesamtwert: {total_value_for_target:.2f}€ < 200€)",
+                "shipping_item_code": shipping_item_code,
+                "shipping_target_type": "partner",
+                "is_partner_shipping_order": True
             }
             
-            shipping_item_code = shipping_items.get(num_orders, "shipping-1")
-            
-            shipping_note = f"Versandkosten aufgeteilt: {num_orders} Bestellung(en) à {shipping_cost_per_order:.2f}€ (Gesamtwert: {total_value_for_target:.2f}€ < 200€) - Artikel: {shipping_item_code}"
-            frappe.log_error(f"Versandkosten für {target}: {shipping_item_code} à {shipping_cost_per_order}€", "DEBUG: shipping_charged")
-        
-        # Versandkosten zu jeder Bestellung hinzufügen
-        for order in orders:
-            order["shipping_cost"] = shipping_cost_per_order
-            order["shipping_note"] = shipping_note
-            order["shipping_item_code"] = shipping_item_code
-            
-            if shipping_cost_per_order > 0 and shipping_item_code:
+            # Füge Versand-Artikel hinzu
+            if shipping_item_code:
                 try:
                     shipping_item_doc = frappe.get_doc("Item", shipping_item_code)
                     
@@ -502,46 +515,112 @@ def calculate_shipping_costs_for_sammelbestellung(sammelbestellung_doc):
                         "item_code": shipping_item_code,
                         "item_name": shipping_item_doc.item_name or "Versand",
                         "qty": 1,
-                        "rate": shipping_cost_per_order,
-                        "amount": shipping_cost_per_order,
+                        "rate": shipping_cost,
+                        "amount": shipping_cost,
                         "uom": shipping_item_doc.stock_uom or "Stk",
                         "stock_uom": shipping_item_doc.stock_uom or "Stk",
                         "conversion_factor": 1.0,
                         "stock_qty": 1.0,
-                        "base_amount": shipping_cost_per_order,
-                        "base_rate": shipping_cost_per_order,
+                        "base_amount": shipping_cost,
+                        "base_rate": shipping_cost,
                         "warehouse": get_default_warehouse(),
                         "delivery_date": frappe.utils.getdate(frappe.utils.add_days(frappe.utils.today(), 7)),
                         "_force_zero_rate": False,
                         "_shipping_item": True
                     }
                     
-                    order["products"].append(shipping_product)
-                    order["total"] += shipping_cost_per_order
+                    partner_shipping_order["products"].append(shipping_product)
+                    all_orders.append(partner_shipping_order)
                     
-                    frappe.log_error(f"Versandartikel {shipping_item_code} hinzugefügt zu {order['customer']}: {shipping_cost_per_order}€", "DEBUG: shipping_item_added")
+                    frappe.log_error(f"Partner-Versand-Auftrag erstellt für {target}: {shipping_cost}€", "DEBUG: partner_shipping_order_created")
                     
                 except Exception as e:
-                    frappe.log_error(f"Fehler beim Laden des Versandartikels {shipping_item_code}: {str(e)}", "ERROR: shipping_item_error")
-                    shipping_product = {
-                        "item_code": shipping_item_code,
-                        "item_name": "Versand",
-                        "qty": 1,
-                        "rate": shipping_cost_per_order,
-                        "amount": shipping_cost_per_order,
-                        "uom": "Stk",
-                        "stock_uom": "Stk",
-                        "conversion_factor": 1.0,
-                        "stock_qty": 1.0,
-                        "base_amount": shipping_cost_per_order,
-                        "base_rate": shipping_cost_per_order,
-                        "warehouse": get_default_warehouse(),
-                        "delivery_date": frappe.utils.getdate(frappe.utils.add_days(frappe.utils.today(), 7)),
-                        "_force_zero_rate": False,
-                        "_shipping_item": True
-                    }
-                    order["products"].append(shipping_product)
-                    order["total"] += shipping_cost_per_order
+                    frappe.log_error(f"Fehler beim Erstellen des Partner-Versand-Auftrags: {str(e)}", "ERROR: partner_shipping_error")
+            
+            # Alle normalen Aufträge bekommen KEINE Versandkosten
+            for order in orders:
+                order["shipping_cost"] = 0.0
+                order["shipping_note"] = f"Keine Versandkosten (Partner-Versand-Auftrag erstellt)"
+                order["shipping_item_code"] = None
+        else:
+            # NORMALE LOGIK: Versandkosten nur an Versandziel hinzufügen (nicht aufgeteilt)
+            if shipping_cost > 0 and shipping_item_code:
+                # Finde den Versandziel-Auftrag (der Kunde, der die Ware tatsächlich empfängt)
+                # WICHTIG: Versandkosten gehen an den Kunden, dessen customer == shipping_target
+                shipping_order = None
+                for order in orders:
+                    if order["customer"] == target:
+                        shipping_order = order
+                        frappe.log_error(f"Versandkosten gehen an {target} (empfängt die Ware)", "DEBUG: shipping_to_receiver")
+                        break
+                
+                # Fallback: Wenn kein Kunde das Versandziel ist, nimm die erste Bestellung
+                if not shipping_order:
+                    shipping_order = orders[0]
+                    frappe.log_error(f"Fallback: Versandkosten an erste Bestellung ({shipping_order['customer']})", "DEBUG: shipping_fallback")
+            
+            try:
+                shipping_item_doc = frappe.get_doc("Item", shipping_item_code)
+                
+                shipping_product = {
+                    "item_code": shipping_item_code,
+                    "item_name": shipping_item_doc.item_name or "Versand",
+                    "qty": 1,
+                    "rate": shipping_cost,
+                    "amount": shipping_cost,
+                    "uom": shipping_item_doc.stock_uom or "Stk",
+                    "stock_uom": shipping_item_doc.stock_uom or "Stk",
+                    "conversion_factor": 1.0,
+                    "stock_qty": 1.0,
+                    "base_amount": shipping_cost,
+                    "base_rate": shipping_cost,
+                    "warehouse": get_default_warehouse(),
+                    "delivery_date": frappe.utils.getdate(frappe.utils.add_days(frappe.utils.today(), 7)),
+                    "_force_zero_rate": False,
+                    "_shipping_item": True
+                }
+                
+                shipping_order["products"].append(shipping_product)
+                shipping_order["total"] += shipping_cost
+                shipping_order["shipping_cost"] = shipping_cost
+                shipping_order["shipping_note"] = shipping_note
+                shipping_order["shipping_item_code"] = shipping_item_code
+                
+                frappe.log_error(f"Versandartikel {shipping_item_code} hinzugefügt zu Versandziel {target}: {shipping_cost}€", "DEBUG: shipping_item_added")
+                
+            except Exception as e:
+                frappe.log_error(f"Fehler beim Laden des Versandartikels {shipping_item_code}: {str(e)}", "ERROR: shipping_item_error")
+                shipping_product = {
+                    "item_code": shipping_item_code,
+                    "item_name": "Versand",
+                    "qty": 1,
+                    "rate": shipping_cost,
+                    "amount": shipping_cost,
+                    "uom": "Stk",
+                    "stock_uom": "Stk",
+                    "conversion_factor": 1.0,
+                    "stock_qty": 1.0,
+                    "base_amount": shipping_cost,
+                    "base_rate": shipping_cost,
+                    "warehouse": get_default_warehouse(),
+                    "delivery_date": frappe.utils.getdate(frappe.utils.add_days(frappe.utils.today(), 7)),
+                    "_force_zero_rate": False,
+                    "_shipping_item": True
+                }
+                
+                shipping_order["products"].append(shipping_product)
+                shipping_order["total"] += shipping_cost
+                shipping_order["shipping_cost"] = shipping_cost
+                shipping_order["shipping_note"] = shipping_note
+                shipping_order["shipping_item_code"] = shipping_item_code
+                
+                frappe.log_error(f"Versandartikel {shipping_item_code} hinzugefügt zu Versandziel {target}: {shipping_cost}€", "DEBUG: shipping_item_added")
+            
+            # Alle anderen Bestellungen bekommen keine Versandkosten
+            for order in orders[1:]:  # Alle außer der ersten (Versandziel)
+                order["shipping_cost"] = 0.0
+                order["shipping_note"] = f"Keine Versandkosten (Versandziel: {target})"
+                order["shipping_item_code"] = None
     
     frappe.log_error(f"=== ENDERGEBNIS calculate_shipping_costs_for_sammelbestellung ===", "DEBUG: shipping_calc_end")
     frappe.log_error(f"FINALE Anzahl Orders: {len(all_orders)}", "DEBUG: orders_count")
@@ -756,6 +835,7 @@ def create_invoices(sammelbestellung, from_submit=False, from_button=False):
                     "selling_price_list": frappe.defaults.get_global_default("selling_price_list"),
                 }
                 
+                
                 frappe.log_error(f"DEBUG: Order-Daten für {customer}: customer_address={billing_address}, shipping_address_name={shipping_address}", "DEBUG: order_data")
                 frappe.log_error(f"Erstelle Auftrag für '{customer}'", "INFO: creating_order")
                 
@@ -852,11 +932,27 @@ def create_invoices(sammelbestellung, from_submit=False, from_button=False):
         # Wenn mindestens ein Auftrag erstellt wurde, Sammelbestellung-Status aktualisieren
         if created_orders:
             # Partner-Auftrag erstellen (falls Produkte an Partnerin gehen)
+            # ABER NUR wenn nicht alle Kunden an Partnerin senden (dann nur Partner-Versand-Auftrag)
             try:
-                partner_order = create_single_partner_order_for_sammelbestellung(sammelbestellung_doc, all_orders_with_shipping)
-                if partner_order:
-                    created_orders.append(partner_order)
-                    frappe.log_error(f"Partner-Auftrag erstellt: {partner_order}", "SUCCESS: partner_order_created")
+                # Prüfe ob es einen Partner-Versand-Auftrag gibt (nur Versandkosten)
+                has_partner_shipping_order = any(
+                    order_info.get('is_partner_shipping_order', False)
+                    for order_info in all_orders_with_shipping
+                )
+                
+                # Prüfe ob alle Kunden an Partnerin senden
+                all_customers_send_to_partner = all(
+                    order_info.get('shipping_target') == sammelbestellung_doc.partnerin 
+                    for order_info in all_orders_with_shipping
+                )
+                
+                if all_customers_send_to_partner and has_partner_shipping_order:
+                    frappe.log_error("Alle Kunden senden an Partnerin UND Partner-Versand-Auftrag existiert - kein zusätzlicher Partner-Auftrag nötig", "INFO: skip_partner_order")
+                else:
+                    partner_order = create_single_partner_order_for_sammelbestellung(sammelbestellung_doc, all_orders_with_shipping)
+                    if partner_order:
+                        created_orders.append(partner_order)
+                        frappe.log_error(f"Partner-Auftrag erstellt: {partner_order}", "SUCCESS: partner_order_created")
             except Exception as e:
                 frappe.log_error(f"Fehler beim Erstellen des Partner-Auftrags: {str(e)}", "ERROR: partner_order_failed")
             
@@ -1304,11 +1400,13 @@ def create_shipping_orders_for_customers(sammelbestellung_doc, all_orders_with_s
             shipping_target = order_info.get('shipping_target')
             products = order_info.get('products', [])
             
-            # Überspringe wenn Versandziel = Kunde selbst oder Partnerin
-            if shipping_target == customer or shipping_target == sammelbestellung_doc.partnerin:
+            # Überspringe NUR wenn Versandziel = Kunde selbst (Kunde erhält seine eigenen Produkte)
+            # WICHTIG: Wenn Kunde an Partnerin sendet, MUSS ein Gruppenversand-Auftrag erstellt werden!
+            if shipping_target == customer:
+                frappe.log_error(f"Überspringe {customer} - empfängt eigene Produkte", "DEBUG: skip_self_shipping")
                 continue
                 
-            # Sammle alle Produkte für dieses Versandziel
+            # Sammle alle Produkte für dieses Versandziel (inkl. Partnerin!)
             if shipping_target not in shipping_groups:
                 shipping_groups[shipping_target] = []
             
@@ -1444,6 +1542,10 @@ def create_single_partner_order_for_sammelbestellung(sammelbestellung_doc, all_o
             frappe.log_error("Keine Partnerin in Sammelbestellung - kein Partner-Auftrag nötig", "INFO: no_partnerin")
             return None
         
+        # Prüfe ob es Partner-Versand-Aufträge gibt (nur Versandkosten, keine Produkte)
+        # Diese Prüfung wird entfernt, da Partner-Versand-Aufträge als separate Aufträge erstellt werden
+        # und nicht in all_orders_with_shipping enthalten sind
+        
         # Sammle alle Produkte, die an die Partnerin gehen
         partner_products = []
         
@@ -1465,6 +1567,17 @@ def create_single_partner_order_for_sammelbestellung(sammelbestellung_doc, all_o
         # Wenn keine Produkte an die Partnerin gehen, keinen Partner-Auftrag erstellen
         if not partner_products:
             frappe.log_error("Keine Produkte gehen an die Partnerin - kein Partner-Auftrag nötig", "INFO: no_partner_products")
+            return None
+        
+        # RADIKALE LÖSUNG: Wenn alle Kunden an Partnerin senden, KEINEN zusätzlichen Partner-Auftrag erstellen
+        # Der Partner-Versand-Auftrag (7€) wird bereits als normaler Auftrag erstellt
+        all_customers_send_to_partner = all(
+            order_info.get('shipping_target') == sammelbestellung_doc.partnerin 
+            for order_info in all_orders_with_shipping
+        )
+        
+        if all_customers_send_to_partner:
+            frappe.log_error("Alle Kunden senden an Partnerin - nur Partner-Versand-Auftrag nötig, KEIN zusätzlicher Partner-Auftrag", "INFO: only_shipping_order_needed")
             return None
         
         frappe.log_error(f"Erstelle Partner-Auftrag für Partnerin {sammelbestellung_doc.partnerin} mit {len(partner_products)} Produkten", "INFO: create_partner_order")

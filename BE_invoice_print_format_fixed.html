@@ -6,14 +6,14 @@
     <!-- Briefkopf mit zwei Logos -->
     <div style="position: relative; margin-bottom: 20px; border-bottom: 1px solid #ccc; padding-bottom: 15px;">
         <!-- ENJO Logo links oben -->
-        <!-- <div style="position: absolute; top: 0; left: 0;">
+        <div style="position: absolute; top: 0; left: 0;">
             <img src="https://bemotion.qob.app/files/logo_DE_Mittre.jpg" style="max-width: 100px; max-height: 75px; width: 100px; height: auto;" alt="ENJO Logo">
-        </div> -->
+        </div>
         
         <!-- BE'motion Logo rechts oben -->
-        <!-- <div style="position: absolute; top: 0; right: 0;">
+        <div style="position: absolute; top: 0; right: 0;">
             <img src="https://bemotion.qob.app/files/Logo_Transparent_2.png" style="max-width: 100px; max-height: 75px; width: 80px; height: auto;" alt="BE'motion Logo">
-        </div> -->
+        </div>
         
         <!-- Adresse mittig -->
         <div style="margin: 0 120px; text-align: center;">
@@ -21,14 +21,12 @@
             <div style="font-size: 14px; margin-bottom: 2px;">BE'motion - Inhaberin Esther Buchroth</div>
             <div style="font-size: 12px; margin-bottom: 2px;">Elisabeth-Schumacher-Str.33</div>
             <div style="font-size: 12px; margin-bottom: 2px;">04328 Leipzig</div>
-            <div style="font-size: 12px; margin-bottom: 6px;">Deutschland</div>
         </div>
     </div>
     
     <!-- Rechnung Header -->
-    <div style="text-align: center; margin-bottom: 15px;">
-        <h1 style="font-size: 24px; margin: 0 0 5px 0;">RECHNUNG</h1>
-        <h3 style="font-size: 16px; margin: 0 0 10px 0;">{{ doc.name }}</h3>
+    <div style="text-align: center; margin-bottom: 10px;">
+        <h1 style="font-size: 20px; margin: 0 0 2px 0;">RECHNUNG</h1>
     </div>
     
     <!-- Professionelles 3-Spalten Layout -->
@@ -69,6 +67,10 @@
                     {% for line in address_lines %}
                         {% if line.strip() %}
                             <div style="font-size: 11px; margin-bottom: 1px; color: #555;">{{ line.strip() }}</div>
+                                            
+                {% if doc.contact_email %}
+                {% endif %}
+                
                         {% endif %}
                     {% endfor %}
                 {% endif %}
@@ -78,6 +80,16 @@
             <!-- Rechnungsdaten -->
             <td style="width: 34%; vertical-align: top;">
                 <div style="font-size: 11px; font-weight: bold; color: #333; margin-bottom: 5px; text-transform: uppercase; letter-spacing: 0.5px;">Rechnungsdaten</div>
+                
+                <div style="margin-bottom: 3px; font-size: 11px;">
+                    <span style="font-weight: bold; color: #666;">Rechnungsnr.:</span>
+                    <span style="font-weight: bold; color: #555;"> {{ doc.name }}</span>
+                </div>
+                
+                <div style="margin-bottom: 3px; font-size: 11px;">
+                    <span style="font-weight: bold; color: #666;">Auftragsnr.:</span>
+                    <span style="color: #555;"> {{ doc.custom_auftrag or "-" }}</span>
+                </div>
                 
                 <div style="margin-bottom: 3px; font-size: 11px;">
                     <span style="font-weight: bold; color: #666;">Zahlungsstichtag:</span>
@@ -197,7 +209,7 @@
                     
                     <tr style="border-top: 2px solid #000; font-weight: bold;">
                         <td style="padding: 6px; text-align: right; font-size: 12px;"><strong>Gesamtsumme:</strong></td>
-                        <td style="padding: 6px; text-align: right; font-size: 12px;"><strong>{{ doc.get_formatted("grand_total", doc) }}</strong></td>
+                        <td style="padding: 6px; text-align: right; font-size: 12px;"><strong>{{ doc.get_formatted("total", doc) }}</strong></td>
                     </tr>
                 </table>
             </td>
@@ -219,13 +231,18 @@
     </div>
     {% endif %}
     
+    <!-- Überweisungshinweis -->
+    <div style="text-align: center; margin: 10px 0; padding: 8px; background-color: #f8f9fa; border: 1px solid #dee2e6; border-radius: 4px;">
+        <p style="margin: 0; font-size: 12px; color: #333; font-weight: bold;">Geben Sie bei der Überweisung bitte die Rechnungsnummer {{ doc.name }} an. Danke</p>
+    </div>
+    
     <!-- ENJO Spruch und Instagram -->
     <div style="text-align: center; margin: 10px 0; padding: 8px;">
         <p style="margin: 0 0 5px 0; font-size: 12px; color: #333; font-style: italic;">Viel Spaß mit Ihren ENJO-Produkten wünscht Ihnen Ihr BE'motion Team loves ENJO</p>
         <div style="display: flex; align-items: center; justify-content: center; gap: 10px;">
             <p style="margin: 0; font-size: 10px; color: #666;">Folgen Sie uns gern auf Instagram:</p>
             <p style="margin: 0; font-size: 10px; font-weight: bold; color: #333;">ENJO_Deutschland_Mitte</p>
-            <!-- <img src="https://bemotion.qob.app/files/enjo_deutschland_mitte_qr.png" style="width: 45px; height: 55px;" alt="QR-Code Instagram"> -->
+            <img src="/files/enjo_deutschland_mitte_qr.png" style="width: 90px; height: 100px;" alt="QR-Code Instagram">
         </div>
     </div>
                 </table>
@@ -238,8 +255,8 @@
 
 <!-- STATISCHE FOOTER LÖSUNG - Kein Seitenwechsel -->
 <div class="footer-static" style="margin-top: 20px; font-size: 8px; line-height: 1.2; border-top: 1px solid #ccc; padding-top: 8px;">
-    <p style="margin: 2px 0;"><strong>Zahlungsbedingungen:</strong> Vorkasse | <strong>Bankverbindung:</strong> Solaris SE | <strong>Empfänger:</strong> BE'motion - Inhaberin Esther Buchroth</p>
-    <p style="margin: 2px 0;"><strong>Zahlungslink:</strong> pay.bemotionme.com | <strong>IBAN:</strong> DE67 1101 0101 5476 1994 71 | <strong>BIC:</strong> SOBKDEB2XXX</p>
+    <p style="margin: 2px 0;"><strong>Zahlungsbedingungen:</strong> Vorkasse | <strong>Bankverbindung:</strong> Postbank | <strong>Empfänger:</strong> Esther Buchroth</p>
+    <p style="margin: 2px 0;"><strong>IBAN:</strong> DE36 8607 0407 0063 8312 00 | <strong>BIC:</strong> DEUTDE8LP37 | <strong>Zahlungslink:</strong> pay.bemotionme.com</p>
     <p style="margin: 2px 0;"><strong>BE'motion - INHABERIN ESTHER BUCHROTH</strong> | <strong>UID:</strong> DE237359306 | <strong>Tel.:</strong> +49 172 58 22 656 | <strong>E-Mail:</strong> enjo@bemotionme.com</p>
     <p style="margin: 2px 0;">Die gelieferte Ware bleibt bis zur vollständigen Bezahlung des Kaufpreises unser Eigentum. Gastgebergeschenke wurden nicht verrechnet.</p>
 </div>
