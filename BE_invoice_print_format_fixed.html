@@ -218,17 +218,20 @@
     
     <!-- Stripe Payment Link für Abos -->
     {% if doc.subscription %}
-    <div style="margin: 20px 0; padding: 15px; border: 2px solid #007bff; border-radius: 8px; background-color: #f8f9ff; text-align: center;">
-        <h3 style="margin: 0 0 10px 0; color: #007bff; font-size: 16px;">Online-Zahlung für Ihr Abonnement</h3>
-        {% if payment_url %}
-            <p style="margin: 0 0 10px 0; font-size: 14px; color: #333;">Bezahlen Sie bequem online mit Kreditkarte, SEPA-Lastschrift oder anderen Zahlungsmethoden:</p>
-            <a href="{{ payment_url }}" style="display: inline-block; background-color: #007bff; color: white; padding: 12px 25px; text-decoration: none; border-radius: 6px; font-size: 14px; font-weight: bold;">
-                Jetzt online bezahlen
-            </a>
-        {% else %}
-            <p style="margin: 0; font-size: 14px; color: #666;">Payment Link wird generiert...</p>
-        {% endif %}
+    {% set payment_requests = frappe.get_all("Payment Request", 
+        filters={"reference_name": doc.name, "docstatus": 1}, 
+        fields=["payment_url"], 
+        order_by="creation desc", 
+        limit=1) %}
+    {% if payment_requests and payment_requests[0].payment_url %}
+    <div style="margin: 10px 0; padding: 10px; border: 2px solid #007bff; border-radius: 5px; background-color: #f8f9ff; text-align: center;">
+        <p style="margin: 0 0 8px 0; font-size: 13px; color: #007bff; font-weight: bold;">Online-Zahlung für Ihr Abonnement</p>
+        <p style="margin: 0 0 8px 0; font-size: 11px; color: #333;">Bezahlen Sie bequem online mit Kreditkarte, SEPA-Lastschrift oder anderen Zahlungsmethoden:</p>
+        <a href="{{ payment_requests[0].payment_url }}" style="display: inline-block; background-color: #007bff; color: white; padding: 8px 20px; text-decoration: none; border-radius: 4px; font-size: 12px; font-weight: bold;">
+            Jetzt online bezahlen
+        </a>
     </div>
+    {% endif %}
     {% endif %}
     
     <!-- Überweisungshinweis -->

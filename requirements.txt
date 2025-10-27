@@ -1,2 +1,3 @@
 # frappe und erpnext sind bereits als App-Abhängigkeiten in hooks.py definiert
-# Hier nur zusätzliche externe Pakete auflisten, falls benötigt 
+# Hier nur zusätzliche externe Pakete auflisten, falls benötigt
+stripe>=5.0.0 
