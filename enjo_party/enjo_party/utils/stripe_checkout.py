@@ -9,7 +9,16 @@ def create_stripe_checkout_session(payment_request):
     try:
         # Hole Stripe Settings
         stripe_settings = frappe.get_doc("Stripe Settings", "Stripe")
-        stripe.api_key = stripe_settings.secret_key
+        
+        # Setze API Key (verschlüsselt gespeichert)
+        api_key = frappe.utils.password.get_decrypted_password("Stripe Settings", "Stripe", "secret_key")
+        if not api_key:
+            frappe.throw(_("Stripe Secret Key ist nicht konfiguriert"))
+        
+        stripe.api_key = api_key
+        
+        # Redirect URL
+        redirect_url = stripe_settings.redirect_url or frappe.utils.get_url()
         
         # Erstelle Checkout Session
         session = stripe.checkout.Session.create(
@@ -26,8 +35,8 @@ def create_stripe_checkout_session(payment_request):
                 'quantity': 1,
             }],
             mode='payment',
-            success_url=f'{stripe_settings.redirect_url}?session_id={{CHECKOUT_SESSION_ID}}',
-            cancel_url=stripe_settings.redirect_url,
+            success_url=f'{redirect_url}?session_id={{CHECKOUT_SESSION_ID}}',
+            cancel_url=redirect_url,
             customer_email=payment_request.email_to,
             metadata={
                 'payment_request': payment_request.name,
