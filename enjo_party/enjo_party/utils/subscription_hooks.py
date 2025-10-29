@@ -64,7 +64,7 @@ def force_subscription_update(doc, method):
                     stripe_url = create_stripe_checkout_session(payment_request)
                     if stripe_url:
                         payment_request.db_set('payment_url', stripe_url, update_modified=False)
-                        frappe.log_error(f"SUBSCRIPTION HOOK: Stripe Checkout URL erstellt: {stripe_url}", "SUCCESS: subscription_hook")
+                        frappe.log_error(f"Stripe Checkout URL erstellt für {payment_request.name}", "SUCCESS: subscription_hook")
                     
                     frappe.log_error(f"SUBSCRIPTION HOOK: Payment Request {payment_request.name} erstellt", "SUCCESS: subscription_hook")
                 
@@ -119,7 +119,7 @@ def create_payment_request_for_subscription_invoice(doc, method):
                 stripe_url = create_stripe_checkout_session(payment_request)
                 if stripe_url:
                     payment_request.db_set('payment_url', stripe_url, update_modified=False)
-                    frappe.log_error(f"Stripe Checkout URL für {payment_request.name} erstellt: {stripe_url}", "SUCCESS: subscription_payment_request")
+                    frappe.log_error(f"Stripe Checkout URL erstellt für {payment_request.name}", "SUCCESS: subscription_payment_request")
                 
                 frappe.log_error(f"Payment Request {payment_request.name} für Subscription Invoice {doc.name} erstellt", "SUCCESS: subscription_payment_request")
             
