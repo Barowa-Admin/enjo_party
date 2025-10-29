@@ -54,7 +54,9 @@ def force_subscription_update(doc, method):
                         "payment_gateway_account": "Stripe-Stripe - EUR",  # Dein Payment Gateway
                         "grand_total": invoice.grand_total,
                         "currency": invoice.currency,
-                        "email_to": invoice.contact_email
+                        "email_to": invoice.contact_email,
+                        "subject": f"Zahlungsaufforderung für Rechnung {invoice.name}",
+                        "message": f"Zahlung für Rechnung {invoice.name} - Betrag: {invoice.grand_total}€"
                     })
                     payment_request.insert(ignore_permissions=True)
                     payment_request.submit()
@@ -108,7 +110,9 @@ def create_payment_request_for_subscription_invoice(doc, method):
                     "payment_gateway_account": "Stripe-Stripe - EUR",  # Dein Payment Gateway
                     "grand_total": doc.grand_total,
                     "currency": doc.currency,
-                    "email_to": doc.contact_email
+                    "email_to": doc.contact_email,
+                    "subject": f"Zahlungsaufforderung für Rechnung {doc.name}",
+                    "message": f"Zahlung für Rechnung {doc.name} - Betrag: {doc.grand_total}€"
                 })
                 payment_request.insert(ignore_permissions=True)
                 payment_request.submit()
