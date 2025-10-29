@@ -22,7 +22,7 @@ def create_stripe_checkout_session(payment_request):
         
         # Erstelle Checkout Session
         session = stripe.checkout.Session.create(
-            payment_method_types=['card', 'sepa_debit', 'klarna', 'paypal'],  # Alle Zahlungsmethoden
+            payment_method_types=['card', 'sepa_debit'],  # Nur aktivierte Zahlungsmethoden
             line_items=[{
                 'price_data': {
                     'currency': payment_request.currency.lower(),
