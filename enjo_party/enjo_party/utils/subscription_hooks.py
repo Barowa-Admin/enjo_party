@@ -55,8 +55,7 @@ def force_subscription_update(doc, method):
                         "grand_total": invoice.grand_total,
                         "currency": invoice.currency,
                         "email_to": invoice.contact_email,
-                        "subject": f"Zahlungsaufforderung für Rechnung {invoice.name}",
-                        "message": f"Zahlung für Rechnung {invoice.name} - Betrag: {invoice.grand_total}€"
+                        "subject": f"Zahlungsaufforderung für Rechnung {invoice.name}"
                     })
                     payment_request.insert(ignore_permissions=True)
                     payment_request.submit()
@@ -111,8 +110,7 @@ def create_payment_request_for_subscription_invoice(doc, method):
                     "grand_total": doc.grand_total,
                     "currency": doc.currency,
                     "email_to": doc.contact_email,
-                    "subject": f"Zahlungsaufforderung für Rechnung {doc.name}",
-                    "message": f"Zahlung für Rechnung {doc.name} - Betrag: {doc.grand_total}€"
+                    "subject": f"Zahlungsaufforderung für Rechnung {doc.name}"
                 })
                 payment_request.insert(ignore_permissions=True)
                 payment_request.submit()

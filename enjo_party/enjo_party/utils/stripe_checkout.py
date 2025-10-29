@@ -8,7 +8,7 @@ def create_stripe_checkout_session(payment_request):
     """
     try:
         # Hole Stripe Settings
-        stripe_settings = frappe.get_doc("Stripe Settings", "Stripe Settings")
+        stripe_settings = frappe.get_doc("Stripe Settings", "Stripe")
         stripe.api_key = stripe_settings.secret_key
         
         # Erstelle Checkout Session
