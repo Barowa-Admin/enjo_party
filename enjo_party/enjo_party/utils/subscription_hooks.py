@@ -64,8 +64,11 @@ def force_subscription_update(doc, method):
                     # Stripe-Checkout erzeugen und URL setzen
                     stripe_url = create_stripe_checkout_session(payment_request)
                     if stripe_url:
+                        # Immer die echte Stripe-URL verwenden
                         payment_request.payment_url = stripe_url
-                        # WICHTIG: Payment-Gateway leeren, damit ERPNext keinen lokalen /stripe_checkout erzeugt
+                        # WICHTIG: Lokale Checkout-Seite dauerhaft deaktivieren.
+                        # Durch das Leeren beider Felder verhindert ERPNext das Generieren von /stripe_checkout-Links.
+                        payment_request.db_set('payment_gateway', '', update_modified=False)
                         payment_request.payment_gateway_account = ""
                         payment_request.save(ignore_permissions=True)
 
@@ -134,8 +137,10 @@ def create_payment_request_for_subscription_invoice(doc, method):
                 # Stripe-Checkout erzeugen und URL setzen
                 stripe_url = create_stripe_checkout_session(payment_request)
                 if stripe_url:
+                    # Immer die echte Stripe-URL verwenden
                     payment_request.payment_url = stripe_url
-                    # WICHTIG: Payment-Gateway leeren, damit ERPNext keinen lokalen /stripe_checkout erzeugt
+                    # WICHTIG: Lokale Checkout-Seite dauerhaft deaktivieren.
+                    payment_request.db_set('payment_gateway', '', update_modified=False)
                     payment_request.payment_gateway_account = ""
                     payment_request.save(ignore_permissions=True)
 
