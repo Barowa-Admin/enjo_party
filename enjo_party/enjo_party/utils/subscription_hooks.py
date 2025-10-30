@@ -42,6 +42,9 @@ def force_subscription_update(doc, method):
                     
                     frappe.log_error(f"SUBSCRIPTION HOOK: Erstelle Payment Request für Invoice {invoice.name}", "DEBUG: subscription_hook")
                     
+                    # Hole Payment Gateway Account für Message Template
+                    gateway_account = frappe.get_doc("Payment Gateway Account", "Stripe-Stripe - EUR")
+                    
                     # Payment Request erstellen
                     payment_request = frappe.get_doc({
                         "doctype": "Payment Request",
@@ -51,15 +54,15 @@ def force_subscription_update(doc, method):
                         "party": invoice.customer,
                         "reference_doctype": "Sales Invoice",
                         "reference_name": invoice.name,
-                        "payment_gateway_account": "Stripe-Stripe - EUR",  # Dein Payment Gateway
+                        "payment_gateway_account": "Stripe-Stripe - EUR",
                         "grand_total": invoice.grand_total,
                         "currency": invoice.currency,
                         "email_to": invoice.contact_email,
                         "subject": f"Rechnung {invoice.name}",
-                        "is_a_subscription": 1  # Abo-Checkbox aktivieren
+                        "is_a_subscription": 1,  # Abo-Checkbox aktivieren
+                        "message": gateway_account.message  # Standard Message aus Payment Gateway
                     })
                     payment_request.insert(ignore_permissions=True)
-                    payment_request.set_message()  # Standard Message aus Payment Gateway laden
                     payment_request.submit()
                     
                     # Erstelle echten Stripe Checkout Link
@@ -99,6 +102,9 @@ def create_payment_request_for_subscription_invoice(doc, method):
             )
             
             if not existing_requests:
+                # Hole Payment Gateway Account für Message Template
+                gateway_account = frappe.get_doc("Payment Gateway Account", "Stripe-Stripe - EUR")
+                
                 # Payment Request erstellen
                 payment_request = frappe.get_doc({
                     "doctype": "Payment Request",
@@ -108,15 +114,15 @@ def create_payment_request_for_subscription_invoice(doc, method):
                     "party": doc.customer,
                     "reference_doctype": "Sales Invoice",
                     "reference_name": doc.name,
-                    "payment_gateway_account": "Stripe-Stripe - EUR",  # Dein Payment Gateway
+                    "payment_gateway_account": "Stripe-Stripe - EUR",
                     "grand_total": doc.grand_total,
                     "currency": doc.currency,
                     "email_to": doc.contact_email,
                     "subject": f"Rechnung {doc.name}",
-                    "is_a_subscription": 1  # Abo-Checkbox aktivieren
+                    "is_a_subscription": 1,  # Abo-Checkbox aktivieren
+                    "message": gateway_account.message  # Standard Message aus Payment Gateway
                 })
                 payment_request.insert(ignore_permissions=True)
-                payment_request.set_message()  # Standard Message aus Payment Gateway laden
                 payment_request.submit()
                 
                 # Erstelle echten Stripe Checkout Link
