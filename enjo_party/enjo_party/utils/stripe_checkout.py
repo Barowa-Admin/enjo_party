@@ -44,6 +44,11 @@ def create_stripe_checkout_session(payment_request):
                 'reference_name': payment_request.reference_name,
             }
         )
+
+        # Speichere die Stripe Checkout URL direkt in der Payment Request
+        payment_request.db_set('payment_url', session.url, update_modified=False)
+        payment_request.flags.ignore_permissions = True
+        payment_request.save(ignore_permissions=True)
         
         return session.url
         
