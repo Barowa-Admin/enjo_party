@@ -42,10 +42,7 @@ def force_subscription_update(doc, method):
                     
                     frappe.log_error(f"SUBSCRIPTION HOOK: Erstelle Payment Request für Invoice {invoice.name}", "DEBUG: subscription_hook")
                     
-                    # Hole Payment Gateway Account für Message Template
-                    gateway_account = frappe.get_doc("Payment Gateway Account", "Stripe-Stripe - EUR")
-                    
-                    # Payment Request erstellen
+                    # Payment Request erstellen (ohne message zuerst)
                     payment_request = frappe.get_doc({
                         "doctype": "Payment Request",
                         "payment_request_type": "Inward",
@@ -59,8 +56,7 @@ def force_subscription_update(doc, method):
                         "currency": invoice.currency,
                         "email_to": invoice.contact_email,
                         "subject": f"Rechnung {invoice.name}",
-                        "is_a_subscription": 1,  # Abo-Checkbox aktivieren
-                        "message": gateway_account.message  # Standard Message aus Payment Gateway
+                        "is_a_subscription": 1  # Abo-Checkbox aktivieren
                     })
                     payment_request.insert(ignore_permissions=True)
                     payment_request.submit()
@@ -70,6 +66,20 @@ def force_subscription_update(doc, method):
                     if stripe_url:
                         payment_request.db_set('payment_url', stripe_url, update_modified=False)
                         frappe.log_error(f"Stripe Checkout URL erstellt für {payment_request.name}", "SUCCESS: subscription_hook")
+                        
+                        # Jetzt Message mit ersetztem payment_url setzen
+                        gateway_account = frappe.get_doc("Payment Gateway Account", "Stripe-Stripe - EUR")
+                        message_template = gateway_account.message or ""
+                        
+                        # Rendere Jinja Template
+                        from frappe.utils.jinja import render_template
+                        rendered_message = render_template(message_template, {
+                            "doc": invoice,
+                            "payment_url": stripe_url
+                        })
+                        
+                        payment_request.db_set('message', rendered_message, update_modified=False)
+                        frappe.log_error(f"Message mit Stripe URL aktualisiert für {payment_request.name}", "SUCCESS: subscription_hook")
                     
                     frappe.log_error(f"SUBSCRIPTION HOOK: Payment Request {payment_request.name} erstellt", "SUCCESS: subscription_hook")
                 
@@ -102,10 +112,7 @@ def create_payment_request_for_subscription_invoice(doc, method):
             )
             
             if not existing_requests:
-                # Hole Payment Gateway Account für Message Template
-                gateway_account = frappe.get_doc("Payment Gateway Account", "Stripe-Stripe - EUR")
-                
-                # Payment Request erstellen
+                # Payment Request erstellen (ohne message zuerst)
                 payment_request = frappe.get_doc({
                     "doctype": "Payment Request",
                     "payment_request_type": "Inward",
@@ -119,8 +126,7 @@ def create_payment_request_for_subscription_invoice(doc, method):
                     "currency": doc.currency,
                     "email_to": doc.contact_email,
                     "subject": f"Rechnung {doc.name}",
-                    "is_a_subscription": 1,  # Abo-Checkbox aktivieren
-                    "message": gateway_account.message  # Standard Message aus Payment Gateway
+                    "is_a_subscription": 1  # Abo-Checkbox aktivieren
                 })
                 payment_request.insert(ignore_permissions=True)
                 payment_request.submit()
@@ -130,6 +136,20 @@ def create_payment_request_for_subscription_invoice(doc, method):
                 if stripe_url:
                     payment_request.db_set('payment_url', stripe_url, update_modified=False)
                     frappe.log_error(f"Stripe Checkout URL erstellt für {payment_request.name}", "SUCCESS: subscription_payment_request")
+                    
+                    # Jetzt Message mit ersetztem payment_url setzen
+                    gateway_account = frappe.get_doc("Payment Gateway Account", "Stripe-Stripe - EUR")
+                    message_template = gateway_account.message or ""
+                    
+                    # Rendere Jinja Template
+                    from frappe.utils.jinja import render_template
+                    rendered_message = render_template(message_template, {
+                        "doc": doc,
+                        "payment_url": stripe_url
+                    })
+                    
+                    payment_request.db_set('message', rendered_message, update_modified=False)
+                    frappe.log_error(f"Message mit Stripe URL aktualisiert für {payment_request.name}", "SUCCESS: subscription_payment_request")
                 
                 frappe.log_error(f"Payment Request {payment_request.name} für Subscription Invoice {doc.name} erstellt", "SUCCESS: subscription_payment_request")
             

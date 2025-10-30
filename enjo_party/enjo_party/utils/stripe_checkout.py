@@ -28,7 +28,7 @@ def create_stripe_checkout_session(payment_request):
                     'currency': payment_request.currency.lower(),
                     'product_data': {
                         'name': f'Rechnung {payment_request.reference_name}',
-                        'description': payment_request.message or f'Zahlung für {payment_request.reference_name}',
+                        'description': f'BE\'motion Abonnement - Rechnung {payment_request.reference_name}',
                     },
                     'unit_amount': int(payment_request.grand_total * 100),  # Betrag in Cents
                 },
