@@ -55,9 +55,11 @@ def force_subscription_update(doc, method):
                         "grand_total": invoice.grand_total,
                         "currency": invoice.currency,
                         "email_to": invoice.contact_email,
-                        "subject": f"Rechnung {invoice.name}"
+                        "subject": f"Rechnung {invoice.name}",
+                        "is_a_subscription": 1  # Abo-Checkbox aktivieren
                     })
                     payment_request.insert(ignore_permissions=True)
+                    payment_request.set_message()  # Standard Message aus Payment Gateway laden
                     payment_request.submit()
                     
                     # Erstelle echten Stripe Checkout Link
@@ -110,9 +112,11 @@ def create_payment_request_for_subscription_invoice(doc, method):
                     "grand_total": doc.grand_total,
                     "currency": doc.currency,
                     "email_to": doc.contact_email,
-                    "subject": f"Rechnung {doc.name}"
+                    "subject": f"Rechnung {doc.name}",
+                    "is_a_subscription": 1  # Abo-Checkbox aktivieren
                 })
                 payment_request.insert(ignore_permissions=True)
+                payment_request.set_message()  # Standard Message aus Payment Gateway laden
                 payment_request.submit()
                 
                 # Erstelle echten Stripe Checkout Link
