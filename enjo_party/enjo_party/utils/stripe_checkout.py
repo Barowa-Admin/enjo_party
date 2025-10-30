@@ -20,29 +20,68 @@ def create_stripe_checkout_session(payment_request):
         # Redirect URL
         redirect_url = stripe_settings.redirect_url or frappe.utils.get_url()
         
-        # Erstelle Checkout Session
+        # Standardkonfiguration – Einmalzahlung
+        mode = 'payment'
+        recurring_config = None
+        metadata = {
+            'payment_request': payment_request.name,
+            'reference_doctype': payment_request.reference_doctype,
+            'reference_name': payment_request.reference_name,
+        }
+
+        # Prüfe ob die Rechnung zu einem Subscription gehört
+        subscription_ref = None
+        if payment_request.reference_doctype == "Sales Invoice" and payment_request.reference_name:
+            subscription_ref = frappe.db.get_value(
+                "Sales Invoice", payment_request.reference_name, "subscription"
+            )
+
+        if subscription_ref:
+            try:
+                subscription_doc = frappe.get_doc("Subscription", subscription_ref)
+                billing_info = subscription_doc.get_billing_cycle_and_interval()
+                if billing_info:
+                    interval = (billing_info[0].get("billing_interval") or "Month").lower()
+                    if interval not in ["day", "week", "month", "year"]:
+                        interval = "month"
+                    interval_count = billing_info[0].get("billing_interval_count") or 1
+                    recurring_config = {
+                        'interval': interval,
+                        'interval_count': interval_count,
+                    }
+                    mode = 'subscription'
+                    metadata['subscription'] = subscription_ref
+                    # Markiere Payment Request als Abo
+                    payment_request.db_set('is_a_subscription', 1, update_modified=False)
+            except Exception as err:
+                frappe.log_error(
+                    f"Fehler beim Ermitteln des Subscription-Intervalls für {subscription_ref}: {err}",
+                    "ERROR: stripe_checkout_subscription"
+                )
+
+        price_data = {
+            'currency': payment_request.currency.lower(),
+            'product_data': {
+                'name': f'Rechnung {payment_request.reference_name}',
+                'description': f"BE'motion Abonnement - Rechnung {payment_request.reference_name}",
+            },
+            'unit_amount': int(payment_request.grand_total * 100),
+        }
+
+        if recurring_config:
+            price_data['recurring'] = recurring_config
+
         session = stripe.checkout.Session.create(
-            payment_method_types=['card', 'sepa_debit'],  # Nur aktivierte Zahlungsmethoden
+            payment_method_types=['card', 'sepa_debit'],
             line_items=[{
-                'price_data': {
-                    'currency': payment_request.currency.lower(),
-                    'product_data': {
-                        'name': f'Rechnung {payment_request.reference_name}',
-                        'description': f'BE\'motion Abonnement - Rechnung {payment_request.reference_name}',
-                    },
-                    'unit_amount': int(payment_request.grand_total * 100),  # Betrag in Cents
-                },
+                'price_data': price_data,
                 'quantity': 1,
             }],
-            mode='payment',
+            mode=mode,
             success_url=f'{redirect_url}?session_id={{CHECKOUT_SESSION_ID}}',
             cancel_url=redirect_url,
             customer_email=payment_request.email_to,
-            metadata={
-                'payment_request': payment_request.name,
-                'reference_doctype': payment_request.reference_doctype,
-                'reference_name': payment_request.reference_name,
-            }
+            metadata=metadata
         )
 
         # Speichere die Stripe Checkout URL direkt in der Payment Request
