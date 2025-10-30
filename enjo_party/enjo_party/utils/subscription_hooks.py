@@ -57,8 +57,7 @@ def force_subscription_update(doc, method):
                         "email_to": invoice.contact_email,
                         "subject": f"Rechnung {invoice.name}",
                         "payment_channel": "Phone",
-                        "mute_email": 1,
-                        "is_a_subscription": 1  # Abo-Checkbox aktivieren
+                        "mute_email": 1
                     })
                     payment_request.insert(ignore_permissions=True)
 
@@ -128,8 +127,7 @@ def create_payment_request_for_subscription_invoice(doc, method):
                     "email_to": doc.contact_email,
                     "subject": f"Rechnung {doc.name}",
                     "payment_channel": "Phone",
-                    "mute_email": 1,
-                    "is_a_subscription": 1  # Abo-Checkbox aktivieren
+                    "mute_email": 1
                 })
                 payment_request.insert(ignore_permissions=True)
 
