@@ -52,7 +52,16 @@ def create_stripe_checkout_session(payment_request):
                     mode = 'subscription'
                     metadata['subscription'] = subscription_ref
                     # Markiere Payment Request als Abo
-                    payment_request.db_set('is_a_subscription', 1, update_modified=False)
+                    payment_request.is_a_subscription = 1
+
+                    # Subscription-Pläne aus ERPNext in Payment Request übertragen
+                    payment_request.subscription_plans = []
+                    for plan_row in subscription_doc.plans:
+                        if not plan_row.plan:
+                            continue
+                        child = payment_request.append("subscription_plans", {})
+                        child.plan = plan_row.plan
+                        child.qty = plan_row.qty or 1
             except Exception as err:
                 frappe.log_error(
                     f"Fehler beim Ermitteln des Subscription-Intervalls für {subscription_ref}: {err}",
@@ -85,7 +94,7 @@ def create_stripe_checkout_session(payment_request):
         )
 
         # Speichere die Stripe Checkout URL direkt in der Payment Request
-        payment_request.db_set('payment_url', session.url, update_modified=False)
+        payment_request.payment_url = session.url
         payment_request.flags.ignore_permissions = True
         payment_request.save(ignore_permissions=True)
         
