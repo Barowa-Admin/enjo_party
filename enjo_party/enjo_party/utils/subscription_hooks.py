@@ -56,26 +56,26 @@ def force_subscription_update(doc, method):
                         "currency": invoice.currency,
                         "email_to": invoice.contact_email,
                         "subject": f"Rechnung {invoice.name}",
+                        "payment_channel": "Phone",
+                        "mute_email": 1,
                         "is_a_subscription": 1  # Abo-Checkbox aktivieren
                     })
                     payment_request.insert(ignore_permissions=True)
 
-                    # Stripe Checkout Session erzeugen (setzt payment_url & Subscription Infos)
+                    # Stripe-Checkout erzeugen und URL setzen
                     stripe_url = create_stripe_checkout_session(payment_request)
                     if stripe_url:
-                        frappe.log_error(
-                            f"Stripe Checkout URL erstellt für {payment_request.name}",
-                            "SUCCESS: subscription_hook",
-                        )
+                        payment_request.payment_url = stripe_url
+                        payment_request.save(ignore_permissions=True)
 
-                    # Message-Vorlage aus Payment Gateway übernehmen
-                    gateway_account = frappe.get_doc("Payment Gateway Account", "Stripe-Stripe - EUR")
-                    payment_request.message = gateway_account.message or ""
-
-                    # Änderungen speichern und erst danach submitten (Mailversand)
-                    payment_request.flags.ignore_permissions = True
-                    payment_request.save(ignore_permissions=True)
+                    # Submit (ohne Standard-Mail) und danach E-Mail manuell senden
                     payment_request.submit()
+                    try:
+                        payment_request.flags.mute_email = 0
+                        payment_request.send_email()
+                        payment_request.make_communication_entry()
+                    except Exception:
+                        pass
 
                     frappe.log_error(
                         f"SUBSCRIPTION HOOK: Payment Request {payment_request.name} erstellt",
@@ -125,26 +125,27 @@ def create_payment_request_for_subscription_invoice(doc, method):
                     "currency": doc.currency,
                     "email_to": doc.contact_email,
                     "subject": f"Rechnung {doc.name}",
+                    "payment_channel": "Phone",
+                    "mute_email": 1,
                     "is_a_subscription": 1  # Abo-Checkbox aktivieren
                 })
                 payment_request.insert(ignore_permissions=True)
 
-                # Erstelle Stripe Checkout Session (setzt payment_url & Subscription Infos)
+                # Stripe-Checkout erzeugen und URL setzen
                 stripe_url = create_stripe_checkout_session(payment_request)
                 if stripe_url:
-                    frappe.log_error(
-                        f"Stripe Checkout URL erstellt für {payment_request.name}",
-                        "SUCCESS: subscription_payment_request",
-                    )
+                    payment_request.payment_url = stripe_url
+                    payment_request.save(ignore_permissions=True)
 
-                # Message-Vorlage aus Payment Gateway übernehmen
-                gateway_account = frappe.get_doc("Payment Gateway Account", "Stripe-Stripe - EUR")
-                payment_request.message = gateway_account.message or ""
-
-                payment_request.flags.ignore_permissions = True
-                payment_request.save(ignore_permissions=True)
+                # Submit (ohne Standard-Mail) und danach E-Mail manuell senden
                 payment_request.submit()
-                
+                try:
+                    payment_request.flags.mute_email = 0
+                    payment_request.send_email()
+                    payment_request.make_communication_entry()
+                except Exception:
+                    pass
+
                 frappe.log_error(
                     f"Payment Request {payment_request.name} für Subscription Invoice {doc.name} erstellt",
                     "SUCCESS: subscription_payment_request",
