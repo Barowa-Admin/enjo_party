@@ -66,6 +66,8 @@ def force_subscription_update(doc, method):
                     stripe_url = create_stripe_checkout_session(payment_request)
                     if stripe_url:
                         payment_request.payment_url = stripe_url
+                        # WICHTIG: Payment-Gateway leeren, damit ERPNext keinen lokalen /stripe_checkout erzeugt
+                        payment_request.payment_gateway_account = ""
                         payment_request.save(ignore_permissions=True)
 
                     # Submit (ohne Standard-Mail) und danach E-Mail manuell senden
@@ -135,6 +137,8 @@ def create_payment_request_for_subscription_invoice(doc, method):
                 stripe_url = create_stripe_checkout_session(payment_request)
                 if stripe_url:
                     payment_request.payment_url = stripe_url
+                    # WICHTIG: Payment-Gateway leeren, damit ERPNext keinen lokalen /stripe_checkout erzeugt
+                    payment_request.payment_gateway_account = ""
                     payment_request.save(ignore_permissions=True)
 
                 # Submit (ohne Standard-Mail) und danach E-Mail manuell senden
