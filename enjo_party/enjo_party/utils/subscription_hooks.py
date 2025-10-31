@@ -195,16 +195,51 @@ def create_payment_request_for_subscription_invoice(doc, method):
                     # WICHTIG: Lokale Checkout-Seite dauerhaft deaktivieren.
                     payment_request.db_set('payment_gateway', '', update_modified=False)
                     payment_request.payment_gateway_account = ""
+                    
+                    # Rendere Message Template aus Payment Gateway Account
+                    from frappe.utils.jinja import render_template
+                    gateway_account = frappe.get_doc("Payment Gateway Account", "Stripe-Stripe - EUR")
+                    message_template = gateway_account.message or ""
+                    rendered_message = render_template(message_template, {
+                        "doc": doc,
+                        "payment_url": stripe_url
+                    })
+                    payment_request.message = rendered_message
                     payment_request.save(ignore_permissions=True)
 
                 # Submit (ohne Standard-Mail) und danach E-Mail manuell senden
                 payment_request.submit()
+                
+                # WICHTIG: Message NACH Submit nochmal setzen, falls sie überschrieben wurde
+                if stripe_url:
+                    from frappe.utils.jinja import render_template
+                    gateway_account = frappe.get_doc("Payment Gateway Account", "Stripe-Stripe - EUR")
+                    message_template = gateway_account.message or ""
+                    if message_template:
+                        rendered_message = render_template(message_template, {
+                            "doc": doc,
+                            "payment_url": stripe_url
+                        })
+                        payment_request.db_set('message', rendered_message, update_modified=False)
+                        frappe.db.commit()
+                        payment_request.reload()
+                
                 try:
                     payment_request.flags.mute_email = 0
+                    # Stelle sicher, dass die Message im payment_request Objekt ist
+                    if not payment_request.message and stripe_url:
+                        from frappe.utils.jinja import render_template
+                        gateway_account = frappe.get_doc("Payment Gateway Account", "Stripe-Stripe - EUR")
+                        message_template = gateway_account.message or ""
+                        if message_template:
+                            payment_request.message = render_template(message_template, {
+                                "doc": doc,
+                                "payment_url": stripe_url
+                            })
                     payment_request.send_email()
                     payment_request.make_communication_entry()
-                except Exception:
-                    pass
+                except Exception as e:
+                    frappe.log_error(f"Fehler beim Senden der E-Mail: {str(e)}", "ERROR: subscription_payment_request")
 
                 frappe.log_error(
                     f"Payment Request {payment_request.name} für Subscription Invoice {doc.name} erstellt",
