@@ -26,8 +26,34 @@ def webhook_handler():
                 # Hole Payment Request
                 payment_request = frappe.get_doc("Payment Request", payment_request_name)
                 
-                # Setze Status auf Paid - der Hook erstellt automatisch den Payment Entry
+                # Setze Status auf Paid
                 payment_request.db_set('status', 'Paid', update_modified=False)
+                
+                # Erstelle Payment Entry direkt
+                try:
+                    # Prüfe ob bereits ein Payment Entry existiert
+                    existing_entries = frappe.get_all("Payment Entry",
+                        filters={
+                            "reference_doctype": "Payment Request",
+                            "reference_name": payment_request_name,
+                            "docstatus": ["!=", 2]
+                        }
+                    )
+                    
+                    if not existing_entries:
+                        # Erstelle Payment Entry
+                        payment_entry = payment_request.create_payment_entry()
+                        payment_entry.reference_no = session['id']
+                        payment_entry.reference_date = frappe.utils.nowdate()
+                        payment_entry.insert(ignore_permissions=True)
+                        payment_entry.submit()
+                        
+                        frappe.log_error(f"Payment Entry {payment_entry.name} erstellt für Payment Request {payment_request_name}", "SUCCESS: stripe_webhook")
+                    else:
+                        frappe.log_error(f"Payment Entry existiert bereits für Payment Request {payment_request_name}", "INFO: stripe_webhook")
+                        
+                except Exception as e:
+                    frappe.log_error(f"Fehler beim Erstellen der Payment Entry für Payment Request {payment_request_name}: {str(e)}\n{frappe.get_traceback()}", "ERROR: stripe_webhook")
                 
                 frappe.log_error(f"Payment Request {payment_request_name} als bezahlt markiert", "SUCCESS: stripe_webhook")
         
