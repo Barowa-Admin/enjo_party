@@ -41,16 +41,26 @@ def webhook_handler():
                     )
                     
                     if not existing_entries:
+                        # Lade Payment Request neu, um sicherzustellen, dass alle Daten aktuell sind
+                        payment_request.reload()
+                        
                         # Erstelle Payment Entry
                         payment_entry = payment_request.create_payment_entry()
                         payment_entry.reference_no = session['id']
                         payment_entry.reference_date = frappe.utils.nowdate()
-                        payment_entry.insert(ignore_permissions=True)
-                        payment_entry.submit()
                         
-                        frappe.log_error(f"Payment Entry {payment_entry.name} erstellt für Payment Request {payment_request_name}", "SUCCESS: stripe_webhook")
+                        # Stelle sicher, dass der Payment Entry korrekt konfiguriert ist
+                        frappe.log_error(f"WEBHOOK: Erstelle Payment Entry für Payment Request {payment_request_name}, Invoice: {payment_request.reference_name}", "DEBUG: stripe_webhook")
+                        
+                        payment_entry.insert(ignore_permissions=True)
+                        frappe.log_error(f"WEBHOOK: Payment Entry {payment_entry.name} eingefügt", "DEBUG: stripe_webhook")
+                        
+                        payment_entry.submit()
+                        frappe.db.commit()
+                        
+                        frappe.log_error(f"Payment Entry {payment_entry.name} erstellt und submitted für Payment Request {payment_request_name}", "SUCCESS: stripe_webhook")
                     else:
-                        frappe.log_error(f"Payment Entry existiert bereits für Payment Request {payment_request_name}", "INFO: stripe_webhook")
+                        frappe.log_error(f"Payment Entry existiert bereits für Payment Request {payment_request_name}: {existing_entries[0].name}", "INFO: stripe_webhook")
                         
                 except Exception as e:
                     frappe.log_error(f"Fehler beim Erstellen der Payment Entry für Payment Request {payment_request_name}: {str(e)}\n{frappe.get_traceback()}", "ERROR: stripe_webhook")

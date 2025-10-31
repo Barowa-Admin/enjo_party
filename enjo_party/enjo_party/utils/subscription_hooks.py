@@ -127,6 +127,9 @@ def force_subscription_update(doc, method):
                     # Durch das Leeren von payment_gateway verhindert ERPNext das Generieren von /stripe_checkout-Links.
                     # payment_gateway_account NICHT löschen, da Subscription Plans es benötigen
                     payment_request.db_set('payment_gateway', '', update_modified=False)
+                    # Speichere payment_url in DB
+                    payment_request.db_set('payment_url', stripe_url, update_modified=False)
+                    frappe.log_error(f"SUBSCRIPTION HOOK: payment_url erfolgreich gesetzt", "DEBUG: subscription_hook")
                     
                     # Rendere Message Template aus Payment Gateway Account
                     from frappe.utils.jinja import render_template
@@ -141,6 +144,12 @@ def force_subscription_update(doc, method):
 
                 # Submit (ohne Standard-Mail) und danach E-Mail manuell senden
                 payment_request.submit()
+                
+                # WICHTIG: payment_url NACH Submit nochmal setzen, da ERPNext es möglicherweise überschreibt
+                if stripe_url:
+                    payment_request.db_set('payment_url', stripe_url, update_modified=False)
+                    frappe.db.commit()
+                    frappe.log_error(f"SUBSCRIPTION HOOK: payment_url nach submit erneut gesetzt", "DEBUG: subscription_hook")
                 
                 # WICHTIG: Message NACH Submit nochmal setzen, falls sie überschrieben wurde
                 if stripe_url:
@@ -281,6 +290,9 @@ def create_payment_request_for_subscription_invoice(doc, method):
                     # Durch das Leeren von payment_gateway verhindert ERPNext das Generieren von /stripe_checkout-Links.
                     # payment_gateway_account NICHT löschen, da Subscription Plans es benötigen
                     payment_request.db_set('payment_gateway', '', update_modified=False)
+                    # Speichere payment_url in DB
+                    payment_request.db_set('payment_url', stripe_url, update_modified=False)
+                    frappe.log_error(f"SUBSCRIPTION HOOK: payment_url erfolgreich gesetzt", "DEBUG: subscription_hook")
                     
                     # Rendere Message Template aus Payment Gateway Account
                     from frappe.utils.jinja import render_template
@@ -295,6 +307,12 @@ def create_payment_request_for_subscription_invoice(doc, method):
 
                 # Submit (ohne Standard-Mail) und danach E-Mail manuell senden
                 payment_request.submit()
+                
+                # WICHTIG: payment_url NACH Submit nochmal setzen, da ERPNext es möglicherweise überschreibt
+                if stripe_url:
+                    payment_request.db_set('payment_url', stripe_url, update_modified=False)
+                    frappe.db.commit()
+                    frappe.log_error(f"SUBSCRIPTION HOOK: payment_url nach submit erneut gesetzt", "DEBUG: subscription_hook")
                 
                 # WICHTIG: Message NACH Submit nochmal setzen, falls sie überschrieben wurde
                 if stripe_url:
