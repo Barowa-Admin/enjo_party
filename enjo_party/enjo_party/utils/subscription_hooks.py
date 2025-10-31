@@ -71,9 +71,20 @@ def force_subscription_update(doc, method):
                     "currency": invoice.currency,
                     "email_to": invoice.contact_email,
                     "subject": f"Rechnung {invoice.name}",
+                    "is_a_subscription": 1,
                     "payment_channel": "Phone",
                     "mute_email": 1
                 })
+                
+                # Füge Subscription Plans hinzu (notwendig für Validierung)
+                subscription = frappe.get_doc("Subscription", doc.name)
+                for plan_detail in subscription.plans:
+                    payment_request.append("subscription_plans", {
+                        "plan": plan_detail.plan,
+                        "qty": plan_detail.qty,
+                        "payment_gateway_account": "Stripe-Stripe - EUR"
+                    })
+                
                 payment_request.insert(ignore_permissions=True)
 
                 # Stripe-Checkout erzeugen und URL setzen
@@ -168,6 +179,9 @@ def create_payment_request_for_subscription_invoice(doc, method):
             )
             
             if not existing_requests:
+                # Hole Subscription Details für Subscription Plans
+                subscription = frappe.get_doc("Subscription", doc.subscription)
+                
                 # Payment Request erstellen (ohne message zuerst)
                 payment_request = frappe.get_doc({
                     "doctype": "Payment Request",
@@ -182,9 +196,19 @@ def create_payment_request_for_subscription_invoice(doc, method):
                     "currency": doc.currency,
                     "email_to": doc.contact_email,
                     "subject": f"Rechnung {doc.name}",
+                    "is_a_subscription": 1,
                     "payment_channel": "Phone",
                     "mute_email": 1
                 })
+                
+                # Füge Subscription Plans hinzu (notwendig für Validierung)
+                for plan_detail in subscription.plans:
+                    payment_request.append("subscription_plans", {
+                        "plan": plan_detail.plan,
+                        "qty": plan_detail.qty,
+                        "payment_gateway_account": "Stripe-Stripe - EUR"
+                    })
+                
                 payment_request.insert(ignore_permissions=True)
 
                 # Stripe-Checkout erzeugen und URL setzen

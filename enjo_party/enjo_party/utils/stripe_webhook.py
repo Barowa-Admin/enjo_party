@@ -26,20 +26,8 @@ def webhook_handler():
                 # Hole Payment Request
                 payment_request = frappe.get_doc("Payment Request", payment_request_name)
                 
-                # Setze Status auf Paid
+                # Setze Status auf Paid - der Hook erstellt automatisch den Payment Entry
                 payment_request.db_set('status', 'Paid', update_modified=False)
-                
-                # Erstelle Payment Entry
-                try:
-                    payment_entry = payment_request.create_payment_entry()
-                    payment_entry.reference_no = session['id']
-                    payment_entry.reference_date = frappe.utils.nowdate()
-                    payment_entry.insert(ignore_permissions=True)
-                    payment_entry.submit()
-                    
-                    frappe.log_error(f"Payment Entry {payment_entry.name} erstellt für Payment Request {payment_request_name}", "SUCCESS: stripe_webhook")
-                except Exception as e:
-                    frappe.log_error(f"Fehler beim Erstellen der Payment Entry: {str(e)}", "ERROR: stripe_webhook")
                 
                 frappe.log_error(f"Payment Request {payment_request_name} als bezahlt markiert", "SUCCESS: stripe_webhook")
         

@@ -6,12 +6,13 @@ def create_payment_entry_on_paid(doc, method):
     Erstellt automatisch einen Payment Entry, wenn die Payment Request auf "Paid" gesetzt wird
     """
     try:
-        # Prüfe ob Status auf Paid gesetzt wurde
-        if doc.status == "Paid":
+        # Prüfe ob Status auf Paid gesetzt wurde (und war vorher nicht Paid)
+        if doc.status == "Paid" and doc.get("_previous_status") != "Paid":
             # Prüfe ob bereits ein Payment Entry existiert
             existing_entries = frappe.get_all("Payment Entry",
                 filters={
-                    "reference_no": doc.name,
+                    "reference_doctype": "Payment Request",
+                    "reference_name": doc.name,
                     "docstatus": ["!=", 2]
                 }
             )
@@ -27,5 +28,5 @@ def create_payment_entry_on_paid(doc, method):
                 frappe.log_error(f"Payment Entry {payment_entry.name} automatisch erstellt für Payment Request {doc.name}", "SUCCESS: payment_request_paid")
     
     except Exception as e:
-        frappe.log_error(f"Fehler beim Erstellen des Payment Entry für Payment Request {doc.name}: {str(e)}", "ERROR: payment_request_paid")
+        frappe.log_error(f"Fehler beim Erstellen des Payment Entry für Payment Request {doc.name}: {str(e)}\n{frappe.get_traceback()}", "ERROR: payment_request_paid")
 
