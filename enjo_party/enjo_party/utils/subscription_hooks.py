@@ -78,14 +78,43 @@ def force_subscription_update(doc, method):
                 
                 # Füge Subscription Plans hinzu (notwendig für Validierung)
                 subscription = frappe.get_doc("Subscription", doc.name)
-                # WICHTIG: Verwende IMMER dasselbe payment_gateway_account wie in der Payment Request
+                
+                # Prüfe welches payment_gateway_account in den Subscription Plans vorhanden ist
                 gateway_account = payment_request.payment_gateway_account
+                if subscription.plans:
+                    for plan_detail in subscription.plans:
+                        # Prüfe ob dieser Plan ein payment_gateway_account hat
+                        plan_gateway = getattr(plan_detail, 'payment_gateway_account', None)
+                        if plan_gateway:
+                            frappe.log_error(f"SUBSCRIPTION HOOK: Plan {plan_detail.plan} hat payment_gateway_account: {plan_gateway}", "DEBUG: subscription_hook")
+                            gateway_account = plan_gateway
+                            # Setze Payment Request auf dasselbe Account
+                            payment_request.payment_gateway_account = gateway_account
+                            break  # Verwende das erste gefundene Account
+                
+                # Stelle sicher, dass Payment Request das gateway_account hat
+                payment_request.payment_gateway_account = gateway_account
+                frappe.log_error(f"SUBSCRIPTION HOOK: Verwende payment_gateway_account: {gateway_account}", "DEBUG: subscription_hook")
+                
                 for plan_detail in subscription.plans:
-                    payment_request.append("subscription_plans", {
+                    # Prüfe und aktualisiere das payment_gateway im Subscription Plan DocType
+                    plan_doc = frappe.get_doc("Subscription Plan", plan_detail.plan)
+                    if plan_doc.payment_gateway != gateway_account:
+                        frappe.log_error(f"SUBSCRIPTION HOOK: Subscription Plan {plan_detail.plan} hat payment_gateway: {plan_doc.payment_gateway}, setze auf {gateway_account}", "DEBUG: subscription_hook")
+                        plan_doc.payment_gateway = gateway_account
+                        plan_doc.save(ignore_permissions=True)
+                    
+                    # IMMER dasselbe payment_gateway_account für alle Plans verwenden
+                    plan_row = payment_request.append("subscription_plans", {
                         "plan": plan_detail.plan,
                         "qty": plan_detail.qty,
                         "payment_gateway_account": gateway_account
                     })
+                    frappe.log_error(f"SUBSCRIPTION HOOK: Plan {plan_detail.plan} hinzugefügt mit payment_gateway_account: {plan_row.payment_gateway_account}", "DEBUG: subscription_hook")
+                
+                # Stelle sicher, dass payment_gateway_account auch NACH dem Hinzufügen der Plans noch gesetzt ist
+                payment_request.payment_gateway_account = gateway_account
+                frappe.log_error(f"SUBSCRIPTION HOOK: Payment Request payment_gateway_account vor insert: {payment_request.payment_gateway_account}", "DEBUG: subscription_hook")
                 
                 payment_request.insert(ignore_permissions=True)
 
@@ -95,9 +124,9 @@ def force_subscription_update(doc, method):
                     # Immer die echte Stripe-URL verwenden
                     payment_request.payment_url = stripe_url
                     # WICHTIG: Lokale Checkout-Seite dauerhaft deaktivieren.
-                    # Durch das Leeren beider Felder verhindert ERPNext das Generieren von /stripe_checkout-Links.
+                    # Durch das Leeren von payment_gateway verhindert ERPNext das Generieren von /stripe_checkout-Links.
+                    # payment_gateway_account NICHT löschen, da Subscription Plans es benötigen
                     payment_request.db_set('payment_gateway', '', update_modified=False)
-                    payment_request.payment_gateway_account = ""
                     
                     # Rendere Message Template aus Payment Gateway Account
                     from frappe.utils.jinja import render_template
@@ -204,14 +233,42 @@ def create_payment_request_for_subscription_invoice(doc, method):
                 })
                 
                 # Füge Subscription Plans hinzu (notwendig für Validierung)
-                # WICHTIG: Verwende IMMER dasselbe payment_gateway_account wie in der Payment Request
+                # Prüfe welches payment_gateway_account in den Subscription Plans vorhanden ist
                 gateway_account = payment_request.payment_gateway_account
+                if subscription.plans:
+                    for plan_detail in subscription.plans:
+                        # Prüfe ob dieser Plan ein payment_gateway_account hat
+                        plan_gateway = getattr(plan_detail, 'payment_gateway_account', None)
+                        if plan_gateway:
+                            frappe.log_error(f"SUBSCRIPTION HOOK: Plan {plan_detail.plan} hat payment_gateway_account: {plan_gateway}", "DEBUG: subscription_hook")
+                            gateway_account = plan_gateway
+                            # Setze Payment Request auf dasselbe Account
+                            payment_request.payment_gateway_account = gateway_account
+                            break  # Verwende das erste gefundene Account
+                
+                # Stelle sicher, dass Payment Request das gateway_account hat
+                payment_request.payment_gateway_account = gateway_account
+                frappe.log_error(f"SUBSCRIPTION HOOK: Verwende payment_gateway_account: {gateway_account}", "DEBUG: subscription_hook")
+                
                 for plan_detail in subscription.plans:
-                    payment_request.append("subscription_plans", {
+                    # Prüfe und aktualisiere das payment_gateway im Subscription Plan DocType
+                    plan_doc = frappe.get_doc("Subscription Plan", plan_detail.plan)
+                    if plan_doc.payment_gateway != gateway_account:
+                        frappe.log_error(f"SUBSCRIPTION HOOK: Subscription Plan {plan_detail.plan} hat payment_gateway: {plan_doc.payment_gateway}, setze auf {gateway_account}", "DEBUG: subscription_hook")
+                        plan_doc.payment_gateway = gateway_account
+                        plan_doc.save(ignore_permissions=True)
+                    
+                    # IMMER dasselbe payment_gateway_account für alle Plans verwenden
+                    plan_row = payment_request.append("subscription_plans", {
                         "plan": plan_detail.plan,
                         "qty": plan_detail.qty,
                         "payment_gateway_account": gateway_account
                     })
+                    frappe.log_error(f"SUBSCRIPTION HOOK: Plan {plan_detail.plan} hinzugefügt mit payment_gateway_account: {plan_row.payment_gateway_account}", "DEBUG: subscription_hook")
+                
+                # Stelle sicher, dass payment_gateway_account auch NACH dem Hinzufügen der Plans noch gesetzt ist
+                payment_request.payment_gateway_account = gateway_account
+                frappe.log_error(f"SUBSCRIPTION HOOK: Payment Request payment_gateway_account vor insert: {payment_request.payment_gateway_account}", "DEBUG: subscription_hook")
                 
                 payment_request.insert(ignore_permissions=True)
 
@@ -221,8 +278,9 @@ def create_payment_request_for_subscription_invoice(doc, method):
                     # Immer die echte Stripe-URL verwenden
                     payment_request.payment_url = stripe_url
                     # WICHTIG: Lokale Checkout-Seite dauerhaft deaktivieren.
+                    # Durch das Leeren von payment_gateway verhindert ERPNext das Generieren von /stripe_checkout-Links.
+                    # payment_gateway_account NICHT löschen, da Subscription Plans es benötigen
                     payment_request.db_set('payment_gateway', '', update_modified=False)
-                    payment_request.payment_gateway_account = ""
                     
                     # Rendere Message Template aus Payment Gateway Account
                     from frappe.utils.jinja import render_template
