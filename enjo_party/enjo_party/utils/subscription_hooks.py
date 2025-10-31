@@ -78,11 +78,13 @@ def force_subscription_update(doc, method):
                 
                 # Füge Subscription Plans hinzu (notwendig für Validierung)
                 subscription = frappe.get_doc("Subscription", doc.name)
+                # WICHTIG: Verwende IMMER dasselbe payment_gateway_account wie in der Payment Request
+                gateway_account = payment_request.payment_gateway_account
                 for plan_detail in subscription.plans:
                     payment_request.append("subscription_plans", {
                         "plan": plan_detail.plan,
                         "qty": plan_detail.qty,
-                        "payment_gateway_account": "Stripe-Stripe - EUR"
+                        "payment_gateway_account": gateway_account
                     })
                 
                 payment_request.insert(ignore_permissions=True)
@@ -202,11 +204,13 @@ def create_payment_request_for_subscription_invoice(doc, method):
                 })
                 
                 # Füge Subscription Plans hinzu (notwendig für Validierung)
+                # WICHTIG: Verwende IMMER dasselbe payment_gateway_account wie in der Payment Request
+                gateway_account = payment_request.payment_gateway_account
                 for plan_detail in subscription.plans:
                     payment_request.append("subscription_plans", {
                         "plan": plan_detail.plan,
                         "qty": plan_detail.qty,
-                        "payment_gateway_account": "Stripe-Stripe - EUR"
+                        "payment_gateway_account": gateway_account
                     })
                 
                 payment_request.insert(ignore_permissions=True)
