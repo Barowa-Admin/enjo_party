@@ -85,6 +85,16 @@ def force_subscription_update(doc, method):
                     # Durch das Leeren beider Felder verhindert ERPNext das Generieren von /stripe_checkout-Links.
                     payment_request.db_set('payment_gateway', '', update_modified=False)
                     payment_request.payment_gateway_account = ""
+                    
+                    # Rendere Message Template aus Payment Gateway Account
+                    from frappe.utils.jinja import render_template
+                    gateway_account = frappe.get_doc("Payment Gateway Account", "Stripe-Stripe - EUR")
+                    message_template = gateway_account.message or ""
+                    rendered_message = render_template(message_template, {
+                        "doc": invoice,
+                        "payment_url": stripe_url
+                    })
+                    payment_request.message = rendered_message
                     payment_request.save(ignore_permissions=True)
 
                 # Submit (ohne Standard-Mail) und danach E-Mail manuell senden
