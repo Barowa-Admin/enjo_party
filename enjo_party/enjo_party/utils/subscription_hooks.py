@@ -11,17 +11,18 @@ def force_subscription_update(doc, method):
         frappe.log_error(f"SUBSCRIPTION HOOK: Wurde aufgerufen für Subscription {doc.name}, Status: {doc.status}, Method: {method}, cancel_at_period_end: {doc.cancel_at_period_end}", "DEBUG: subscription_hook")
         
         # Prüfe ob cancel_at_period_end auf True gesetzt wurde
-        # Nutze get_doc_before_save() wenn verfügbar, sonst DB-Wert
-        previous_cancel_at_period_end = None
-        if hasattr(doc, '_doc_before_save') and doc._doc_before_save:
-            previous_cancel_at_period_end = doc._doc_before_save.get('cancel_at_period_end')
-        else:
-            previous_cancel_at_period_end = frappe.db.get_value("Subscription", doc.name, "cancel_at_period_end")
+        # Hole vorherigen Wert aus DB
+        previous_cancel_at_period_end = frappe.db.get_value("Subscription", doc.name, "cancel_at_period_end")
         
+        # Wenn cancel_at_period_end jetzt True ist UND vorher False/None war
         if doc.cancel_at_period_end and not previous_cancel_at_period_end:
-            frappe.log_error(f"SUBSCRIPTION HOOK: cancel_at_period_end wurde auf True gesetzt für {doc.name}, kündige Stripe Subscription", "DEBUG: subscription_hook")
+            frappe.log_error(f"SUBSCRIPTION HOOK: cancel_at_period_end wurde auf True gesetzt für {doc.name} (vorher: {previous_cancel_at_period_end}), kündige Stripe Subscription", "DEBUG: subscription_hook")
             # Kündige Stripe Subscription zum Ende der Periode
-            cancel_stripe_subscription_at_period_end(doc.name)
+            result = cancel_stripe_subscription_at_period_end(doc.name)
+            if result:
+                frappe.log_error(f"SUBSCRIPTION HOOK: Stripe Subscription erfolgreich gekündigt für {doc.name}", "SUCCESS: subscription_hook")
+            else:
+                frappe.log_error(f"SUBSCRIPTION HOOK: Fehler beim Kündigen der Stripe Subscription für {doc.name}", "ERROR: subscription_hook")
         
         # Prüfe ob das Abo aktiv ist (Status "Active")
         subscription = frappe.get_doc("Subscription", doc.name)
