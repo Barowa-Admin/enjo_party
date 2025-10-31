@@ -99,12 +99,42 @@ def force_subscription_update(doc, method):
 
                 # Submit (ohne Standard-Mail) und danach E-Mail manuell senden
                 payment_request.submit()
+                
+                # WICHTIG: Message NACH Submit nochmal setzen, falls sie überschrieben wurde
+                if stripe_url:
+                    from frappe.utils.jinja import render_template
+                    gateway_account = frappe.get_doc("Payment Gateway Account", "Stripe-Stripe - EUR")
+                    message_template = gateway_account.message or ""
+                    frappe.log_error(f"SUBSCRIPTION HOOK: Message Template Länge: {len(message_template) if message_template else 0}", "DEBUG: subscription_hook")
+                    if message_template:
+                        rendered_message = render_template(message_template, {
+                            "doc": invoice,
+                            "payment_url": stripe_url
+                        })
+                        frappe.log_error(f"SUBSCRIPTION HOOK: Gerenderte Message Länge: {len(rendered_message)}", "DEBUG: subscription_hook")
+                        payment_request.db_set('message', rendered_message, update_modified=False)
+                        frappe.db.commit()
+                        # WICHTIG: Payment Request neu laden, damit die Message im Objekt vorhanden ist
+                        payment_request.reload()
+                    else:
+                        frappe.log_error("SUBSCRIPTION HOOK: Message Template ist leer!", "WARNING: subscription_hook")
+                
                 try:
                     payment_request.flags.mute_email = 0
+                    # Stelle sicher, dass die Message im payment_request Objekt ist
+                    if not payment_request.message and stripe_url:
+                        from frappe.utils.jinja import render_template
+                        gateway_account = frappe.get_doc("Payment Gateway Account", "Stripe-Stripe - EUR")
+                        message_template = gateway_account.message or ""
+                        if message_template:
+                            payment_request.message = render_template(message_template, {
+                                "doc": invoice,
+                                "payment_url": stripe_url
+                            })
                     payment_request.send_email()
                     payment_request.make_communication_entry()
-                except Exception:
-                    pass
+                except Exception as e:
+                    frappe.log_error(f"Fehler beim Senden der E-Mail: {str(e)}", "ERROR: subscription_hook")
 
                 frappe.log_error(
                     f"SUBSCRIPTION HOOK: Payment Request {payment_request.name} erstellt",
