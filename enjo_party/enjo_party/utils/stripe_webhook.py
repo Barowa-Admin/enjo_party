@@ -29,6 +29,17 @@ def webhook_handler():
                 # Hole Payment Request
                 payment_request = frappe.get_doc("Payment Request", payment_request_name)
                 
+                # WICHTIG: Speichere Stripe Subscription ID falls vorhanden
+                if session.get('subscription'):
+                    stripe_subscription_id = session['subscription']
+                    erpnext_subscription = session['metadata'].get('subscription')
+                    if erpnext_subscription:
+                        # Speichere Stripe Subscription ID in ERPNext Subscription als Custom Field oder Kommentar
+                        frappe.log_error(f"WEBHOOK: Stripe Subscription ID {stripe_subscription_id} für ERPNext Subscription {erpnext_subscription}", "DEBUG: stripe_webhook")
+                        # Speichere in Subscription DocType (wird später für Kündigung benötigt)
+                        # Wir können es in einem Kommentar oder Custom Field speichern
+                        # Für jetzt einfach loggen - die Funktion findet es über Payment Entries
+                
                 # Setze Status auf Paid
                 payment_request.db_set('status', 'Paid', update_modified=False)
                 

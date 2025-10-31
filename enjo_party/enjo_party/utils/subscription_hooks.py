@@ -1,13 +1,27 @@
 import frappe
 from frappe import _
 from enjo_party.enjo_party.utils.stripe_checkout import create_stripe_checkout_session
+from enjo_party.enjo_party.utils.stripe_subscription import cancel_stripe_subscription_at_period_end
 
 def force_subscription_update(doc, method):
     """
     Wird nach dem Speichern eines Abonnements ausgeführt und erzwingt sofort ein Update
     """
     try:
-        frappe.log_error(f"SUBSCRIPTION HOOK: Wurde aufgerufen für Subscription {doc.name}, Status: {doc.status}, Method: {method}", "DEBUG: subscription_hook")
+        frappe.log_error(f"SUBSCRIPTION HOOK: Wurde aufgerufen für Subscription {doc.name}, Status: {doc.status}, Method: {method}, cancel_at_period_end: {doc.cancel_at_period_end}", "DEBUG: subscription_hook")
+        
+        # Prüfe ob cancel_at_period_end auf True gesetzt wurde
+        # Nutze get_doc_before_save() wenn verfügbar, sonst DB-Wert
+        previous_cancel_at_period_end = None
+        if hasattr(doc, '_doc_before_save') and doc._doc_before_save:
+            previous_cancel_at_period_end = doc._doc_before_save.get('cancel_at_period_end')
+        else:
+            previous_cancel_at_period_end = frappe.db.get_value("Subscription", doc.name, "cancel_at_period_end")
+        
+        if doc.cancel_at_period_end and not previous_cancel_at_period_end:
+            frappe.log_error(f"SUBSCRIPTION HOOK: cancel_at_period_end wurde auf True gesetzt für {doc.name}, kündige Stripe Subscription", "DEBUG: subscription_hook")
+            # Kündige Stripe Subscription zum Ende der Periode
+            cancel_stripe_subscription_at_period_end(doc.name)
         
         # Prüfe ob das Abo aktiv ist (Status "Active")
         subscription = frappe.get_doc("Subscription", doc.name)

@@ -90,6 +90,12 @@ def create_stripe_checkout_session(payment_request):
         payment_request.flags.ignore_permissions = True
         payment_request.save(ignore_permissions=True)
         
+        # WICHTIG: Wenn es eine Subscription ist, speichere die Stripe Subscription ID in der Payment Request
+        # (wird nach erfolgreichem Payment verfügbar sein)
+        if mode == 'subscription' and session.get('subscription'):
+            # Speichere Stripe Subscription ID in einem Custom Field oder in der Payment Request
+            frappe.log_error(f"Stripe Subscription ID für Session: {session.get('subscription')}", "DEBUG: stripe_checkout")
+        
         return session.url
         
     except Exception as e:
