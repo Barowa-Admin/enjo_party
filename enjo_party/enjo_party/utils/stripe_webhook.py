@@ -8,6 +8,9 @@ def webhook_handler():
     Stripe Webhook Handler für Payment Updates
     """
     try:
+        # WICHTIG: Setze Administrator als User, damit Berechtigungen vorhanden sind
+        frappe.set_user("Administrator")
+        
         # Hole Request Body
         payload = frappe.request.get_data()
         
