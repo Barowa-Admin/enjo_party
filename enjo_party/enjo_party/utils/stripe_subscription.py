@@ -29,30 +29,35 @@ def cancel_stripe_subscription_at_period_end(erpnext_subscription_name):
         
         stripe_subscription_id = None
         
-        # Methode 1: Suche direkt in Stripe nach aktiven Subscriptions für diesen Customer (Email)
-        if customer_email:
-            try:
-                # Suche alle Checkout Sessions für diese Email
+        # Methode 1: Suche direkt ALLE aktiven Stripe Subscriptions und finde die passende
+        try:
+            frappe.log_error(f"Starte Suche in Stripe Subscriptions...", "DEBUG: stripe_subscription_cancel")
+            subscriptions = stripe.Subscription.list(limit=100, status='active')
+            frappe.log_error(f"Gefundene Stripe Subscriptions: {len(subscriptions.data)}", "DEBUG: stripe_subscription_cancel")
+            
+            for sub in subscriptions.data:
+                # Prüfe Metadata - sollte die ERPNext Subscription ID enthalten
+                sub_metadata = sub.metadata or {}
+                if sub_metadata.get('subscription') == erpnext_subscription_name:
+                    stripe_subscription_id = sub.id
+                    frappe.log_error(f"Stripe Subscription ID über Metadata Match gefunden: {stripe_subscription_id} (Metadata: {sub_metadata})", "DEBUG: stripe_subscription_cancel")
+                    break
+                else:
+                    frappe.log_error(f"Prüfe Subscription {sub.id}, Metadata: {sub_metadata}, suche nach: {erpnext_subscription_name}", "DEBUG: stripe_subscription_cancel")
+            
+            # Falls nicht gefunden, suche über Checkout Sessions
+            if not stripe_subscription_id and customer_email:
+                frappe.log_error(f"Suche in Checkout Sessions für Email: {customer_email}", "DEBUG: stripe_subscription_cancel")
                 sessions = stripe.checkout.Session.list(limit=50)
                 for sess in sessions.data:
+                    sess_metadata = sess.metadata or {}
                     if sess.get('customer_email') == customer_email and sess.get('subscription'):
-                        # Prüfe ob die Session zu unserer Subscription gehört
-                        if sess.metadata and sess.metadata.get('subscription') == erpnext_subscription_name:
+                        if sess_metadata.get('subscription') == erpnext_subscription_name:
                             stripe_subscription_id = sess['subscription']
-                            frappe.log_error(f"Stripe Subscription ID über Session gefunden: {stripe_subscription_id}", "DEBUG: stripe_subscription_cancel")
+                            frappe.log_error(f"Stripe Subscription ID über Checkout Session gefunden: {stripe_subscription_id}", "DEBUG: stripe_subscription_cancel")
                             break
-                
-                # Falls nicht gefunden, suche direkt in Subscriptions
-                if not stripe_subscription_id:
-                    subscriptions = stripe.Subscription.list(limit=100, status='active')
-                    for sub in subscriptions.data:
-                        # Prüfe Metadata
-                        if sub.metadata and sub.metadata.get('subscription') == erpnext_subscription_name:
-                            stripe_subscription_id = sub.id
-                            frappe.log_error(f"Stripe Subscription ID über Metadata gefunden: {stripe_subscription_id}", "DEBUG: stripe_subscription_cancel")
-                            break
-            except Exception as e:
-                frappe.log_error(f"Fehler bei Stripe-Suche: {str(e)}", "DEBUG: stripe_subscription_cancel")
+        except Exception as e:
+            frappe.log_error(f"Fehler bei Stripe-Suche: {str(e)}\n{frappe.get_traceback()}", "ERROR: stripe_subscription_cancel")
         
         # Methode 2: Fallback - über Payment Entry → Session
         if not stripe_subscription_id:

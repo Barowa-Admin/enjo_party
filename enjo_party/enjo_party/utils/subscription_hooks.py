@@ -8,21 +8,26 @@ def force_subscription_update(doc, method):
     Wird nach dem Speichern eines Abonnements ausgeführt und erzwingt sofort ein Update
     """
     try:
-        frappe.log_error(f"SUBSCRIPTION HOOK: Wurde aufgerufen für Subscription {doc.name}, Status: {doc.status}, Method: {method}, cancel_at_period_end: {doc.cancel_at_period_end}", "DEBUG: subscription_hook")
-        
-        # Prüfe ob cancel_at_period_end auf True gesetzt wurde
-        # Hole vorherigen Wert aus DB
+        # Hole vorherigen Wert AUS DER DB (bevor wir prüfen)
         previous_cancel_at_period_end = frappe.db.get_value("Subscription", doc.name, "cancel_at_period_end")
         
-        # Wenn cancel_at_period_end jetzt True ist UND vorher False/None war
-        if doc.cancel_at_period_end and not previous_cancel_at_period_end:
-            frappe.log_error(f"SUBSCRIPTION HOOK: cancel_at_period_end wurde auf True gesetzt für {doc.name} (vorher: {previous_cancel_at_period_end}), kündige Stripe Subscription", "DEBUG: subscription_hook")
+        frappe.log_error(f"SUBSCRIPTION HOOK: Wurde aufgerufen für Subscription {doc.name}, Status: {doc.status}, Method: {method}, cancel_at_period_end: {doc.cancel_at_period_end}, vorher: {previous_cancel_at_period_end}", "DEBUG: subscription_hook")
+        
+        # Prüfe ob cancel_at_period_end auf True gesetzt wurde
+        # Wenn cancel_at_period_end jetzt True ist UND vorher False/None/0 war
+        if doc.cancel_at_period_end == 1 and not previous_cancel_at_period_end:
+            frappe.log_error(f"SUBSCRIPTION HOOK: cancel_at_period_end wurde auf True gesetzt für {doc.name} (vorher: {previous_cancel_at_period_end}), kündige Stripe Subscription JETZT", "DEBUG: subscription_hook")
             # Kündige Stripe Subscription zum Ende der Periode
-            result = cancel_stripe_subscription_at_period_end(doc.name)
-            if result:
-                frappe.log_error(f"SUBSCRIPTION HOOK: Stripe Subscription erfolgreich gekündigt für {doc.name}", "SUCCESS: subscription_hook")
-            else:
-                frappe.log_error(f"SUBSCRIPTION HOOK: Fehler beim Kündigen der Stripe Subscription für {doc.name}", "ERROR: subscription_hook")
+            try:
+                result = cancel_stripe_subscription_at_period_end(doc.name)
+                if result:
+                    frappe.log_error(f"SUBSCRIPTION HOOK: Stripe Subscription erfolgreich gekündigt für {doc.name}", "SUCCESS: subscription_hook")
+                else:
+                    frappe.log_error(f"SUBSCRIPTION HOOK: Fehler beim Kündigen der Stripe Subscription für {doc.name} - Subscription ID nicht gefunden oder API-Fehler", "ERROR: subscription_hook")
+            except Exception as e:
+                frappe.log_error(f"SUBSCRIPTION HOOK: Exception beim Kündigen der Stripe Subscription für {doc.name}: {str(e)}\n{frappe.get_traceback()}", "ERROR: subscription_hook")
+        elif doc.cancel_at_period_end == 1:
+            frappe.log_error(f"SUBSCRIPTION HOOK: cancel_at_period_end ist bereits True für {doc.name} (war auch vorher schon True)", "DEBUG: subscription_hook")
         
         # Prüfe ob das Abo aktiv ist (Status "Active")
         subscription = frappe.get_doc("Subscription", doc.name)
