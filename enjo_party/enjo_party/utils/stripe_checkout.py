@@ -69,8 +69,11 @@ def create_stripe_checkout_session(payment_request):
         if recurring_config:
             price_data['recurring'] = recurring_config
 
+        # WICHTIG: Reihenfolge der Zahlungsmethoden - diese Reihenfolge wird im Stripe Checkout angezeigt
+        # Reihenfolge: 1. Karte, 2. SEPA, 3. Klarna
+        # PayPal ist deaktiviert und wurde entfernt
         session = stripe.checkout.Session.create(
-            payment_method_types=['card', 'sepa_debit'],
+            payment_method_types=['card', 'sepa_debit', 'klarna'],
             line_items=[{
                 'price_data': price_data,
                 'quantity': 1,
