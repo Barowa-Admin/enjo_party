@@ -129,6 +129,59 @@ def before_validate_delivery_note(doc, method):
                 item.allow_zero_valuation = 1
 
 
+def before_insert_delivery_note(doc, method):
+    """
+    Hook für Delivery Note before_insert
+    Stellt sicher, dass alle Validierungen deaktiviert sind BEVOR das Dokument
+    in die Datenbank eingefügt wird.
+    
+    WICHTIG: Diese Funktion wird beim ERSTELLEN (Insert) der Delivery Note aufgerufen
+    und verhindert, dass die Validierung bereits beim Erstellen einen Fehler wirft.
+    Dies gilt für ALLE Delivery Notes, auch wenn sie manuell über die UI erstellt werden.
+    
+    ZUM KOMPLETTEN DEAKTIVIEREN:
+    1. Kommentiere alle Flag-Zuweisungen aus (Zeilen 158-161)
+    2. Kommentiere den "Allow Zero Valuation" Block aus (Zeilen 171-176)
+    3. Kommentiere diese Funktion in hooks.py aus (Zeile 185)
+    """
+    if doc.doctype != "Delivery Note":
+        return
+    
+    # ===================================================================================
+    # ABSCHNITT 1: DEAKTIVIERUNG VON VALIDIERUNGEN BEIM ERSTELLEN
+    # ===================================================================================
+    # Diese Flags werden BEVOR das Dokument eingefügt wird gesetzt, um sicherzustellen,
+    # dass alle Validierungen bereits beim Erstellen übersprungen werden.
+    # Ohne diese Flags würde ERPNext beim insert() einen Fehler werfen.
+    # Dies gilt auch für manuell erstellte Delivery Notes über die UI.
+    #
+    # DEAKTIVIERUNG: Kommentiere die folgenden 4 Zeilen aus (Zeilen 158-161)
+    # ===================================================================================
+    doc.flags.ignore_warehouse_validation = True  # Ignoriert Lager-Validierung
+    doc.flags.ignore_stock_validation = True      # Ignoriert Bestands-Validierung
+    doc.flags.ignore_gl_entries = True            # KEINE Buchhaltungseinträge erstellen
+    doc.flags.ignore_valuation_rate = True        # Ignoriere Bewertungsrate-Validierung
+    
+    # ===================================================================================
+    # ABSCHNITT 2: "ALLOW ZERO VALUATION" FÜR ALLE ITEMS BEIM ERSTELLEN
+    # ===================================================================================
+    # Setzt "Allow Zero Valuation" für alle Items, falls diese beim Erstellen
+    # noch nicht gesetzt wurde. Dies ist KRITISCH für Delivery Notes, die manuell
+    # über die UI erstellt werden, da diese sonst eine Fehlermeldung bei fehlender
+    # Bewertungsrate werfen würden.
+    #
+    # DEAKTIVIERUNG: Kommentiere den gesamten if-Block aus (Zeilen 171-176)
+    # ===================================================================================
+    if hasattr(doc, 'items') and doc.items:
+        for item in doc.items:
+            if hasattr(item, 'allow_zero_valuation_rate'):
+                item.allow_zero_valuation_rate = 1
+            elif hasattr(item, 'allow_zero_valuation'):
+                item.allow_zero_valuation = 1
+    
+    frappe.log_error(f"✅ Validierungen für Delivery Note {doc.name if hasattr(doc, 'name') else '(neu)'} beim Erstellen deaktiviert", "INFO: delivery_note_pre_insert_validation_disabled")
+
+
 def before_submit_delivery_note(doc, method):
     """
     Hook für Delivery Note before_submit

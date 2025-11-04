@@ -1770,6 +1770,8 @@ def create_delivery_notes_for_receiving_customers(sammelbestellung_doc, all_orde
                             "delivery_date": item['product'].get('delivery_date', today()),
                             "sales_order": item['sales_order'],
                             "sales_order_item": None,
+                            # WICHTIG: Erlaube Nullbewertung, damit keine Bewertungsrate benötigt wird
+                            "allow_zero_valuation_rate": 1,
                         } for item in all_products
                     ],
                     "customer_address": target_sales_order.customer_address,

@@ -182,6 +182,7 @@ doc_events = {
 	#          sondern nur die Registrierung hier entfernt werden.
 	# ===================================================================================
 	"Delivery Note": {
+		"before_insert": "enjo_party.enjo_party.utils.delivery_note_hooks.before_insert_delivery_note",
 		"before_validate": "enjo_party.enjo_party.utils.delivery_note_hooks.before_validate_delivery_note",
 		"before_submit": "enjo_party.enjo_party.utils.delivery_note_hooks.before_submit_delivery_note"
 	},
