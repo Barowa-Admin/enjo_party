@@ -562,63 +562,62 @@ def calculate_shipping_costs_for_sammelbestellung(sammelbestellung_doc):
                 if not shipping_order:
                     shipping_order = orders[0]
                     frappe.log_error(f"Fallback: Versandkosten an erste Bestellung ({shipping_order['customer']})", "DEBUG: shipping_fallback")
-            
-            try:
-                shipping_item_doc = frappe.get_doc("Item", shipping_item_code)
                 
-                shipping_product = {
-                    "item_code": shipping_item_code,
-                    "item_name": shipping_item_doc.item_name or "Versand",
-                    "qty": 1,
-                    "rate": shipping_cost,
-                    "amount": shipping_cost,
-                    "uom": shipping_item_doc.stock_uom or "Stk",
-                    "stock_uom": shipping_item_doc.stock_uom or "Stk",
-                    "conversion_factor": 1.0,
-                    "stock_qty": 1.0,
-                    "base_amount": shipping_cost,
-                    "base_rate": shipping_cost,
-                    "warehouse": get_default_warehouse(),
-                    "delivery_date": frappe.utils.getdate(frappe.utils.add_days(frappe.utils.today(), 7)),
-                    "_force_zero_rate": False,
-                    "_shipping_item": True
-                }
-                
-                shipping_order["products"].append(shipping_product)
-                shipping_order["total"] += shipping_cost
-                shipping_order["shipping_cost"] = shipping_cost
-                shipping_order["shipping_note"] = shipping_note
-                shipping_order["shipping_item_code"] = shipping_item_code
-                
-                frappe.log_error(f"Versandartikel {shipping_item_code} hinzugefügt zu Versandziel {target}: {shipping_cost}€", "DEBUG: shipping_item_added")
-                
-            except Exception as e:
-                frappe.log_error(f"Fehler beim Laden des Versandartikels {shipping_item_code}: {str(e)}", "ERROR: shipping_item_error")
-                shipping_product = {
-                    "item_code": shipping_item_code,
-                    "item_name": "Versand",
-                    "qty": 1,
-                    "rate": shipping_cost,
-                    "amount": shipping_cost,
-                    "uom": "Stk",
-                    "stock_uom": "Stk",
-                    "conversion_factor": 1.0,
-                    "stock_qty": 1.0,
-                    "base_amount": shipping_cost,
-                    "base_rate": shipping_cost,
-                    "warehouse": get_default_warehouse(),
-                    "delivery_date": frappe.utils.getdate(frappe.utils.add_days(frappe.utils.today(), 7)),
-                    "_force_zero_rate": False,
-                    "_shipping_item": True
-                }
-                
-                shipping_order["products"].append(shipping_product)
-                shipping_order["total"] += shipping_cost
-                shipping_order["shipping_cost"] = shipping_cost
-                shipping_order["shipping_note"] = shipping_note
-                shipping_order["shipping_item_code"] = shipping_item_code
-                
-                frappe.log_error(f"Versandartikel {shipping_item_code} hinzugefügt zu Versandziel {target}: {shipping_cost}€", "DEBUG: shipping_item_added")
+                try:
+                    shipping_item_doc = frappe.get_doc("Item", shipping_item_code)
+                    
+                    shipping_product = {
+                        "item_code": shipping_item_code,
+                        "item_name": shipping_item_doc.item_name or "Versand",
+                        "qty": 1,
+                        "rate": shipping_cost,
+                        "amount": shipping_cost,
+                        "uom": shipping_item_doc.stock_uom or "Stk",
+                        "stock_uom": shipping_item_doc.stock_uom or "Stk",
+                        "conversion_factor": 1.0,
+                        "stock_qty": 1.0,
+                        "base_amount": shipping_cost,
+                        "base_rate": shipping_cost,
+                        "warehouse": get_default_warehouse(),
+                        "delivery_date": frappe.utils.getdate(frappe.utils.add_days(frappe.utils.today(), 7)),
+                        "_force_zero_rate": False,
+                        "_shipping_item": True
+                    }
+                    
+                    shipping_order["products"].append(shipping_product)
+                    shipping_order["total"] += shipping_cost
+                    shipping_order["shipping_cost"] = shipping_cost
+                    shipping_order["shipping_note"] = shipping_note
+                    shipping_order["shipping_item_code"] = shipping_item_code
+                    
+                    frappe.log_error(f"Versandartikel {shipping_item_code} hinzugefügt zu Versandziel {target}: {shipping_cost}€", "DEBUG: shipping_item_added")
+                    
+                except Exception as e:
+                    frappe.log_error(f"Fehler beim Laden des Versandartikels {shipping_item_code}: {str(e)}", "ERROR: shipping_item_error")
+                    if shipping_order:
+                        shipping_product = {
+                            "item_code": shipping_item_code,
+                            "item_name": "Versand",
+                            "qty": 1,
+                            "rate": shipping_cost,
+                            "amount": shipping_cost,
+                            "uom": "Stk",
+                            "stock_uom": "Stk",
+                            "conversion_factor": 1.0,
+                            "stock_qty": 1.0,
+                            "base_amount": shipping_cost,
+                            "base_rate": shipping_cost,
+                            "warehouse": get_default_warehouse(),
+                            "delivery_date": frappe.utils.getdate(frappe.utils.add_days(frappe.utils.today(), 7)),
+                            "_force_zero_rate": False,
+                            "_shipping_item": True
+                        }
+                        
+                        shipping_order["products"].append(shipping_product)
+                        shipping_order["total"] += shipping_cost
+                        shipping_order["shipping_cost"] = shipping_cost
+                        shipping_order["shipping_note"] = shipping_note
+                        shipping_order["shipping_item_code"] = shipping_item_code
             
             # Alle anderen Bestellungen bekommen keine Versandkosten
             for order in orders[1:]:  # Alle außer der ersten (Versandziel)
