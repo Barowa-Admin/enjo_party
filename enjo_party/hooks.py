@@ -166,11 +166,28 @@ doc_events = {
 	"Sales Order": {
 		"on_submit": "enjo_party.enjo_party.utils.sales_order_hooks.auto_create_and_submit_sales_invoice"
 	},
+	# ===================================================================================
+	# DELIVERY NOTE & PICK LIST HOOKS - LAGER-VALIDIERUNG DEAKTIVIERT
+	# ===================================================================================
+	# Diese Hooks machen Lieferscheine und Packlisten IMMER buchbar, auch wenn:
+	# - Der Lagerbestand nicht ausreicht
+	# - Die Bewertungsrate fehlt
+	# - Keine Buchhaltungseinträge erstellt werden können
+	#
+	# ZUM DEAKTIVIEREN: Kommentiere die entsprechenden Zeilen aus
+	# (Kommentiere die gesamten "Delivery Note" und "Pick List" Blöcke aus)
+	#
+	# HINWEIS: Wenn diese Hooks deaktiviert werden, müssen die Funktionen in
+	#          delivery_note_hooks.py und pick_list_hooks.py NICHT gelöscht werden,
+	#          sondern nur die Registrierung hier entfernt werden.
+	# ===================================================================================
 	"Delivery Note": {
-		"before_validate": "enjo_party.enjo_party.utils.delivery_note_hooks.before_validate_delivery_note"
+		"before_validate": "enjo_party.enjo_party.utils.delivery_note_hooks.before_validate_delivery_note",
+		"before_submit": "enjo_party.enjo_party.utils.delivery_note_hooks.before_submit_delivery_note"
 	},
 	"Pick List": {
-		"before_validate": "enjo_party.enjo_party.utils.pick_list_hooks.before_validate_pick_list"
+		"before_validate": "enjo_party.enjo_party.utils.pick_list_hooks.before_validate_pick_list",
+		"before_submit": "enjo_party.enjo_party.utils.pick_list_hooks.before_submit_pick_list"
 	},
 	"Subscription": {
 		"after_insert": "enjo_party.enjo_party.utils.subscription_hooks.force_subscription_update",
