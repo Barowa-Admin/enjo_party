@@ -853,7 +853,11 @@ def calculate_shipping_costs_for_party(party_doc):
         
         # Prüfe ob alle Artikel an Partnerin gehen
         all_to_partner = all(order.get("shipping_target_type") == "partner" for order in orders)
-        frappe.log_error(f"Partner-Erkennung für {target}: all_to_partner={all_to_partner}, shipping_target_types={[order.get('shipping_target_type') for order in orders]}", "DEBUG: partner_detection")
+        shipping_types = [order.get('shipping_target_type') for order in orders]
+        frappe.log_error(
+            f"Partner-Erkennung für {target}\nall_to_partner={all_to_partner}\nshipping_target_types={shipping_types}",
+            "Partner-Erkennung"
+        )
         
         if total_value_for_target >= 200:
             # Versandkostenfrei - keine Versandkosten
