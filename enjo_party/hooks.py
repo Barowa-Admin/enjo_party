@@ -192,7 +192,8 @@ doc_events = {
 	},
 	"Subscription": {
 		"after_insert": "enjo_party.enjo_party.utils.subscription_hooks.force_subscription_update",
-		"after_save": "enjo_party.enjo_party.utils.subscription_hooks.force_subscription_update"
+		"after_save": "enjo_party.enjo_party.utils.subscription_hooks.force_subscription_update",
+		"on_cancel": "enjo_party.enjo_party.utils.subscription_hooks.handle_subscription_cancel"
 	},
 	"Payment Request": {
 		"on_update": "enjo_party.enjo_party.utils.payment_request_hooks.create_payment_entry_on_paid"

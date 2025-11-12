@@ -109,12 +109,13 @@ def cancel_stripe_subscription_at_period_end(erpnext_subscription_name):
             return False
         
         # Kündige die Stripe Subscription zum Ende der Periode
+        # Das bedeutet: Aktuelle Periode läuft noch, aber keine neue Periode wird mehr gestartet
         stripe.Subscription.modify(
             stripe_subscription_id,
             cancel_at_period_end=True
         )
         
-        frappe.log_error(f"Stripe Subscription {stripe_subscription_id} wird zum Ende der Periode gekündigt", "SUCCESS: stripe_subscription_cancel")
+        frappe.log_error(f"Stripe Subscription {stripe_subscription_id} wird zum Ende der Periode gekündigt (keine weiteren Abbuchungen)", "SUCCESS: stripe_subscription_cancel")
         return True
         
     except Exception as e:

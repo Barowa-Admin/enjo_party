@@ -39,6 +39,16 @@ def before_validate_delivery_note(doc, method):
     doc.flags.ignore_gl_entries = True            # KEINE Buchhaltungseinträge erstellen
     doc.flags.ignore_valuation_rate = True        # Ignoriere Bewertungsrate-Validierung
     
+    # WICHTIG: Überschreibe auch die validate_item_valuation_rate Methode direkt
+    # Dies verhindert, dass die Validierung in der validate() Methode ausgeführt wird
+    # und der Lieferschein nicht gespeichert werden kann
+    def safe_validate_item_valuation_rate(self, *args, **kwargs):
+        """Überschreibt die Validierung für Bewertungsrate - verhindert Fehler beim Speichern"""
+        pass
+    
+    if hasattr(doc, 'validate_item_valuation_rate'):
+        doc.validate_item_valuation_rate = types.MethodType(safe_validate_item_valuation_rate, doc)
+    
     # ===================================================================================
     # ABSCHNITT 2: "ALLOW ZERO VALUATION" FÜR ALLE ITEMS
     # ===================================================================================
@@ -161,6 +171,15 @@ def before_insert_delivery_note(doc, method):
     doc.flags.ignore_stock_validation = True      # Ignoriert Bestands-Validierung
     doc.flags.ignore_gl_entries = True            # KEINE Buchhaltungseinträge erstellen
     doc.flags.ignore_valuation_rate = True        # Ignoriere Bewertungsrate-Validierung
+    
+    # WICHTIG: Überschreibe auch die validate_item_valuation_rate Methode direkt
+    # Dies verhindert, dass die Validierung in der validate() Methode ausgeführt wird
+    def safe_validate_item_valuation_rate(self, *args, **kwargs):
+        """Überschreibt die Validierung für Bewertungsrate - verhindert Fehler beim Speichern"""
+        pass
+    
+    if hasattr(doc, 'validate_item_valuation_rate'):
+        doc.validate_item_valuation_rate = types.MethodType(safe_validate_item_valuation_rate, doc)
     
     # ===================================================================================
     # ABSCHNITT 2: "ALLOW ZERO VALUATION" FÜR ALLE ITEMS BEIM ERSTELLEN

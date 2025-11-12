@@ -87,7 +87,7 @@
                 
                 <div style="margin-bottom: 6px; font-size: 11px;">
                     <span style="font-weight: bold; color: #666;">Vertriebspartner:</span>
-                    <span style="color: #555;"> {{ doc.sales_person or "Esther Buchroth" }}</span>
+                    <span style="color: #555;"> {{ doc.sales_partner or "-" }}</span>
                 </div>
                 
                 <div style="margin-bottom: 6px; font-size: 11px;">
@@ -136,15 +136,11 @@
 </div>
 
 <!-- WKHTMLTOPDF BEWÄHRTE FOOTER LÖSUNG - Statisch am Ende des Dokuments -->
-<div class="footer-content" style="margin-top: 20px; font-size: 8px; line-height: 1.2; border-top: 1px solid #ccc; padding-top: 10px;">
-    <div style="text-align: left;">
-        Zahlungslink: pay.bemotionme.com | IBAN: DE67 1101 0101 5476 1994 71 | BIC: SOBKDEB2XXX<br>
-        Zahlungsbedingungen: Vorkasse | Bankverbindung: Solaris SE | Empfänger: BE'motion - Inhaberin Esther Buchroth<br>
-        Viel Spaß mit Ihren ENJO-Produkten wünscht Ihnen<br>
-        BE'motion - INHABERIN ESTHER BUCHROTH | UID: DE237359306 | Tel.: +49 172 58 22 656 | enjo@bemotionme.com<br>
-        Die gelieferte Ware bleibt bis zur vollständigen Bezahlung des Kaufpreises unser Eigentum.<br>
-        Gastgebergeschenke wurden nicht verrechnet.
-    </div>
+<div class="footer-static" style="margin-top: 20px; font-size: 8px; line-height: 1.2; border-top: 1px solid #ccc; padding-top: 8px;">
+    <p style="margin: 2px 0;"><strong>Zahlungsbedingungen:</strong> Vorkasse | <strong>Bankverbindung:</strong> Postbank | <strong>Empfänger:</strong> Esther Buchroth</p>
+    <p style="margin: 2px 0;"><strong>IBAN:</strong> DE36 8607 0407 0063 8312 00 | <strong>BIC:</strong> DEUTDE8LP37 | <strong>Zahlungslink:</strong> pay.bemotionme.com</p>
+    <p style="margin: 2px 0;"><strong>BE'motion - INHABERIN ESTHER BUCHROTH</strong> | <strong>UID:</strong> DE237359306 | <strong>Tel.:</strong> +49 172 58 22 656 | <strong>E-Mail:</strong> enjo@bemotionme.com</p>
+    <p style="margin: 2px 0;">Die gelieferte Ware bleibt bis zur vollständigen Bezahlung des Kaufpreises unser Eigentum. Gastgebergeschenke wurden nicht verrechnet.</p>
 </div>
 
 <style>
