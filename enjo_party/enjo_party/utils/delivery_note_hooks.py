@@ -67,8 +67,9 @@ def before_validate_delivery_note(doc, method):
             elif hasattr(item, 'allow_zero_valuation'):
                 item.allow_zero_valuation = 1
     
-    # Prüfe, ob es sich um eine fremde Lieferadresse handelt
+    # Prüfe, ob es sich um eine fremde Lieferadresse handelt ODER ob es ein Gruppenversand-Auftrag ist
     is_foreign_shipping = False
+    is_gruppenversand = doc.customer == "Gruppenversand"
     
     if doc.shipping_address_name and doc.customer:
         # Prüfe, ob die Versandadresse zu einem anderen Kunden gehört
@@ -89,9 +90,12 @@ def before_validate_delivery_note(doc, method):
         except Exception as e:
             frappe.log_error(f"Fehler beim Prüfen der Versandadresse: {str(e)}", "WARNING: address_check_error")
     
-    # Deaktiviere Validierungen für fremde Lieferadressen
-    if is_foreign_shipping:
-        frappe.log_error(f"✅ Fremde Lieferadresse erkannt für Delivery Note {doc.name} - Validierung deaktiviert", "INFO: foreign_shipping_detected")
+    # Deaktiviere Validierungen für fremde Lieferadressen ODER für Gruppenversand
+    if is_foreign_shipping or is_gruppenversand:
+        if is_gruppenversand:
+            frappe.log_error(f"✅ Gruppenversand erkannt für Delivery Note {doc.name} - Adressvalidierung deaktiviert", "INFO: delivery_note_pre_insert_validation_disabled")
+        else:
+            frappe.log_error(f"✅ Fremde Lieferadresse erkannt für Delivery Note {doc.name} - Validierung deaktiviert", "INFO: foreign_shipping_detected")
         
         # Deaktiviere ERPNext-Validierungen
         doc.flags.ignore_validate = True
@@ -157,6 +161,9 @@ def before_insert_delivery_note(doc, method):
     if doc.doctype != "Delivery Note":
         return
     
+    # Prüfe ob es ein Gruppenversand-Auftrag ist
+    is_gruppenversand = doc.customer == "Gruppenversand"
+    
     # ===================================================================================
     # ABSCHNITT 1: DEAKTIVIERUNG VON VALIDIERUNGEN BEIM ERSTELLEN
     # ===================================================================================
@@ -171,6 +178,30 @@ def before_insert_delivery_note(doc, method):
     doc.flags.ignore_stock_validation = True      # Ignoriert Bestands-Validierung
     doc.flags.ignore_gl_entries = True            # KEINE Buchhaltungseinträge erstellen
     doc.flags.ignore_valuation_rate = True        # Ignoriere Bewertungsrate-Validierung
+    
+    # Für Gruppenversand: Deaktiviere auch Adress-Validierungen
+    if is_gruppenversand:
+        doc.flags.ignore_validate = True
+        doc.flags.ignore_mandatory = True
+        doc.flags.ignore_links = True
+        doc.flags.ignore_permissions = True
+        doc.flags.ignore_address_validation = True
+        doc.flags.ignore_shipping_validation = True
+        doc.flags.ignore_billing_validation = True
+        
+        # Überschreibe die Adress-Validierungsmethoden
+        def safe_validate_party_address(self, *args, **kwargs):
+            pass
+        
+        def safe_validate_shipping_address(self):
+            pass
+        
+        def safe_validate_billing_address(self):
+            pass
+        
+        doc.validate_party_address = types.MethodType(safe_validate_party_address, doc)
+        doc.validate_shipping_address = types.MethodType(safe_validate_shipping_address, doc)
+        doc.validate_billing_address = types.MethodType(safe_validate_billing_address, doc)
     
     # WICHTIG: Überschreibe auch die validate_item_valuation_rate Methode direkt
     # Dies verhindert, dass die Validierung in der validate() Methode ausgeführt wird
@@ -198,7 +229,10 @@ def before_insert_delivery_note(doc, method):
             elif hasattr(item, 'allow_zero_valuation'):
                 item.allow_zero_valuation = 1
     
-    frappe.log_error(f"✅ Validierungen für Delivery Note {doc.name if hasattr(doc, 'name') else '(neu)'} beim Erstellen deaktiviert", "INFO: delivery_note_pre_insert_validation_disabled")
+    if is_gruppenversand:
+        frappe.log_error(f"✅ Gruppenversand erkannt - Adressvalidierung für Delivery Note {doc.name if hasattr(doc, 'name') else '(neu)'} beim Erstellen deaktiviert", "INFO: delivery_note_pre_insert_validation_disabled")
+    else:
+        frappe.log_error(f"✅ Validierungen für Delivery Note {doc.name if hasattr(doc, 'name') else '(neu)'} beim Erstellen deaktiviert", "INFO: delivery_note_pre_insert_validation_disabled")
 
 
 def before_submit_delivery_note(doc, method):
