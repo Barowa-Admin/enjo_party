@@ -1787,6 +1787,22 @@ def create_delivery_notes_for_receiving_customers(sammelbestellung_doc, all_orde
                 }
                 
                 delivery_note = frappe.get_doc(delivery_note_data)
+                
+                # WICHTIG: Setze Flags VOR dem insert, damit Validierungen übersprungen werden
+                # Dies ist eine zusätzliche Sicherheitsmaßnahme, falls der Hook nicht greift
+                delivery_note.flags.ignore_warehouse_validation = True
+                delivery_note.flags.ignore_stock_validation = True
+                delivery_note.flags.ignore_gl_entries = True
+                delivery_note.flags.ignore_valuation_rate = True
+                
+                # Stelle sicher, dass alle Items "Allow Zero Valuation" haben
+                if hasattr(delivery_note, 'items') and delivery_note.items:
+                    for item in delivery_note.items:
+                        if hasattr(item, 'allow_zero_valuation_rate'):
+                            item.allow_zero_valuation_rate = 1
+                        elif hasattr(item, 'allow_zero_valuation'):
+                            item.allow_zero_valuation = 1
+                
                 delivery_note.insert()
                 frappe.log_error(f"✅ Delivery Note erstellt: {delivery_note.name} für {shipping_target}", "SUCCESS: delivery_note_created")
                 

@@ -106,147 +106,151 @@ def auto_create_and_submit_sales_invoice(doc, method):
             limit=1
         )
 
+        # Hole bestehende Invoice falls vorhanden
+        existing_invoice = None
         if existing_invoices:
             frappe.log_error(f"Sales Invoice already exists for Sales Order {doc.name}: {existing_invoices[0]['name']}", "INFO: invoice_exists")
-            frappe.log_error(f"DEBUG: Überspringe weitere Verarbeitung wegen existierender Invoice", "DEBUG: skip_processing")
-            return
-        
-        frappe.log_error(f"No existing invoice found - creating new one for Sales Order {doc.name}", "INFO: creating_new")
-        
-        # Hole Standard-Einstellungen
-        company = doc.company or frappe.defaults.get_user_default("Company")
-        
-        # Erstelle Sales Invoice basierend auf Sales Order
-        # === NEU: Mapper-Funktion verwenden, damit Steuern & weitere Felder korrekt übernommen werden ===
-        try:
-            from erpnext.selling.doctype.sales_order.sales_order import make_sales_invoice
-        except Exception as e:
-            frappe.log_error(f"Import make_sales_invoice fehlgeschlagen: {str(e)}", "ERROR: mapper_import_failed")
-            raise
-
-        invoice = make_sales_invoice(doc.name)  # noch nicht gespeichert
-
-        # Setze den Titel nur mit Kundennamen
-        try:
-            customer_doc = frappe.get_doc("Customer", doc.customer)
-            customer_name = customer_doc.customer_name or doc.customer
-            invoice.title = customer_name
-        except Exception as e:
-            frappe.log_error(f"Fehler beim Setzen des Invoice-Titels: {str(e)}", "WARNING: title_setting_error")
-            invoice.title = doc.customer
-
-        # Zusätzliche/benutzerdefinierte Felder anpassen
-        invoice.remarks = f"Automatisch erstellt aus Sales Order: {doc.name}"
-        invoice.sales_order = doc.name  # Custom-Feld für Duplikat-Prüfung
-
-        # Custom Party/Sammelbestellung Referenz übernehmen
-        if hasattr(doc, "custom_party_reference") and doc.custom_party_reference:
+            existing_invoice = frappe.get_doc("Sales Invoice", existing_invoices[0]['name'])
+            frappe.log_error(f"DEBUG: Verwende bestehende Invoice {existing_invoice.name} für Delivery Note und Packing List", "DEBUG: use_existing_invoice")
+            # Setze invoice Variable für später
+            invoice = existing_invoice
+        else:
+            frappe.log_error(f"No existing invoice found - creating new one for Sales Order {doc.name}", "INFO: creating_new")
+            
+            # Hole Standard-Einstellungen
+            company = doc.company or frappe.defaults.get_user_default("Company")
+            
+            # Erstelle Sales Invoice basierend auf Sales Order
+            # === NEU: Mapper-Funktion verwenden, damit Steuern & weitere Felder korrekt übernommen werden ===
             try:
-                # Prüfe ob es eine Party oder Sammelbestellung ist
-                if frappe.db.exists("Party", doc.custom_party_reference):
-                    party_doc = frappe.get_doc("Party", doc.custom_party_reference)
-                    if party_doc.docstatus != 2:
-                        invoice.custom_party_reference = doc.custom_party_reference
-                    else:
-                        frappe.log_error(f"Party {doc.custom_party_reference} ist cancelled – Referenz ignoriert", "WARNING: cancelled_party")
-                elif frappe.db.exists("Sammelbestellung", doc.custom_party_reference):
-                    sammelbestellung_doc = frappe.get_doc("Sammelbestellung", doc.custom_party_reference)
-                    if sammelbestellung_doc.docstatus != 2:
-                        invoice.custom_party_reference = doc.custom_party_reference
-                    else:
-                        frappe.log_error(f"Sammelbestellung {doc.custom_party_reference} ist cancelled – Referenz ignoriert", "WARNING: cancelled_sammelbestellung")
-                else:
-                    frappe.log_error(f"Weder Party noch Sammelbestellung {doc.custom_party_reference} gefunden", "WARNING: reference_not_found")
+                from erpnext.selling.doctype.sales_order.sales_order import make_sales_invoice
             except Exception as e:
-                frappe.log_error(f"Fehler beim Laden der Referenz {doc.custom_party_reference}: {str(e)}", "WARNING: reference_load_error")
+                frappe.log_error(f"Import make_sales_invoice fehlgeschlagen: {str(e)}", "ERROR: mapper_import_failed")
+                raise
 
-        if hasattr(doc, "custom_calculated_shipping_cost") and doc.custom_calculated_shipping_cost:
-            invoice.custom_calculated_shipping_cost = doc.custom_calculated_shipping_cost
+            invoice = make_sales_invoice(doc.name)  # noch nicht gespeichert
 
-        # Preise exakt wie im Sales Order setzen und Validierungen deaktivieren
-        invoice.flags.ignore_validate_update_after_submit = True
-        invoice.flags.ignore_validate = True  # Temporär für die Validierung
-        invoice.flags.ignore_mandatory = True  # Temporär für die Validierung
-        invoice.flags.ignore_pricing_rule = True
-        invoice.flags.ignore_item_price = True
-        invoice.flags.ignore_permissions = True  # Ignoriere Berechtigungen
-        invoice.flags.ignore_address_validation = True  # Ignoriere Adress-Validierung
-        invoice.flags.ignore_shipping_validation = True  # Ignoriere Versand-Validierung
-        invoice.flags.ignore_billing_validation = True  # Ignoriere Rechnungs-Validierung
-        
-        # Verhindere die Adress-Validierung komplett
-        if hasattr(invoice, '_validate_shipping_address'):
-            delattr(invoice, '_validate_shipping_address')
-        if hasattr(invoice, '_validate_billing_address'):
-            delattr(invoice, '_validate_billing_address')
-        
-        # Setze Steuer-Template wenn nicht gesetzt
-        if not invoice.taxes_and_charges:
-            tax_template = frappe.db.get_value("Sales Taxes and Charges Template", 
-                {"company": invoice.company, "is_default": 1}, "name")
-            if tax_template:
-                invoice.taxes_and_charges = tax_template
-                invoice.taxes = []  # Leere bestehende Steuern
-                invoice.run_method("set_taxes")  # Setze Steuern neu
+            # Setze den Titel nur mit Kundennamen
+            try:
+                customer_doc = frappe.get_doc("Customer", doc.customer)
+                customer_name = customer_doc.customer_name or doc.customer
+                invoice.title = customer_name
+            except Exception as e:
+                frappe.log_error(f"Fehler beim Setzen des Invoice-Titels: {str(e)}", "WARNING: title_setting_error")
+                invoice.title = doc.customer
+
+            # Zusätzliche/benutzerdefinierte Felder anpassen
+            invoice.remarks = f"Automatisch erstellt aus Sales Order: {doc.name}"
+            invoice.sales_order = doc.name  # Custom-Feld für Duplikat-Prüfung
+
+            # Custom Party/Sammelbestellung Referenz übernehmen
+            if hasattr(doc, "custom_party_reference") and doc.custom_party_reference:
+                try:
+                    # Prüfe ob es eine Party oder Sammelbestellung ist
+                    if frappe.db.exists("Party", doc.custom_party_reference):
+                        party_doc = frappe.get_doc("Party", doc.custom_party_reference)
+                        if party_doc.docstatus != 2:
+                            invoice.custom_party_reference = doc.custom_party_reference
+                        else:
+                            frappe.log_error(f"Party {doc.custom_party_reference} ist cancelled – Referenz ignoriert", "WARNING: cancelled_party")
+                    elif frappe.db.exists("Sammelbestellung", doc.custom_party_reference):
+                        sammelbestellung_doc = frappe.get_doc("Sammelbestellung", doc.custom_party_reference)
+                        if sammelbestellung_doc.docstatus != 2:
+                            invoice.custom_party_reference = doc.custom_party_reference
+                        else:
+                            frappe.log_error(f"Sammelbestellung {doc.custom_party_reference} ist cancelled – Referenz ignoriert", "WARNING: cancelled_sammelbestellung")
+                    else:
+                        frappe.log_error(f"Weder Party noch Sammelbestellung {doc.custom_party_reference} gefunden", "WARNING: reference_not_found")
+                except Exception as e:
+                    frappe.log_error(f"Fehler beim Laden der Referenz {doc.custom_party_reference}: {str(e)}", "WARNING: reference_load_error")
+
+            if hasattr(doc, "custom_calculated_shipping_cost") and doc.custom_calculated_shipping_cost:
+                invoice.custom_calculated_shipping_cost = doc.custom_calculated_shipping_cost
+
+            # Preise exakt wie im Sales Order setzen und Validierungen deaktivieren
+            invoice.flags.ignore_validate_update_after_submit = True
+            invoice.flags.ignore_validate = True  # Temporär für die Validierung
+            invoice.flags.ignore_mandatory = True  # Temporär für die Validierung
+            invoice.flags.ignore_pricing_rule = True
+            invoice.flags.ignore_item_price = True
+            invoice.flags.ignore_permissions = True  # Ignoriere Berechtigungen
+            invoice.flags.ignore_address_validation = True  # Ignoriere Adress-Validierung
+            invoice.flags.ignore_shipping_validation = True  # Ignoriere Versand-Validierung
+            invoice.flags.ignore_billing_validation = True  # Ignoriere Rechnungs-Validierung
+            
+            # Verhindere die Adress-Validierung komplett
+            if hasattr(invoice, '_validate_shipping_address'):
+                delattr(invoice, '_validate_shipping_address')
+            if hasattr(invoice, '_validate_billing_address'):
+                delattr(invoice, '_validate_billing_address')
+            
+            # Setze Steuer-Template wenn nicht gesetzt
+            if not invoice.taxes_and_charges:
+                tax_template = frappe.db.get_value("Sales Taxes and Charges Template", 
+                    {"company": invoice.company, "is_default": 1}, "name")
+                if tax_template:
+                    invoice.taxes_and_charges = tax_template
+                    invoice.taxes = []  # Leere bestehende Steuern
+                    invoice.run_method("set_taxes")  # Setze Steuern neu
+                    
+                    # Setze alle Steuern auf "inklusive"
+                    if invoice.taxes:
+                        for tax in invoice.taxes:
+                            tax.included_in_print_rate = 1
+                        # Neuberechnung mit inklusiven Steuern
+                        invoice.calculate_taxes_and_totals()
+
+            for i, invoice_item in enumerate(invoice.items):
+                so_item = doc.items[i]
+                invoice_item.rate = so_item.rate
+                invoice_item.price_list_rate = so_item.rate
+                invoice_item.base_rate = so_item.rate
+                invoice_item.base_price_list_rate = so_item.rate
+                invoice_item.amount = so_item.amount
+                invoice_item.base_amount = so_item.amount
+                invoice_item.flags.ignore_pricing_rule = True
+
+            # Fehlende Felder füllen & Steuern/Totals neu berechnen
+            invoice.run_method("set_missing_values")
+            invoice.calculate_taxes_and_totals()
+
+            # === ADRESS-VALIDIERUNG DEAKTIVIEREN FÜR PARTY/SAMMELBESTELLUNG-RECHNUNGEN ===
+            # Prüfe, ob es sich um eine Party- oder Sammelbestellung-Rechnung handelt
+            if hasattr(doc, "custom_party_reference") and doc.custom_party_reference:
+                frappe.log_error(f"🎉 Party/Sammelbestellung-Invoice erkannt: {invoice.name if hasattr(invoice, 'name') else 'NEW'} - Validierung angepasst (DATEV-sicher)", "INFO: party_invoice_detected")
                 
-                # Setze alle Steuern auf "inklusive"
-                if invoice.taxes:
-                    for tax in invoice.taxes:
-                        tax.included_in_print_rate = 1
-                    # Neuberechnung mit inklusiven Steuern
-                    invoice.calculate_taxes_and_totals()
+                # Überschreibe die Adress-Validierungsmethoden
+                def safe_validate_party_address(self, party, party_type, billing_address, shipping_address=None):
+                    """Überspringe die Party-Adress-Validierung"""
+                    frappe.log_error(f"✅ Überspringe validate_party_address für {party} (Type: {party_type}, Billing: {billing_address}, Shipping: {shipping_address})", "INFO: skip_party_address_validation")
+                    pass
+                
+                def safe_validate_party_address_and_contact(self):
+                    """Überspringe die komplette Party-Adress- und Kontakt-Validierung"""
+                    frappe.log_error(f"✅ Überspringe validate_party_address_and_contact für {self.customer}", "INFO: skip_party_validation")
+                    pass
+                
+                def safe_validate_shipping_address(self):
+                    """Überspringe die Versandadress-Validierung"""
+                    frappe.log_error(f"✅ Überspringe validate_shipping_address für {self.customer}", "INFO: skip_shipping_validation")
+                    pass
+                
+                def safe_validate_billing_address(self):
+                    """Überspringe die Rechnungsadress-Validierung"""
+                    frappe.log_error(f"✅ Überspringe validate_billing_address für {self.customer}", "INFO: skip_billing_validation")
+                    pass
+                
+                # Überschreibe nur die Adress-Validierungsmethoden (wie bei Party)
+                invoice.validate_party_address = types.MethodType(safe_validate_party_address, invoice)
+                invoice.validate_party_address_and_contact = types.MethodType(safe_validate_party_address_and_contact, invoice)
+                invoice.validate_shipping_address = types.MethodType(safe_validate_shipping_address, invoice)
+                invoice.validate_billing_address = types.MethodType(safe_validate_billing_address, invoice)
+                
+                frappe.log_error(f"✅ Adressvalidierung für automatische Invoice deaktiviert", "SUCCESS: auto_invoice_address_validation_bypassed")
 
-        for i, invoice_item in enumerate(invoice.items):
-            so_item = doc.items[i]
-            invoice_item.rate = so_item.rate
-            invoice_item.price_list_rate = so_item.rate
-            invoice_item.base_rate = so_item.rate
-            invoice_item.base_price_list_rate = so_item.rate
-            invoice_item.amount = so_item.amount
-            invoice_item.base_amount = so_item.amount
-            invoice_item.flags.ignore_pricing_rule = True
-
-        # Fehlende Felder füllen & Steuern/Totals neu berechnen
-        invoice.run_method("set_missing_values")
-        invoice.calculate_taxes_and_totals()
-
-        # === ADRESS-VALIDIERUNG DEAKTIVIEREN FÜR PARTY/SAMMELBESTELLUNG-RECHNUNGEN ===
-        # Prüfe, ob es sich um eine Party- oder Sammelbestellung-Rechnung handelt
-        if hasattr(doc, "custom_party_reference") and doc.custom_party_reference:
-            frappe.log_error(f"🎉 Party/Sammelbestellung-Invoice erkannt: {invoice.name if hasattr(invoice, 'name') else 'NEW'} - Validierung angepasst (DATEV-sicher)", "INFO: party_invoice_detected")
-            
-            # Überschreibe die Adress-Validierungsmethoden
-            def safe_validate_party_address(self, party, party_type, billing_address, shipping_address=None):
-                """Überspringe die Party-Adress-Validierung"""
-                frappe.log_error(f"✅ Überspringe validate_party_address für {party} (Type: {party_type}, Billing: {billing_address}, Shipping: {shipping_address})", "INFO: skip_party_address_validation")
-                pass
-            
-            def safe_validate_party_address_and_contact(self):
-                """Überspringe die komplette Party-Adress- und Kontakt-Validierung"""
-                frappe.log_error(f"✅ Überspringe validate_party_address_and_contact für {self.customer}", "INFO: skip_party_validation")
-                pass
-            
-            def safe_validate_shipping_address(self):
-                """Überspringe die Versandadress-Validierung"""
-                frappe.log_error(f"✅ Überspringe validate_shipping_address für {self.customer}", "INFO: skip_shipping_validation")
-                pass
-            
-            def safe_validate_billing_address(self):
-                """Überspringe die Rechnungsadress-Validierung"""
-                frappe.log_error(f"✅ Überspringe validate_billing_address für {self.customer}", "INFO: skip_billing_validation")
-                pass
-            
-            # Überschreibe nur die Adress-Validierungsmethoden (wie bei Party)
-            invoice.validate_party_address = types.MethodType(safe_validate_party_address, invoice)
-            invoice.validate_party_address_and_contact = types.MethodType(safe_validate_party_address_and_contact, invoice)
-            invoice.validate_shipping_address = types.MethodType(safe_validate_shipping_address, invoice)
-            invoice.validate_billing_address = types.MethodType(safe_validate_billing_address, invoice)
-            
-            frappe.log_error(f"✅ Adressvalidierung für automatische Invoice deaktiviert", "SUCCESS: auto_invoice_address_validation_bypassed")
-
-        # Jetzt speichern (nicht submitten)
-        invoice.insert()
-        frappe.log_error(f"Sales Invoice created: {invoice.name}", "INFO: invoice_created")
+            # Jetzt speichern (nicht submitten)
+            invoice.insert()
+            frappe.log_error(f"Sales Invoice created: {invoice.name}", "INFO: invoice_created")
 
         # === NEU: Lieferschein und/oder Packliste erzeugen ===
         frappe.log_error(f"🚀 ERREICHE NEUE LOGIK für {doc.name}", "INFO: new_logic_reached")

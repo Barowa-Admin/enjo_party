@@ -1,5 +1,6 @@
 import frappe
 from frappe import _
+from frappe.utils import today
 from enjo_party.enjo_party.utils.stripe_checkout import create_stripe_checkout_session
 from enjo_party.enjo_party.utils.stripe_subscription import cancel_stripe_subscription_at_period_end
 
@@ -233,6 +234,24 @@ def force_subscription_update(doc, method):
                     "SUCCESS: subscription_hook",
                 )
                 
+                # Erstelle zusätzlich einen Sales Order und verknüpfe ihn mit der bestehenden Invoice
+                try:
+                    sales_order = create_sales_order_from_invoice(invoice)
+                    if sales_order:
+                        frappe.log_error(f"SUBSCRIPTION HOOK: Sales Order {sales_order.name} aus Invoice {invoice_name} erstellt", "SUCCESS: subscription_hook")
+                        # Verknüpfe Invoice mit Sales Order
+                        link_invoice_to_sales_order(invoice, sales_order)
+                        frappe.db.commit()
+                        frappe.log_error(f"SUBSCRIPTION HOOK: Invoice {invoice_name} mit Sales Order {sales_order.name} verknüpft", "SUCCESS: subscription_hook")
+                        
+                        # Submit Sales Order - das triggert automatisch Delivery Note und Packing List
+                        # Da die Invoice bereits verknüpft ist, wird keine neue Invoice erstellt
+                        sales_order.submit()
+                        frappe.db.commit()
+                        frappe.log_error(f"SUBSCRIPTION HOOK: Sales Order {sales_order.name} submitted - Delivery Note und Packing List sollten erstellt werden", "SUCCESS: subscription_hook")
+                except Exception as e:
+                    frappe.log_error(f"Fehler beim Erstellen des Sales Order aus Invoice {invoice_name}: {str(e)}\n{frappe.get_traceback()}", "ERROR: create_sales_order_from_invoice")
+                
                 frappe.msgprint(_("Abonnement-Update und Payment Request wurden automatisch erstellt"))
         else:
             frappe.log_error(f"SUBSCRIPTION HOOK: Startdatum {subscription.start_date} ist noch nicht erreicht", "DEBUG: subscription_hook")
@@ -390,6 +409,147 @@ def create_payment_request_for_subscription_invoice(doc, method):
                     f"Payment Request {payment_request.name} für Subscription Invoice {doc.name} erstellt",
                     "SUCCESS: subscription_payment_request",
                 )
+                
+                # Erstelle zusätzlich einen Sales Order und verknüpfe ihn mit der bestehenden Invoice
+                try:
+                    sales_order = create_sales_order_from_invoice(doc)
+                    if sales_order:
+                        frappe.log_error(f"SUBSCRIPTION HOOK: Sales Order {sales_order.name} aus Invoice {doc.name} erstellt", "SUCCESS: subscription_hook")
+                        # Verknüpfe Invoice mit Sales Order
+                        link_invoice_to_sales_order(doc, sales_order)
+                        frappe.db.commit()
+                        frappe.log_error(f"SUBSCRIPTION HOOK: Invoice {doc.name} mit Sales Order {sales_order.name} verknüpft", "SUCCESS: subscription_hook")
+                        
+                        # Submit Sales Order - das triggert automatisch Delivery Note und Packing List
+                        # Da die Invoice bereits verknüpft ist, wird keine neue Invoice erstellt
+                        sales_order.submit()
+                        frappe.db.commit()
+                        frappe.log_error(f"SUBSCRIPTION HOOK: Sales Order {sales_order.name} submitted - Delivery Note und Packing List sollten erstellt werden", "SUCCESS: subscription_hook")
+                except Exception as e:
+                    frappe.log_error(f"Fehler beim Erstellen des Sales Order aus Invoice {doc.name}: {str(e)}\n{frappe.get_traceback()}", "ERROR: create_sales_order_from_invoice")
             
     except Exception as e:
         frappe.log_error(f"Fehler beim Erstellen der Payment Request für Subscription Invoice {doc.name}: {str(e)}", "ERROR: subscription_payment_request")
+
+
+def link_invoice_to_sales_order(invoice, sales_order):
+    """
+    Verknüpft eine bestehende Invoice mit einem Sales Order
+    Aktualisiert die Invoice Items, um den Sales Order zu referenzieren
+    """
+    try:
+        frappe.log_error(f"Verknüpfe Invoice {invoice.name} mit Sales Order {sales_order.name}", "DEBUG: link_invoice_to_sales_order")
+        
+        # Lade Invoice neu
+        invoice.reload()
+        sales_order.reload()
+        
+        # Verknüpfe jedes Invoice Item mit dem Sales Order Item über SQL
+        # Hole alle Invoice Items
+        invoice_items = frappe.get_all("Sales Invoice Item",
+            filters={"parent": invoice.name},
+            fields=["name", "idx"],
+            order_by="idx"
+        )
+        
+        # Hole alle Sales Order Items
+        so_items = frappe.get_all("Sales Order Item",
+            filters={"parent": sales_order.name},
+            fields=["name", "idx"],
+            order_by="idx"
+        )
+        
+        frappe.log_error(f"Invoice Items: {len(invoice_items)}, Sales Order Items: {len(so_items)}", "DEBUG: link_invoice_to_sales_order")
+        
+        # Verknüpfe jedes Invoice Item mit dem entsprechenden Sales Order Item
+        for i, invoice_item in enumerate(invoice_items):
+            if i < len(so_items):
+                so_item_name = so_items[i].name
+                # Setze sales_order und so_detail direkt über SQL
+                frappe.db.sql("""
+                    UPDATE `tabSales Invoice Item`
+                    SET sales_order = %s, so_detail = %s
+                    WHERE name = %s
+                """, (sales_order.name, so_item_name, invoice_item.name))
+                frappe.log_error(f"Invoice Item {invoice_item.name} verknüpft mit Sales Order Item {so_item_name}", "DEBUG: link_invoice_to_sales_order")
+        
+        frappe.db.commit()
+        frappe.log_error(f"Invoice {invoice.name} erfolgreich mit Sales Order {sales_order.name} verknüpft (über Items)", "SUCCESS: invoice_linked_to_sales_order")
+        
+    except Exception as e:
+        frappe.log_error(f"Fehler beim Verknüpfen der Invoice {invoice.name} mit Sales Order {sales_order.name}: {str(e)}\n{frappe.get_traceback()}", "ERROR: link_invoice_to_sales_order")
+
+
+def create_sales_order_from_invoice(invoice):
+    """
+    Erstellt einen Sales Order aus einer Sales Invoice (für Subscription-Invoices)
+    Dieser Sales Order wird NICHT submitted, sondern nur mit der Invoice verknüpft
+    """
+    try:
+        frappe.log_error(f"Erstelle Sales Order aus Invoice {invoice.name}", "DEBUG: create_sales_order_from_invoice")
+        
+        # Prüfe ob bereits ein Sales Order für diese Invoice existiert
+        # Suche über po_no Feld (kann die Invoice-Nummer enthalten) oder einfach immer erstellen
+        # Da wir keine zuverlässige Referenz haben, erstellen wir einfach immer einen neuen
+        # Falls bereits einer existiert, wird das im try-catch abgefangen
+        
+        # Erstelle Items aus Invoice Items
+        items = []
+        for invoice_item in invoice.items:
+            # Prüfe ob item_code vorhanden ist
+            if not invoice_item.item_code:
+                continue
+                
+            items.append({
+                "doctype": "Sales Order Item",
+                "item_code": invoice_item.item_code,
+                "item_name": invoice_item.item_name or invoice_item.item_code,
+                "qty": invoice_item.qty or 1,
+                "rate": invoice_item.rate or 0,
+                "uom": invoice_item.uom or "Stk",
+                "stock_uom": invoice_item.stock_uom or invoice_item.uom or "Stk",
+                "conversion_factor": invoice_item.conversion_factor or 1.0,
+                "warehouse": invoice_item.warehouse,
+                "delivery_date": invoice.due_date or invoice.posting_date or today()
+            })
+        
+        if not items:
+            frappe.log_error(f"Keine Items gefunden für Invoice {invoice.name}", "ERROR: no_items_found")
+            return None
+        
+        # Erstelle Sales Order
+        sales_order_data = {
+            "doctype": "Sales Order",
+            "customer": invoice.customer,
+            "transaction_date": invoice.posting_date or today(),
+            "delivery_date": invoice.due_date or invoice.posting_date or today(),
+            "company": invoice.company or frappe.defaults.get_global_default("company"),
+            "currency": invoice.currency or frappe.defaults.get_global_default("currency"),
+            "items": items,
+            "status": "Draft",
+            "order_type": "Sales",
+            "po_no": f"Subscription Invoice: {invoice.name}"  # Verwende po_no für Referenz
+        }
+        
+        # Füge Adressen hinzu falls vorhanden
+        if invoice.customer_address:
+            sales_order_data["customer_address"] = invoice.customer_address
+        if invoice.shipping_address_name:
+            sales_order_data["shipping_address_name"] = invoice.shipping_address_name
+        elif invoice.customer_address:
+            sales_order_data["shipping_address_name"] = invoice.customer_address
+        
+        # Füge Subscription-Referenz hinzu falls vorhanden
+        if invoice.subscription:
+            sales_order_data["po_no"] = f"Subscription Invoice: {invoice.name} (Subscription: {invoice.subscription})"
+        
+        sales_order = frappe.get_doc(sales_order_data)
+        sales_order.insert(ignore_permissions=True)
+        frappe.db.commit()
+        
+        frappe.log_error(f"Sales Order {sales_order.name} aus Invoice {invoice.name} erstellt", "SUCCESS: sales_order_created")
+        return sales_order
+        
+    except Exception as e:
+        frappe.log_error(f"Fehler beim Erstellen des Sales Order aus Invoice {invoice.name}: {str(e)}\n{frappe.get_traceback()}", "ERROR: create_sales_order_from_invoice")
+        return None
