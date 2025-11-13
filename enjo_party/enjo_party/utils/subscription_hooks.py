@@ -265,11 +265,14 @@ def create_payment_request_for_subscription_invoice(doc, method):
     """
     Erstellt automatisch Payment Request für alle Sales Invoices die zu einem Abonnement gehören
     Wird bei Sales Invoice on_submit ausgelöst
+    WICHTIG: Diese Funktion wird NUR aufgerufen, wenn die Payment Request NICHT bereits von force_subscription_update erstellt wurde
     """
     try:
         # Prüfe ob die Rechnung zu einem Abonnement gehört
         if doc.subscription and doc.docstatus == 1:
             # Prüfe ob bereits eine Payment Request existiert
+            # WICHTIG: Commit vor der Prüfung, um sicherzustellen, dass alle vorherigen Änderungen gespeichert sind
+            frappe.db.commit()
             existing_requests = frappe.get_all("Payment Request",
                 filters={
                     "reference_doctype": "Sales Invoice",
@@ -278,6 +281,11 @@ def create_payment_request_for_subscription_invoice(doc, method):
                 }
             )
             
+            if existing_requests:
+                frappe.log_error(f"SUBSCRIPTION HOOK: Payment Request existiert bereits für Invoice {doc.name} - überspringe Erstellung und E-Mail", "DEBUG: subscription_payment_request")
+                return  # WICHTIG: Früher Return, um keine E-Mail zu versenden
+            
+            # Keine Payment Request gefunden - erstelle neue
             if not existing_requests:
                 # Hole Subscription Details für Subscription Plans
                 subscription = frappe.get_doc("Subscription", doc.subscription)
