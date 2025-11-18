@@ -76,7 +76,10 @@ def force_subscription_update(doc, method):
             if invoices:
                 invoice_name = invoices[0].name
                 
-                # Prüfe ob bereits eine Payment Request existiert
+                # WICHTIG: Commit vor Prüfung, damit create_payment_request_for_subscription_invoice die Payment Request findet
+                frappe.db.commit()
+                
+                # Prüfe ob bereits eine Payment Request existiert (auch Draft-Status)
                 existing_requests = frappe.get_all("Payment Request",
                     filters={
                         "reference_doctype": "Sales Invoice",
@@ -159,6 +162,8 @@ def force_subscription_update(doc, method):
                 frappe.log_error(f"SUBSCRIPTION HOOK: Payment Request payment_gateway_account vor insert: {payment_request.payment_gateway_account}", "DEBUG: subscription_hook")
                 
                 payment_request.insert(ignore_permissions=True)
+                # WICHTIG: Sofort committen, damit create_payment_request_for_subscription_invoice die Payment Request findet
+                frappe.db.commit()
 
                 # Stripe-Checkout erzeugen und URL setzen
                 stripe_url = create_stripe_checkout_session(payment_request)
@@ -212,22 +217,23 @@ def force_subscription_update(doc, method):
                     else:
                         frappe.log_error("SUBSCRIPTION HOOK: Message Template ist leer!", "WARNING: subscription_hook")
                 
-                try:
-                    payment_request.flags.mute_email = 0
-                    # Stelle sicher, dass die Message im payment_request Objekt ist
-                    if not payment_request.message and stripe_url:
-                        from frappe.utils.jinja import render_template
-                        gateway_account = frappe.get_doc("Payment Gateway Account", "Stripe-Stripe - EUR")
-                        message_template = gateway_account.message or ""
-                        if message_template:
-                            payment_request.message = render_template(message_template, {
-                                "doc": invoice,
-                                "payment_url": stripe_url
-                            })
-                    payment_request.send_email()
-                    payment_request.make_communication_entry()
-                except Exception as e:
-                    frappe.log_error(f"Fehler beim Senden der E-Mail: {str(e)}", "ERROR: subscription_hook")
+                # ÜBERGANGSWEISE DEAKTIVIERT: E-Mail-Versendung für Abos
+                # try:
+                #     payment_request.flags.mute_email = 0
+                #     # Stelle sicher, dass die Message im payment_request Objekt ist
+                #     if not payment_request.message and stripe_url:
+                #         from frappe.utils.jinja import render_template
+                #         gateway_account = frappe.get_doc("Payment Gateway Account", "Stripe-Stripe - EUR")
+                #         message_template = gateway_account.message or ""
+                #         if message_template:
+                #             payment_request.message = render_template(message_template, {
+                #                 "doc": invoice,
+                #                 "payment_url": stripe_url
+                #             })
+                #     payment_request.send_email()
+                #     payment_request.make_communication_entry()
+                # except Exception as e:
+                #     frappe.log_error(f"Fehler beim Senden der E-Mail: {str(e)}", "ERROR: subscription_hook")
 
                 frappe.log_error(
                     f"SUBSCRIPTION HOOK: Payment Request {payment_request.name} erstellt",
@@ -273,6 +279,7 @@ def create_payment_request_for_subscription_invoice(doc, method):
             # Prüfe ob bereits eine Payment Request existiert
             # WICHTIG: Commit vor der Prüfung, um sicherzustellen, dass alle vorherigen Änderungen gespeichert sind
             frappe.db.commit()
+            
             existing_requests = frappe.get_all("Payment Request",
                 filters={
                     "reference_doctype": "Sales Invoice",
@@ -348,6 +355,8 @@ def create_payment_request_for_subscription_invoice(doc, method):
                 frappe.log_error(f"SUBSCRIPTION HOOK: Payment Request payment_gateway_account vor insert: {payment_request.payment_gateway_account}", "DEBUG: subscription_hook")
                 
                 payment_request.insert(ignore_permissions=True)
+                # WICHTIG: Sofort committen, damit force_subscription_update die Payment Request findet
+                frappe.db.commit()
 
                 # Stripe-Checkout erzeugen und URL setzen
                 stripe_url = create_stripe_checkout_session(payment_request)
@@ -396,22 +405,39 @@ def create_payment_request_for_subscription_invoice(doc, method):
                         frappe.db.commit()
                         payment_request.reload()
                 
-                try:
-                    payment_request.flags.mute_email = 0
-                    # Stelle sicher, dass die Message im payment_request Objekt ist
-                    if not payment_request.message and stripe_url:
-                        from frappe.utils.jinja import render_template
-                        gateway_account = frappe.get_doc("Payment Gateway Account", "Stripe-Stripe - EUR")
-                        message_template = gateway_account.message or ""
-                        if message_template:
-                            payment_request.message = render_template(message_template, {
-                                "doc": doc,
-                                "payment_url": stripe_url
-                            })
-                    payment_request.send_email()
-                    payment_request.make_communication_entry()
-                except Exception as e:
-                    frappe.log_error(f"Fehler beim Senden der E-Mail: {str(e)}", "ERROR: subscription_payment_request")
+                # WICHTIG: Prüfe nochmal, ob bereits eine Payment Request existiert, bevor E-Mail gesendet wird
+                # Dies verhindert doppelte E-Mails, falls force_subscription_update die Payment Request bereits erstellt hat
+                frappe.db.commit()
+                existing_requests_check = frappe.get_all("Payment Request",
+                    filters={
+                        "reference_doctype": "Sales Invoice",
+                        "reference_name": doc.name,
+                        "docstatus": ["!=", 2],  # Nicht storniert
+                        "name": ["!=", payment_request.name]  # Nicht die gerade erstellte
+                    }
+                )
+                
+                if existing_requests_check:
+                    frappe.log_error(f"SUBSCRIPTION HOOK: Andere Payment Request existiert bereits für Invoice {doc.name} - überspringe E-Mail-Versand", "DEBUG: subscription_payment_request")
+                    return  # Keine E-Mail senden, da bereits eine Payment Request existiert
+                
+                # ÜBERGANGSWEISE DEAKTIVIERT: E-Mail-Versendung für Abos
+                # try:
+                #     payment_request.flags.mute_email = 0
+                #     # Stelle sicher, dass die Message im payment_request Objekt ist
+                #     if not payment_request.message and stripe_url:
+                #         from frappe.utils.jinja import render_template
+                #         gateway_account = frappe.get_doc("Payment Gateway Account", "Stripe-Stripe - EUR")
+                #         message_template = gateway_account.message or ""
+                #         if message_template:
+                #             payment_request.message = render_template(message_template, {
+                #                 "doc": doc,
+                #                 "payment_url": stripe_url
+                #             })
+                #     payment_request.send_email()
+                #     payment_request.make_communication_entry()
+                # except Exception as e:
+                #     frappe.log_error(f"Fehler beim Senden der E-Mail: {str(e)}", "ERROR: subscription_payment_request")
 
                 frappe.log_error(
                     f"Payment Request {payment_request.name} für Subscription Invoice {doc.name} erstellt",
