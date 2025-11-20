@@ -739,12 +739,14 @@ def create_delivery_note_for_sales_order(sales_order_doc):
             
             # Logge die Adressinformationen für Debugging
             if hasattr(dn, 'shipping_address_name') and dn.shipping_address_name:
-                frappe.log_error(f"Fremde Lieferadresse erkannt: {dn.shipping_address_name} gehört zu Kunde {dn.customer}, aber Delivery Note ist für Kunde Gruppenversand", "INFO: foreign_shipping_detected")
+                msg = f"Fremde Lieferadresse erkannt: {dn.shipping_address_name} gehört zu Kunde {dn.customer}, aber Delivery Note ist für Kunde Gruppenversand"
+                frappe.log_error(msg[:140] if len(msg) > 140 else msg, "INFO: foreign_shipping_detected")
         
         dn.insert()
         return dn
     except Exception as e:
-        frappe.log_error(f"Delivery Note konnte nicht erstellt werden: {str(e)}", "ERROR: dn_creation_failed")
+        error_msg = f"Delivery Note konnte nicht erstellt werden: {str(e)}"
+        frappe.log_error(error_msg[:140] if len(error_msg) > 140 else error_msg, "ERROR: dn_creation_failed")
         return None
 
 
@@ -1048,7 +1050,8 @@ def create_picklist_and_delivery_note_for_partner_order(sales_order_doc):
                 else:
                     frappe.log_error(f"Lieferschein für Partner-Auftrag konnte nicht erstellt werden", "WARNING: partner_delivery_note_failed")
             except Exception as e:
-                frappe.log_error(f"Fehler beim Erstellen des Lieferscheins für Partner-Auftrag {sales_order_doc.name}: {str(e)}", "ERROR: partner_delivery_note_error")
+                error_msg = f"Fehler beim Erstellen des Lieferscheins für Partner-Auftrag {sales_order_doc.name}: {str(e)}"
+                frappe.log_error(error_msg[:140] if len(error_msg) > 140 else error_msg, "ERROR: partner_delivery_note_error")
         
         # 2. Erstelle Packliste (Pick List) - nur als Entwurf!
         if ENABLE_AUTO_PICKLIST:
@@ -1063,7 +1066,8 @@ def create_picklist_and_delivery_note_for_partner_order(sales_order_doc):
                 frappe.log_error(f"Fehler beim Erstellen der Packliste für {order_type} {sales_order_doc.name}: {str(e)}", "ERROR: partner_picklist_error")
         
     except Exception as e:
-        frappe.log_error(f"Allgemeiner Fehler beim Erstellen der Dokumente für Partner-Auftrag {sales_order_doc.name}: {str(e)}", "ERROR: partner_docs_creation_failed")
+        error_msg = f"Allgemeiner Fehler beim Erstellen der Dokumente für Partner-Auftrag {sales_order_doc.name}: {str(e)}"
+        frappe.log_error(error_msg[:140] if len(error_msg) > 140 else error_msg, "ERROR: partner_docs_creation_failed")
 
 
 def create_dummy_invoice_for_picklist(sales_order_doc):

@@ -1384,7 +1384,8 @@ def create_invoices(party, from_submit=False, from_button=False):
                     created_orders.extend(shipping_orders)
                     frappe.log_error(f"Versandaufträge erstellt: {shipping_orders}", "SUCCESS: shipping_orders_created")
             except Exception as e:
-                frappe.log_error(f"Fehler beim Erstellen der Versandaufträge: {str(e)}", "ERROR: shipping_orders_failed")
+                error_msg = f"Fehler beim Erstellen der Versandaufträge: {str(e)}"
+                frappe.log_error(error_msg[:140] if len(error_msg) > 140 else error_msg, "ERROR: shipping_orders_failed")
             
             # NEU: Erstelle Picklists (Auswahllisten) nach Versandzielen gruppiert
             # Picklist wird automatisch über Sales Order Hooks erstellt
@@ -1794,14 +1795,16 @@ def create_shipping_orders_for_party_customers(party_doc, all_orders_with_shippi
                 created_shipping_orders.append(shipping_order.name)
                 
             except Exception as e:
-                frappe.log_error(f"Fehler beim Erstellen des Versandauftrags für {shipping_target}: {str(e)}", "ERROR: shipping_order_creation_failed")
+                error_msg = f"Fehler beim Erstellen des Versandauftrags für {shipping_target}: {str(e)}"
+                frappe.log_error(error_msg[:140] if len(error_msg) > 140 else error_msg, "ERROR: shipping_order_creation_failed")
                 continue
         
         frappe.log_error(f"=== create_shipping_orders_for_party_customers ENDE: {len(created_shipping_orders)} Aufträge erstellt ===", "INFO: shipping_orders_end")
         return created_shipping_orders
         
     except Exception as e:
-        frappe.log_error(f"Fehler in create_shipping_orders_for_party_customers: {str(e)}", "ERROR: shipping_orders_function_failed")
+        error_msg = f"Fehler in create_shipping_orders_for_party_customers: {str(e)}"
+        frappe.log_error(error_msg[:140] if len(error_msg) > 140 else error_msg, "ERROR: shipping_orders_function_failed")
         return []
 
 
