@@ -71,12 +71,26 @@ def auto_create_and_submit_sales_invoice(doc, method):
           doc.custom_party_reference and 
           frappe.db.exists("Party", doc.custom_party_reference)):
         
-        # Prüfe ob der Kunde die Gastgeberin der Party ist
+        # WICHTIG: Gastgeberin ist IMMER Kunde, NIEMALS Partnerin!
+        # Nur die Partnerin sollte als Partner-Auftrag erkannt werden
         try:
             party_doc = frappe.get_doc("Party", doc.custom_party_reference)
-            if party_doc.gastgeberin == doc.customer:
-                is_partner_order = True
-                frappe.log_error(f"Partner-Auftrag aus Party erkannt: {doc.name} (Gastgeberin: {doc.customer})", "DEBUG: partner_order_party")
+            if party_doc.partnerin == doc.customer:
+                # Prüfe ob es nur Versandartikel sind (Partner-Versand-Auftrag)
+                all_items_are_shipping = all(
+                    item.item_code and item.item_code.startswith('shipping-')
+                    for item in doc.items
+                )
+                
+                if all_items_are_shipping:
+                    is_partner_shipping_order = True
+                    frappe.log_error(f"Partner-Versand-Auftrag erkannt (nur Versand-Artikel): {doc.name}", "DEBUG: partner_shipping_order")
+                else:
+                    is_partner_order = True
+                    frappe.log_error(f"Partner-Auftrag aus Party erkannt: {doc.name} (Partnerin: {doc.customer})", "DEBUG: partner_order_party")
+            elif party_doc.gastgeberin == doc.customer:
+                # Gastgeberin ist IMMER normaler Kunde - keine spezielle Behandlung
+                frappe.log_error(f"Gastgeberin-Auftrag aus Party erkannt: {doc.name} (Gastgeberin: {doc.customer}) - wird NORMAL behandelt (mit Rechnung)", "DEBUG: hostess_order_normal")
         except Exception as e:
             frappe.log_error(f"Fehler beim Prüfen der Party: {str(e)}", "ERROR: party_check")
     

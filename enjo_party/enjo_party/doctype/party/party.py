@@ -1156,8 +1156,17 @@ def create_invoices(party, from_submit=False, from_button=False):
         frappe.log_error(f"=== RÜCKKEHR von calculate_shipping_costs_for_party ===", "DEBUG: after_calc")
         
         frappe.log_error(f"Anzahl Orders mit Versandkosten: {len(all_orders_with_shipping)}", "DEBUG: orders_count")
+        gastgeberin_found = False
         for i, order in enumerate(all_orders_with_shipping):
-            frappe.log_error(f"Erhaltene Order {i+1}: Customer={order.get('customer')}, Products={len(order.get('products', []))}, Total={order.get('total')}", "DEBUG: received_order")
+            customer_name = order.get('customer')
+            order_type = order.get('order_type', 'unknown')
+            is_gastgeberin = (order_type == 'gastgeberin' or customer_name == party_doc.gastgeberin)
+            if is_gastgeberin:
+                gastgeberin_found = True
+            frappe.log_error(f"Order {i+1}: Customer={customer_name}, Order_Type={order_type}, Products={len(order.get('products', []))}, Total={order.get('total')}, Is_Gastgeberin={is_gastgeberin}", "DEBUG: received_order")
+        
+        if not gastgeberin_found and party_doc.gastgeberin:
+            frappe.log_error(f"WARNUNG: Gastgeberin '{party_doc.gastgeberin}' wurde NICHT in der Liste der zu erstellenden Aufträge gefunden!", "WARNING: gastgeberin_missing")
         
         if not all_orders_with_shipping:
             frappe.log_error("Keine Bestellungen gefunden - calculate_shipping_costs_for_party gab leere Liste zurück", "ERROR: no_orders_calculated")
@@ -1173,15 +1182,17 @@ def create_invoices(party, from_submit=False, from_button=False):
         created_orders = []
         
         # Erstelle Aufträge basierend auf der Versandkostenberechnung
-        for order_info in all_orders_with_shipping:
+        frappe.log_error(f"=== STARTE AUFTRAGSERSTELLUNG: {len(all_orders_with_shipping)} Aufträge zu verarbeiten ===", "INFO: order_creation_start")
+        for idx_order, order_info in enumerate(all_orders_with_shipping):
             try:
                 customer = order_info["customer"]
                 shipping_target = order_info["shipping_target"]
                 products = order_info["products"]
-                shipping_cost = order_info["shipping_cost"]
-                shipping_note = order_info["shipping_note"]
+                shipping_cost = order_info.get("shipping_cost", 0)
+                shipping_note = order_info.get("shipping_note", "")
+                order_type = order_info.get("order_type", "unknown")
                 
-                frappe.log_error(f"Verarbeite: Customer={customer}, Shipping_Target={shipping_target}", "DEBUG: order_processing")
+                frappe.log_error(f"=== Auftrag {idx_order+1}/{len(all_orders_with_shipping)}: Customer={customer}, Shipping_Target={shipping_target}, Order_Type={order_type}, Products={len(products)} ===", "INFO: order_processing")
                 
                 # NEUE EINFACHE ADRESS-LOGIK:
                 # Rechnungsadresse: IMMER Billing vom Kunden (der bestellt)
@@ -1198,9 +1209,15 @@ def create_invoices(party, from_submit=False, from_button=False):
                 frappe.log_error(f"DEBUG: billing_address für {customer} = {billing_address} (Typ: {type(billing_address)})", "DEBUG: address_result")
                 
                 if not billing_address:
-                    frappe.log_error(f"KRITISCH: Keine Adresse für Kunde '{customer}' gefunden", "ERROR: no_billing")
-                    # ENTFERNT: frappe.msgprint(f"Kunde {customer} hat keine Adresse hinterlegt. Auftrag wird übersprungen.", alert=True)
-                    continue
+                    # Spezielle Behandlung für Gastgeberin: Nicht einfach überspringen!
+                    if order_type == "gastgeberin":
+                        error_msg = f"KRITISCH: Gastgeberin '{customer}' hat keine Billing-Adresse hinterlegt. Bitte Adresse für Gastgeberin anlegen!"
+                        frappe.log_error(error_msg[:140] if len(error_msg) > 140 else error_msg, "ERROR: no_billing_hostess")
+                        frappe.throw(error_msg)
+                    else:
+                        frappe.log_error(f"KRITISCH: Keine Billing-Adresse für Kunde '{customer}' gefunden - Auftrag wird übersprungen", "ERROR: no_billing")
+                        # ENTFERNT: frappe.msgprint(f"Kunde {customer} hat keine Adresse hinterlegt. Auftrag wird übersprungen.", alert=True)
+                        continue
                 
                 frappe.log_error(f"✅ Billing-Adresse für Kunde '{customer}': {billing_address}", "INFO: billing_found")
                 
@@ -1218,7 +1235,7 @@ def create_invoices(party, from_submit=False, from_button=False):
                     if shipping_address:
                         frappe.log_error(f"✅ Versand-Fallback: Billing-Adresse von '{shipping_target}': {shipping_address}", "INFO: shipping_fallback")
                     else:
-                        frappe.log_error(f"KRITISCH: Keine Adresse für Versandziel '{shipping_target}' gefunden", "ERROR: no_shipping")
+                        frappe.log_error(f"KRITISCH: Keine Adresse für Versandziel '{shipping_target}' gefunden - Auftrag wird übersprungen", "ERROR: no_shipping")
                         # ENTFERNT: frappe.msgprint(f"Versandziel {shipping_target} hat keine Adresse hinterlegt. Auftrag wird übersprungen.", alert=True)
                         continue
                 else:
@@ -1369,8 +1386,12 @@ def create_invoices(party, from_submit=False, from_button=False):
                     frappe.log_error(f"Auftrag {order.name} hinzugefügt. Anzahl: {len(created_orders)}", "INFO: order_added")
                 
             except Exception as e:
-                error_msg = f"Kritischer Fehler für {order_info.get('customer', 'Unbekannt')}: {str(e)}"
+                customer_name = order_info.get('customer', 'Unbekannt')
+                order_type = order_info.get('order_type', 'unknown')
+                error_msg = f"Kritischer Fehler für {customer_name} (Typ: {order_type}): {str(e)}"
                 frappe.log_error(error_msg[:140] if len(error_msg) > 140 else error_msg, "ERROR: critical_order_error")
+                # Vollständige Traceback-Informationen separat loggen
+                frappe.log_error(f"Traceback für {customer_name}: {frappe.get_traceback()}", "ERROR: critical_order_traceback")
                 # Bei kritischen Fehlern den Auftrag überspringen, aber weitermachen mit den anderen
                 # ENTFERNT: frappe.msgprint(f"Auftrag für {order_info.get('customer', 'Unbekannt')} konnte nicht erstellt werden: {str(e)}", alert=True)
                 continue
@@ -2011,7 +2032,5 @@ def create_picklists_for_party(party_doc, all_orders_with_shipping, created_orde
 	except Exception as e:
 		frappe.log_error(f"💥 Allgemeiner Fehler in create_picklists_for_party: {str(e)}\n{frappe.get_traceback()}", "ERROR: picklist_function_error")
 		return []
-
-
 
 
