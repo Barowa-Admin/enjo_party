@@ -1255,7 +1255,8 @@ def create_invoices(party, from_submit=False, from_button=False):
                 }
                 
                 
-                frappe.log_error(f"DEBUG: Order-Daten für {customer}: customer_address={billing_address}, shipping_address_name={shipping_address}", "DEBUG: order_data")
+                debug_msg = f"DEBUG: Order-Daten für {customer}: customer_address={billing_address}, shipping_address_name={shipping_address}"
+                frappe.log_error(debug_msg[:140] if len(debug_msg) > 140 else debug_msg, "DEBUG: order_data")
                 frappe.log_error(f"Erstelle Auftrag für '{customer}'", "INFO: creating_order")
                 
                 # Auftrag erstellen
@@ -1349,7 +1350,10 @@ def create_invoices(party, from_submit=False, from_button=False):
                     # Sales Invoice wird automatisch über den Hook in sales_order_hooks.py erstellt
                     
                 except Exception as e:
-                    frappe.log_error(f"KRITISCHER FEHLER bei Order für {customer}: {str(e)}\nTraceback: {frappe.get_traceback()}", "ERROR: order_error_detailed")
+                    error_msg = f"KRITISCHER FEHLER bei Order für {customer}: {str(e)}"
+                    frappe.log_error(error_msg[:140] if len(error_msg) > 140 else error_msg, "ERROR: order_error_detailed")
+                    # Vollständige Traceback-Informationen separat loggen
+                    frappe.log_error(f"Traceback für {customer}: {frappe.get_traceback()}", "ERROR: order_error_traceback")
                     # Den Auftrag trotzdem zur Liste hinzufügen wenn er erstellt wurde
                     if hasattr(order, 'name') and order.name:
                         # ENTFERNT: frappe.msgprint(f"Auftrag für {customer} wurde erstellt ({order.name}), konnte aber nicht eingereicht werden: {str(e)}", alert=True)
@@ -1365,7 +1369,8 @@ def create_invoices(party, from_submit=False, from_button=False):
                     frappe.log_error(f"Auftrag {order.name} hinzugefügt. Anzahl: {len(created_orders)}", "INFO: order_added")
                 
             except Exception as e:
-                frappe.log_error(f"Kritischer Fehler für {order_info.get('customer', 'Unbekannt')}: {str(e)}", "ERROR: critical_order_error")
+                error_msg = f"Kritischer Fehler für {order_info.get('customer', 'Unbekannt')}: {str(e)}"
+                frappe.log_error(error_msg[:140] if len(error_msg) > 140 else error_msg, "ERROR: critical_order_error")
                 # Bei kritischen Fehlern den Auftrag überspringen, aber weitermachen mit den anderen
                 # ENTFERNT: frappe.msgprint(f"Auftrag für {order_info.get('customer', 'Unbekannt')} konnte nicht erstellt werden: {str(e)}", alert=True)
                 continue
