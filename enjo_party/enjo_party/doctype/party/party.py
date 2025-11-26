@@ -250,8 +250,8 @@ class Party(Document):
 			)
 	
 	def set_status(self):
-		# Wenn wir bereits abgeschlossen sind, nicht mehr ändern
-		if self.status == "Abgeschlossen":
+		# Wenn wir bereits abgeschlossen sind oder in "Gastgeber Geschenke" Status, nicht mehr ändern
+		if self.status == "Abgeschlossen" or self.status == "Gastgeber Geschenke":
 			return
 			
 		# Prüfen, ob Produkte vorhanden sind

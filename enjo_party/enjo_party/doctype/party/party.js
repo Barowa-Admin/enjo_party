@@ -115,27 +115,68 @@ function refreshButtons(frm) {
 				frm.save();
 			}).addClass("btn-primary");
 		} else if (frm.doc.status === "Produkte") {
-			console.log("Status Produkte: Aufträge erstellen + Speichern Buttons hinzufügen");
-			// Status "Produkte": Speichern und "Aufträge erstellen"-Button
-			frm.add_custom_button(__("Aufträge erstellen"), function() {
-				// Die komplette Aufträge-Erstellungslogik hier einfügen
-				startAuftraegeErstellung(frm);
-			}).addClass("btn-primary");
-			
-			// AUSKOMMENTIERT: Gastgebergeschenke-Button temporär deaktiviert
-			/*
+			console.log("Status Produkte: Gastgeber Geschenke + Speichern Buttons hinzufügen");
+			// Status "Produkte": Nur "Gastgeber Geschenke"-Button (Aufträge erstellen wird erst im nächsten Schritt angezeigt)
 			frm.add_custom_button(__("Gastgeber Geschenke"), function() {
-				// Status zu "Gastgeber Geschenke" ändern
-				frm.set_value("status", "Gastgeber Geschenke");
-				
-				// Gastgeber Geschenke Tabelle einblenden
-				if (frm.fields_dict['gastgeber_geschenke']) {
-					frm.set_df_property('gastgeber_geschenke', "hidden", 0);
-				}
-				
-				frm.save();
+				// Bestätigungsdialog anzeigen
+				frappe.confirm(
+					__("Damit schließt Du die Produktauswahl ab. Änderungen an den bisherigen Produkten sind danach nicht mehr möglich. Fortfahren?"),
+					function() {
+						// Benutzer hat "Ja" geklickt
+						console.log("Benutzer hat Gastgeber Geschenke bestätigt");
+						
+						// Status zu "Gastgeber Geschenke" ändern
+						frm.set_value("status", "Gastgeber Geschenke");
+						
+						// SOFORT alle anderen Produkttabellen ausblenden
+						frm.toggle_display('produktauswahl_für_gastgeberin_section', false);
+						for (let i = 1; i <= 15; i++) {
+							frm.toggle_display(`produktauswahl_für_gast_${i}_section`, false);
+						}
+						
+						// SOFORT Gastgebergeschenke-Tabelle einblenden
+						frm.toggle_display('gastgeber_geschenke_section', true);
+						frm.toggle_display('gastgeber_geschenke', true);
+						
+						// Tabelle rendern, falls sie noch nicht gerendert wurde
+						if (frm.fields_dict['gastgeber_geschenke']) {
+							frm.refresh_field('gastgeber_geschenke');
+						}
+						
+						// Automatisch eine leere Zeile hinzufügen, wenn die Tabelle leer ist
+						if (!frm.doc.gastgeber_geschenke || frm.doc.gastgeber_geschenke.length === 0) {
+							let row = frm.add_child('gastgeber_geschenke');
+							frm.refresh_field('gastgeber_geschenke');
+							console.log("Leere Zeile zu Gastgeber Geschenke Tabelle hinzugefügt");
+						}
+						
+						// Speichern
+						frm.save().then(() => {
+							// Nach dem Speichern nochmal sicherstellen
+							frm.toggle_display('produktauswahl_für_gastgeberin_section', false);
+							for (let i = 1; i <= 15; i++) {
+								frm.toggle_display(`produktauswahl_für_gast_${i}_section`, false);
+							}
+							frm.toggle_display('gastgeber_geschenke_section', true);
+							frm.toggle_display('gastgeber_geschenke', true);
+							if (frm.fields_dict['gastgeber_geschenke']) {
+								frm.refresh_field('gastgeber_geschenke');
+							}
+							
+							// Nach dem Speichern nochmal prüfen ob eine leere Zeile da ist
+							if (!frm.doc.gastgeber_geschenke || frm.doc.gastgeber_geschenke.length === 0) {
+								let row = frm.add_child('gastgeber_geschenke');
+								frm.refresh_field('gastgeber_geschenke');
+								console.log("Leere Zeile nach Speichern zu Gastgeber Geschenke Tabelle hinzugefügt");
+							}
+						});
+					},
+					function() {
+						// Benutzer hat "Nein" geklickt - nichts tun
+						console.log("Benutzer hat Gastgeber Geschenke abgelehnt - bleibe im Produkte-Status");
+					}
+				);
 			}).addClass("btn-primary");
-			*/
 			
 			// Auch einen Speichern-Button anzeigen (ohne Primärfarbe)
 			frm.add_custom_button(__("Speichern"), function() {
@@ -144,13 +185,10 @@ function refreshButtons(frm) {
 		} else if (frm.doc.status === "Gastgeber Geschenke") {
 			console.log("Status Gastgeber Geschenke: Aufträge erstellen + Speichern Buttons hinzufügen");
 			// Status "Gastgeber Geschenke": Speichern und "Aufträge erstellen"-Button
-			// AUSKOMMENTIERT: Gastgebergeschenke-Button temporär deaktiviert
-			/*
 			frm.add_custom_button(__("Aufträge erstellen"), function() {
 				// Die komplette Aufträge-Erstellungslogik hier einfügen
 				startAuftraegeErstellung(frm);
 			}).addClass("btn-primary");
-			*/
 			
 			// Auch einen Speichern-Button anzeigen (ohne Primärfarbe)
 			frm.add_custom_button(__("Speichern"), function() {
@@ -1698,22 +1736,43 @@ frappe.ui.form.on('Party', {
 
 		// Zeige die Produktauswahl-Tabellen für die Gäste erst nach dem Speichern
 		// Alle Gäste-Tabellen werden im Neu-Modus ausgeblendet
+		// WICHTIG: Im Status "Gastgeber Geschenke" werden alle Produkttabellen ausgeblendet
 		for (let i = 1; i <= 15; i++) {
 			// Nur anzeigen, wenn das Dokument gespeichert ist UND genügend Gäste vorhanden sind
+			// UND NICHT im Status "Gastgeber Geschenke"
 			frm.toggle_display(
 				`produktauswahl_für_gast_${i}_section`, 
-				!frm.is_new() && frm.doc.kunden && frm.doc.kunden.length >= i
+				!frm.is_new() && frm.doc.kunden && frm.doc.kunden.length >= i && frm.doc.status !== "Gastgeber Geschenke"
 			);
 		}
 		
 		// Zeige Gastgeberin-Produktauswahl nur an, wenn eine Gastgeberin eingetragen und das Dokument gespeichert ist
-		frm.toggle_display(
-			"produktauswahl_für_gastgeberin_section", 
-			!frm.is_new() && frm.doc.gastgeberin
-		);
+		// WICHTIG: Im Status "Gastgeber Geschenke" wird diese Tabelle ausgeblendet
+		const showGastgeberinSection = !frm.is_new() && frm.doc.gastgeberin && frm.doc.status !== "Gastgeber Geschenke";
+		frm.toggle_display("produktauswahl_für_gastgeberin_section", showGastgeberinSection);
+		frm.toggle_display("summe_gastgeberin", showGastgeberinSection);
+		frm.toggle_display("versand_gastgeberin", showGastgeberinSection);
+		
+		// Gastgebergeschenke-Tabelle: Nur anzeigen wenn Status "Gastgeber Geschenke"
+		// WICHTIG: Standardmäßig immer ausgeblendet, nur wenn Status explizit "Gastgeber Geschenke" ist, anzeigen
+		const showGastgeberGeschenke = !frm.is_new() && frm.doc.status === "Gastgeber Geschenke";
+		frm.toggle_display("gastgeber_geschenke_section", showGastgeberGeschenke);
+		frm.toggle_display("gastgeber_geschenke", showGastgeberGeschenke);
+		frm.toggle_display("summe_gastgeber_geschenke", showGastgeberGeschenke);
 
 		// Automatisch leere Zeilen zu sichtbaren, leeren Produkttabellen hinzufügen
 		setTimeout(() => {
+			// Spezielle Behandlung für Gastgeber Geschenke Status
+			if (frm.doc.status === "Gastgeber Geschenke") {
+				// Für Gastgeber Geschenke Tabelle eine leere Zeile hinzufügen
+				if (!frm.doc.gastgeber_geschenke || frm.doc.gastgeber_geschenke.length === 0) {
+					let row = frm.add_child('gastgeber_geschenke');
+					frm.refresh_field('gastgeber_geschenke');
+					console.log("Leere Zeile zu Gastgeber Geschenke Tabelle im refresh hinzugefügt");
+				}
+				return; // Überspringe die normalen Produkttabellen
+			}
+			
 			// Für Gastgeberin-Tabelle
 			if (!frm.is_new() && frm.doc.gastgeberin) {
 				if (!frm.doc.produktauswahl_für_gastgeberin || frm.doc.produktauswahl_für_gastgeberin.length === 0) {
@@ -1970,13 +2029,6 @@ frappe.ui.form.on('Party', {
 		// Verzögere den Aufruf, damit alle anderen Initialisierungen abgeschlossen sind
 		setTimeout(() => {
 			refreshButtons(frm);
-			
-			// Wenn Status "Gastgeber Geschenke", blende die Tabelle ein
-			if (frm.doc.status === "Gastgeber Geschenke") {
-				if (frm.fields_dict['gastgeber_geschenke']) {
-					frm.set_df_property('gastgeber_geschenke', "hidden", 0);
-				}
-			}
 		}, 200);
 		
 		// Blauen Submit-Banner ausblenden
@@ -2072,8 +2124,20 @@ frappe.ui.form.on('Party', {
 			$('.new-email').css({
 				'display': 'none'
 			});
-			
-			// Weißen Abstand am Ende hinzufügen statt radikalem Abschnitt
+			$('.timeline-dot').css({
+				'display': 'none'
+			});
+		$('.scroll-to-top').css({
+			'display': 'none'
+		});
+		$('.new-timeline').css({
+			'display': 'none'
+		});
+		$('.comment-input-wrapper').css({
+			'display': 'none'
+		});
+		
+		// Weißen Abstand am Ende hinzufügen statt radikalem Abschnitt
 			if (!$('.custom-bottom-spacing').length) {
 				$('.form-layout').append('<div class="custom-bottom-spacing" style="height: 50px; background: white;"></div>');
 			}
@@ -2653,6 +2717,48 @@ function updateSummeForTable(frm, tableName, sumFieldName) {
 	}
 }
 
+// Funktion zum Berechnen und Anzeigen der Gastgeber-Geschenke Summe mit Gutschein-Verbrauch
+function updateGastgeberGeschenkeSumme(frm) {
+	let sum = 0;
+	
+	if (frm.doc.gastgeber_geschenke && frm.doc.gastgeber_geschenke.length > 0) {
+		frm.doc.gastgeber_geschenke.forEach(function(item) {
+			if (item.qty && item.rate) {
+				sum += flt(item.qty) * flt(item.rate);
+			}
+		});
+	}
+	
+	// Hole den verfügbaren Gutscheinwert
+	let gutscheinWert = frm.doc.gastgeber_gutschein_wert || 0;
+	let verbleibenderGutschein = gutscheinWert - sum;
+	let zuzahlen = 0;
+	
+	if (verbleibenderGutschein < 0) {
+		zuzahlen = Math.abs(verbleibenderGutschein);
+		verbleibenderGutschein = 0;
+	}
+	
+	// Zeige die Summe mit Gutschein-Info im HTML-Feld an
+	if (frm.fields_dict['summe_gastgeber_geschenke']) {
+		let htmlContent = `
+			<div style="text-align: right; margin-top: 10px; margin-bottom: 10px;">
+				<div style="font-weight: bold; color: black; margin-bottom: 5px;">
+					Gesamt: ${format_currency(sum)}
+				</div>
+				<div style="color: #666; font-size: 0.9em; margin-bottom: 3px;">
+					Verfügbarer Gutschein: ${format_currency(gutscheinWert)}
+				</div>
+				<div style="color: ${verbleibenderGutschein > 0 ? '#10b981' : '#666'}; font-size: 0.9em; margin-bottom: 3px;">
+					Verbleibender Gutschein: ${format_currency(verbleibenderGutschein)}
+				</div>
+				${zuzahlen > 0 ? `<div style="color: #ef4444; font-weight: bold; font-size: 1em; margin-top: 5px;">Zuzahlen: ${format_currency(zuzahlen)}</div>` : ''}
+			</div>
+		`;
+		frm.fields_dict['summe_gastgeber_geschenke'].$wrapper.html(htmlContent);
+	}
+}
+
 // Funktion zum Aktualisieren aller Summen-Anzeigen
 function updateAllSummenAnzeigen(frm) {
 	// Gastgeberin-Summe
@@ -2663,6 +2769,11 @@ function updateAllSummenAnzeigen(frm) {
 		let tableName = `produktauswahl_für_gast_${i}`;
 		let sumFieldName = `summe_gast_${i}`;
 		updateSummeForTable(frm, tableName, sumFieldName);
+	}
+	
+	// Gastgeber-Geschenke Summe (nur wenn im richtigen Status)
+	if (frm.doc.status === "Gastgeber Geschenke") {
+		updateGastgeberGeschenkeSumme(frm);
 	}
 }
 
