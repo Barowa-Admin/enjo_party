@@ -79,12 +79,12 @@
   "produktauswahl_für_gast_15",
   "summe_gast_15",
   "versand_gast_15",
- "produktauswahl_für_gastgeberin_section",
- "produktauswahl_für_gastgeberin",
- "summe_gastgeberin",
+  "produktauswahl_für_gastgeberin_section",
+  "produktauswahl_für_gastgeberin",
+  "summe_gastgeberin",
  "versand_gastgeberin",
- "gastgeber_geschenke_section",
- "gastgeber_geschenke",
+  "gastgeber_geschenke_section",
+  "gastgeber_geschenke",
  "summe_gastgeber_geschenke"
  ],
  "fields": [

@@ -699,38 +699,71 @@ def calculate_shipping_costs_for_party(party_doc):
     frappe.log_error(f"=== CALCULATE_SHIPPING_COSTS START für {party_doc.name} ===", "DEBUG: shipping_start")
     
     # Gastgeberin verarbeiten
-    if party_doc.gastgeberin and hasattr(party_doc, 'produktauswahl_für_gastgeberin') and party_doc.produktauswahl_für_gastgeberin:
+    # WICHTIG: Kombiniere Produkte aus produktauswahl_für_gastgeberin UND gastgeber_geschenke
+    # Beide Tabellen werden als eine Bestellung für die Gastgeberin behandelt
+    if party_doc.gastgeberin:
         frappe.log_error(f"Verarbeite Gastgeberin: {party_doc.gastgeberin}", "DEBUG: process_host")
         
         produkte_gastgeberin = []
         total_gastgeberin = 0
         
-        for idx_prod, produkt in enumerate(party_doc.produktauswahl_für_gastgeberin):
-            frappe.log_error(f"  Gastgeberin Zeile {idx_prod}: item_code={produkt.item_code}, qty={produkt.qty}, rate={produkt.rate}", "DEBUG: host_item")
-            if produkt.item_code and produkt.qty and produkt.qty > 0:
-                frappe.log_error(f"  -> Gastgeberin Produkt akzeptiert: {produkt.item_code}", "DEBUG: host_accepted")
-                # WICHTIG: Übertrage ALLE Produktdaten, nicht nur die Basics!
-                product_dict = {
-                    "item_code": produkt.item_code,
-                    "item_name": produkt.item_name or produkt.item_code,
-                    "qty": produkt.qty,
-                    "rate": produkt.rate or 0,
-                    "amount": produkt.amount or (flt(produkt.qty) * flt(produkt.rate or 0)),
-                    "uom": getattr(produkt, 'uom', 'Stk'),
-                    "stock_uom": getattr(produkt, 'stock_uom', 'Stk'),
-                    "conversion_factor": getattr(produkt, 'conversion_factor', 1.0),
-                    "stock_qty": getattr(produkt, 'stock_qty', flt(produkt.qty)),
-                    "base_amount": getattr(produkt, 'base_amount', produkt.amount or (flt(produkt.qty) * flt(produkt.rate or 0))),
-                    "base_rate": getattr(produkt, 'base_rate', produkt.rate or 0),
-                    "warehouse": getattr(produkt, 'warehouse', get_default_warehouse()),
-                    "delivery_date": frappe.utils.getdate(getattr(produkt, 'delivery_date', frappe.utils.add_days(frappe.utils.today(), 7))),
-                    # WICHTIG: Flag für Gutschein-reduzierte 0€-Artikel
-                    "_force_zero_rate": float(produkt.rate or 0) == 0.0
-                }
-                
-                produkte_gastgeberin.append(product_dict)
-                total_gastgeberin += flt(produkt.qty) * flt(produkt.rate or 0)
-                frappe.log_error(f"  -> Gastgeberin Produkt hinzugefügt, neue Summe: {total_gastgeberin}", "DEBUG: host_added")
+        # Produkte aus produktauswahl_für_gastgeberin hinzufügen
+        if hasattr(party_doc, 'produktauswahl_für_gastgeberin') and party_doc.produktauswahl_für_gastgeberin:
+            for idx_prod, produkt in enumerate(party_doc.produktauswahl_für_gastgeberin):
+                frappe.log_error(f"  Gastgeberin (Produktauswahl) Zeile {idx_prod}: item_code={produkt.item_code}, qty={produkt.qty}, rate={produkt.rate}", "DEBUG: host_item")
+                if produkt.item_code and produkt.qty and produkt.qty > 0:
+                    frappe.log_error(f"  -> Gastgeberin Produkt akzeptiert: {produkt.item_code}", "DEBUG: host_accepted")
+                    # WICHTIG: Übertrage ALLE Produktdaten, nicht nur die Basics!
+                    product_dict = {
+                        "item_code": produkt.item_code,
+                        "item_name": produkt.item_name or produkt.item_code,
+                        "qty": produkt.qty,
+                        "rate": produkt.rate or 0,
+                        "amount": produkt.amount or (flt(produkt.qty) * flt(produkt.rate or 0)),
+                        "uom": getattr(produkt, 'uom', 'Stk'),
+                        "stock_uom": getattr(produkt, 'stock_uom', 'Stk'),
+                        "conversion_factor": getattr(produkt, 'conversion_factor', 1.0),
+                        "stock_qty": getattr(produkt, 'stock_qty', flt(produkt.qty)),
+                        "base_amount": getattr(produkt, 'base_amount', produkt.amount or (flt(produkt.qty) * flt(produkt.rate or 0))),
+                        "base_rate": getattr(produkt, 'base_rate', produkt.rate or 0),
+                        "warehouse": getattr(produkt, 'warehouse', get_default_warehouse()),
+                        "delivery_date": frappe.utils.getdate(getattr(produkt, 'delivery_date', frappe.utils.add_days(frappe.utils.today(), 7))),
+                        # WICHTIG: Flag für Gutschein-reduzierte 0€-Artikel
+                        "_force_zero_rate": float(produkt.rate or 0) == 0.0
+                    }
+                    
+                    produkte_gastgeberin.append(product_dict)
+                    total_gastgeberin += flt(produkt.qty) * flt(produkt.rate or 0)
+                    frappe.log_error(f"  -> Gastgeberin Produkt hinzugefügt, neue Summe: {total_gastgeberin}", "DEBUG: host_added")
+        
+        # Produkte aus gastgeber_geschenke hinzufügen (WICHTIG: Zusammen mit produktauswahl_für_gastgeberin!)
+        if hasattr(party_doc, 'gastgeber_geschenke') and party_doc.gastgeber_geschenke:
+            for idx_prod, produkt in enumerate(party_doc.gastgeber_geschenke):
+                frappe.log_error(f"  Gastgeberin (Geschenke) Zeile {idx_prod}: item_code={produkt.item_code}, qty={produkt.qty}, rate={produkt.rate}", "DEBUG: host_gift_item")
+                if produkt.item_code and produkt.qty and produkt.qty > 0:
+                    frappe.log_error(f"  -> Gastgeberin Geschenk akzeptiert: {produkt.item_code}", "DEBUG: host_gift_accepted")
+                    # WICHTIG: Übertrage ALLE Produktdaten, nicht nur die Basics!
+                    product_dict = {
+                        "item_code": produkt.item_code,
+                        "item_name": produkt.item_name or produkt.item_code,
+                        "qty": produkt.qty,
+                        "rate": produkt.rate or 0,
+                        "amount": produkt.amount or (flt(produkt.qty) * flt(produkt.rate or 0)),
+                        "uom": getattr(produkt, 'uom', 'Stk'),
+                        "stock_uom": getattr(produkt, 'stock_uom', 'Stk'),
+                        "conversion_factor": getattr(produkt, 'conversion_factor', 1.0),
+                        "stock_qty": getattr(produkt, 'stock_qty', flt(produkt.qty)),
+                        "base_amount": getattr(produkt, 'base_amount', produkt.amount or (flt(produkt.qty) * flt(produkt.rate or 0))),
+                        "base_rate": getattr(produkt, 'base_rate', produkt.rate or 0),
+                        "warehouse": getattr(produkt, 'warehouse', get_default_warehouse()),
+                        "delivery_date": frappe.utils.getdate(getattr(produkt, 'delivery_date', frappe.utils.add_days(frappe.utils.today(), 7))),
+                        # WICHTIG: Flag für Gutschein-reduzierte 0€-Artikel
+                        "_force_zero_rate": float(produkt.rate or 0) == 0.0
+                    }
+                    
+                    produkte_gastgeberin.append(product_dict)
+                    total_gastgeberin += flt(produkt.qty) * flt(produkt.rate or 0)
+                    frappe.log_error(f"  -> Gastgeberin Geschenk hinzugefügt, neue Summe: {total_gastgeberin}", "DEBUG: host_gift_added")
         
         if produkte_gastgeberin:
             # Versandziel für Gastgeberin
@@ -1085,10 +1118,18 @@ def create_invoices(party, from_submit=False, from_button=False):
         teilnehmer_ohne_produkte = []
         
         # Prüfe Gastgeberin
+        # WICHTIG: Gastgeberin hat Produkte, wenn sie in produktauswahl_für_gastgeberin ODER gastgeber_geschenke Produkte hat
         if party_doc.gastgeberin:
             hat_gastgeberin_produkte = False
+            # Prüfe produktauswahl_für_gastgeberin
             if hasattr(party_doc, "produktauswahl_für_gastgeberin") and party_doc.produktauswahl_für_gastgeberin:
                 for produkt in party_doc.produktauswahl_für_gastgeberin:
+                    if produkt.item_code and produkt.qty and produkt.qty > 0:
+                        hat_gastgeberin_produkte = True
+                        break
+            # Prüfe gastgeber_geschenke (falls noch keine Produkte gefunden)
+            if not hat_gastgeberin_produkte and hasattr(party_doc, "gastgeber_geschenke") and party_doc.gastgeber_geschenke:
+                for produkt in party_doc.gastgeber_geschenke:
                     if produkt.item_code and produkt.qty and produkt.qty > 0:
                         hat_gastgeberin_produkte = True
                         break
@@ -1127,9 +1168,15 @@ def create_invoices(party, from_submit=False, from_button=False):
         # Produkte-Check: Hat irgendein Kunde oder die Gastgeberin Produkte?
         produkte_vorhanden = False
         
-        # Prüfe Gastgeberin
+        # Prüfe Gastgeberin (produktauswahl_für_gastgeberin ODER gastgeber_geschenke)
         if hasattr(party_doc, "produktauswahl_für_gastgeberin") and party_doc.produktauswahl_für_gastgeberin:
             for produkt in party_doc.produktauswahl_für_gastgeberin:
+                if produkt.item_code and produkt.qty and produkt.qty > 0:
+                    produkte_vorhanden = True
+                    break
+        # Prüfe auch gastgeber_geschenke (falls noch keine Produkte gefunden)
+        if not produkte_vorhanden and hasattr(party_doc, "gastgeber_geschenke") and party_doc.gastgeber_geschenke:
+            for produkt in party_doc.gastgeber_geschenke:
                 if produkt.item_code and produkt.qty and produkt.qty > 0:
                     produkte_vorhanden = True
                     break
@@ -1181,8 +1228,9 @@ def create_invoices(party, from_submit=False, from_button=False):
         # Erstelle eine Liste für die erstellten Aufträge
         created_orders = []
         
-        # Erstelle Aufträge basierend auf der Versandkostenberechnung
-        frappe.log_error(f"=== STARTE AUFTRAGSERSTELLUNG: {len(all_orders_with_shipping)} Aufträge zu verarbeiten ===", "INFO: order_creation_start")
+        # WICHTIG: Jeder Kunde bekommt IMMER einen eigenen Auftrag (Customer = Kunde selbst)
+        # Die Gruppenversand-Aufträge werden später in create_shipping_orders_for_party_customers erstellt
+        frappe.log_error(f"=== STARTE AUFTRAGSERSTELLUNG: {len(all_orders_with_shipping)} Aufträge zu erstellen (ein Auftrag pro Kunde) ===", "INFO: order_creation_start")
         for idx_order, order_info in enumerate(all_orders_with_shipping):
             try:
                 customer = order_info["customer"]
@@ -1216,7 +1264,6 @@ def create_invoices(party, from_submit=False, from_button=False):
                         frappe.throw(error_msg)
                     else:
                         frappe.log_error(f"KRITISCH: Keine Billing-Adresse für Kunde '{customer}' gefunden - Auftrag wird übersprungen", "ERROR: no_billing")
-                        # ENTFERNT: frappe.msgprint(f"Kunde {customer} hat keine Adresse hinterlegt. Auftrag wird übersprungen.", alert=True)
                         continue
                 
                 frappe.log_error(f"✅ Billing-Adresse für Kunde '{customer}': {billing_address}", "INFO: billing_found")
@@ -1236,7 +1283,6 @@ def create_invoices(party, from_submit=False, from_button=False):
                         frappe.log_error(f"✅ Versand-Fallback: Billing-Adresse von '{shipping_target}': {shipping_address}", "INFO: shipping_fallback")
                     else:
                         frappe.log_error(f"KRITISCH: Keine Adresse für Versandziel '{shipping_target}' gefunden - Auftrag wird übersprungen", "ERROR: no_shipping")
-                        # ENTFERNT: frappe.msgprint(f"Versandziel {shipping_target} hat keine Adresse hinterlegt. Auftrag wird übersprungen.", alert=True)
                         continue
                 else:
                     frappe.log_error(f"✅ Shipping-Adresse für Versandziel '{shipping_target}': {shipping_address}", "INFO: shipping_found")
@@ -1244,6 +1290,7 @@ def create_invoices(party, from_submit=False, from_button=False):
                 frappe.log_error(f"=== FINALE ADRESSEN: Billing={billing_address}, Shipping={shipping_address} ===", "DEBUG: final_addresses")
 
                 # Auftragsdaten mit klarer Adress-Dokumentation
+                # WICHTIG: Jeder Kunde bekommt seinen eigenen Auftrag mit seinen eigenen Produkten
                 order_data = {
                     "doctype": "Sales Order",
                     "customer": customer,
@@ -1255,7 +1302,7 @@ def create_invoices(party, from_submit=False, from_button=False):
                             "doctype": "Sales Order Item"
                         } for product in products
                     ],
-                    "customer_address": billing_address,  # Rechnungsadresse des Kunden
+                    "customer_address": billing_address,  # Rechnungsadresse des Kunden (der bestellt)
                     "shipping_address_name": shipping_address,  # Versandadresse (kann andere Person sein)
                     "remarks": f"Erstellt aus Party: {party} | Kunde: {customer} | Versand an: {shipping_target}",
                     "po_no": party,  # Party-Referenz in po_no speichern
@@ -1735,20 +1782,141 @@ def create_shipping_orders_for_party_customers(party_doc, all_orders_with_shippi
                     frappe.log_error(f"Keine Adresse für Versandziel {shipping_target} gefunden - überspringe", "WARNING: no_shipping_address")
                     continue
                 
+                # WICHTIG: Prüfe, ob ein Gruppenversand-Auftrag erstellt werden soll
+                # SPEZIALFALL: Für die Partnerin wird IMMER ein Gruppenversand erstellt (auch bei nur 1 Kunde)
+                # NORMALFALL: Für andere Ziele nur wenn MEHRERE verschiedene Kunden dorthin senden
+                
+                # Prüfe, ob das Versandziel die Partnerin ist
+                is_partnerin = (shipping_target == party_doc.partnerin) if party_doc.partnerin else False
+                
+                # 1. Zähle externe Kunden, die NICHT an sich selbst senden (shipping_target != customer)
+                customers_sending_to_target = set()
+                for order_info in all_orders_with_shipping:
+                    order_customer = order_info.get('customer')
+                    order_shipping_target = order_info.get('shipping_target')
+                    if order_shipping_target == shipping_target and order_shipping_target != order_customer:
+                        customers_sending_to_target.add(order_customer)
+                
+                # 2. Prüfe, ob das Ziel selbst auch an sich selbst sendet (für später: Produkte hinzufügen)
+                target_sends_to_self = False
+                for order_info in all_orders_with_shipping:
+                    if order_info.get('customer') == shipping_target and order_info.get('shipping_target') == shipping_target:
+                        target_sends_to_self = True
+                        break
+                
+                # 3. Gruppenversand erstellen wenn:
+                #    - Versandziel ist Partnerin → IMMER (auch bei nur 1 externem Kunden)
+                #    - ODER: Mindestens 2 externe Kunden senden an dieses Ziel
+                #    - ODER: Mindestens 1 externer Kunde UND Ziel sendet auch an sich selbst
+                should_create_group_shipping = False
+                if is_partnerin:
+                    # SPEZIALFALL: Partnerin → IMMER Gruppenversand erstellen
+                    should_create_group_shipping = True
+                    frappe.log_error(f"Versandziel ist Partnerin ({shipping_target}) → IMMER Gruppenversand erstellen", "INFO: partnerin_group_shipping")
+                else:
+                    # NORMALFALL: Nur wenn mehrere Kunden dorthin senden
+                    total_customers_sending = len(customers_sending_to_target)
+                    if target_sends_to_self:
+                        total_customers_sending += 1  # Ziel selbst zählt auch
+                    
+                    if total_customers_sending >= 2:
+                        should_create_group_shipping = True
+                    else:
+                        frappe.log_error(f"Überspringe Versandziel {shipping_target}: Nur {total_customers_sending} Kunde(n) senden dorthin - kein Gruppenversand nötig", "INFO: skip_single_customer_shipping")
+                
+                if not should_create_group_shipping:
+                    continue
+                
+                if is_partnerin:
+                    frappe.log_error(f"Gruppenversand für Partnerin {shipping_target}: {len(customers_sending_to_target)} externe Kunde(n) senden dorthin (Ziel selbst sendet auch: {target_sends_to_self})", "INFO: group_shipping_detected")
+                else:
+                    total_customers_sending = len(customers_sending_to_target)
+                    if target_sends_to_self:
+                        total_customers_sending += 1
+                    frappe.log_error(f"Gruppenversand für {shipping_target}: {len(customers_sending_to_target)} externe Kunde(n) + Ziel selbst sendet: {target_sends_to_self} = {total_customers_sending} Kunden gesamt", "INFO: group_shipping_detected")
+                
                 # Sammle ALLE Produkte die an dieses Versandziel gehen (auch die eigenen!)
-                all_products_for_target = []
+                # WICHTIG: Gruppiere nach Kunden, um Trenn-Items einzufügen
+                products_by_customer = []
+                previous_customer_in_order = None
+                
+                # Sammle alle Kunden, die an dieses Ziel senden (inkl. Ziel selbst)
+                all_customers_for_target = list(customers_sending_to_target)
+                if target_sends_to_self:
+                    all_customers_for_target.append(shipping_target)
+                
+                # Sortiere Kunden für konsistente Reihenfolge
+                all_customers_for_target.sort()
                 
                 # Füge alle Produkte hinzu, die an dieses Versandziel gehen
-                for order_info in all_orders_with_shipping:
-                    if order_info.get('shipping_target') == shipping_target:
-                        for product in order_info.get('products', []):
-                            if product.get('item_code') and not product.get('item_code', '').startswith('shipping-'):
-                                all_products_for_target.append({
-                                    'product': product,
-                                    'from_customer': order_info.get('customer')
-                                })
+                for idx, customer in enumerate(all_customers_for_target):
+                    # WICHTIG: Füge Trenn-Item hinzu für JEDEN Kunden (auch den ersten) wenn mehrere Kunden
+                    if len(all_customers_for_target) > 1:
+                        # Hole Kundenname für Anzeige
+                        try:
+                            customer_doc = frappe.get_doc("Customer", customer)
+                            customer_display_name = customer_doc.customer_name or customer
+                        except:
+                            customer_display_name = customer
+                        
+                        # Erstelle Trenn-Item (Überschrift für jeden Kunden)
+                        try:
+                            trenner_item = frappe.get_doc("Item", "---")
+                            separator_item_data = {
+                                "doctype": "Sales Order Item",
+                                "item_code": "---",
+                                "item_name": f"📦 Bestellung für: {customer_display_name}",
+                                "qty": 0.001,  # Sehr kleine Menge, damit es angezeigt wird aber nicht gepackt wird
+                                "rate": 0,
+                                "amount": 0,
+                                "uom": trenner_item.stock_uom or "Stk",
+                                "stock_uom": trenner_item.stock_uom or "Stk",
+                                "conversion_factor": 1.0,
+                                "stock_qty": 0.001,
+                                "base_amount": 0,
+                                "base_rate": 0,
+                                "warehouse": get_default_warehouse(),
+                                "delivery_date": today(),
+                            }
+                            products_by_customer.append(separator_item_data)
+                            frappe.log_error(f"📋 Trenn-Item (Überschrift) im Gruppenversand-Auftrag hinzugefügt für Kunde: {customer_display_name} (Index: {idx})", "INFO: separator_item_in_order")
+                        except Exception as e:
+                            frappe.log_error(f"⚠️ Trenn-Item '---' konnte nicht gefunden werden: {str(e)}", "WARNING: separator_item_not_found")
+                    
+                    # Füge alle Produkte dieses Kunden hinzu
+                    for order_info in all_orders_with_shipping:
+                        if order_info.get('shipping_target') == shipping_target and order_info.get('customer') == customer:
+                            for product in order_info.get('products', []):
+                                if product.get('item_code') and not product.get('item_code', '').startswith('shipping-'):
+                                    # WICHTIG: Bei Gruppenversand Kunden-Namen als Präfix zum Item-Namen hinzufügen
+                                    item_name_display = product.get('item_name', product.get('item_code'))
+                                    try:
+                                        customer_doc = frappe.get_doc("Customer", customer)
+                                        customer_display_name = customer_doc.customer_name or customer
+                                    except:
+                                        customer_display_name = customer
+                                    
+                                    if len(all_customers_for_target) > 1:
+                                        item_name_display = f"[{customer_display_name}] {item_name_display}"
+                                    
+                                    products_by_customer.append({
+                                        "doctype": "Sales Order Item",
+                                        "item_code": product.get('item_code'),
+                                        "item_name": item_name_display,
+                                        "qty": product.get('qty', 1),
+                                        "rate": 0,  # WICHTIG: Keine Rechnung = 0€ Rate
+                                        "amount": 0,  # WICHTIG: Keine Rechnung = 0€ Amount
+                                        "uom": product.get('uom', 'Stk'),
+                                        "stock_uom": product.get('stock_uom', 'Stk'),
+                                        "conversion_factor": product.get('conversion_factor', 1.0),
+                                        "stock_qty": product.get('stock_qty', product.get('qty', 1)),
+                                        "base_amount": 0,  # WICHTIG: Keine Rechnung = 0€ Base Amount
+                                        "base_rate": 0,  # WICHTIG: Keine Rechnung = 0€ Base Rate
+                                        "warehouse": product.get('warehouse', get_default_warehouse()),
+                                        "delivery_date": product.get('delivery_date', today()),
+                                    })
                 
-                frappe.log_error(f"Versandauftrag für {shipping_target}: {len(all_products_for_target)} Produkte (inkl. eigene)", "INFO: shipping_order_products")
+                frappe.log_error(f"Versandauftrag für {shipping_target}: {len(products_by_customer)} Items (inkl. Trenn-Items) von {len(all_customers_for_target)} Kunden", "INFO: shipping_order_products")
                 frappe.log_error(f"DEBUG: shipping_address = {shipping_address}", "DEBUG: address_debug")
                 
                 # Erstelle Versandauftrag
@@ -1757,27 +1925,10 @@ def create_shipping_orders_for_party_customers(party_doc, all_orders_with_shippi
                     "customer": "Gruppenversand",  # Immer Gruppenversand als Customer
                     "transaction_date": today(),
                     "delivery_date": today(),
-                    "items": [
-                        {
-                            "doctype": "Sales Order Item",
-                            "item_code": item['product'].get('item_code'),
-                            "item_name": item['product'].get('item_name', item['product'].get('item_code')),
-                            "qty": item['product'].get('qty', 1),
-                            "rate": 0,  # WICHTIG: Keine Rechnung = 0€ Rate
-                            "amount": 0,  # WICHTIG: Keine Rechnung = 0€ Amount
-                            "uom": item['product'].get('uom', 'Stk'),
-                            "stock_uom": item['product'].get('stock_uom', 'Stk'),
-                            "conversion_factor": item['product'].get('conversion_factor', 1.0),
-                            "stock_qty": item['product'].get('stock_qty', item['product'].get('qty', 1)),
-                            "base_amount": 0,  # WICHTIG: Keine Rechnung = 0€ Base Amount
-                            "base_rate": 0,  # WICHTIG: Keine Rechnung = 0€ Base Rate
-                            "warehouse": item['product'].get('warehouse', get_default_warehouse()),
-                            "delivery_date": item['product'].get('delivery_date', today()),
-                        } for item in all_products_for_target
-                    ],
+                    "items": products_by_customer,
                     "customer_address": None,  # Gruppenversand hat keine eigene Adresse
                     "shipping_address_name": shipping_address,  # Korrekte Versandadresse
-                    "remarks": f"Versandauftrag aus Party: {party_doc.name} | Versandziel: {shipping_target} | {len(all_products_for_target)} Produkte (inkl. eigene)",
+                    "remarks": f"Versandauftrag aus Party: {party_doc.name} | Versandziel: {shipping_target} | {len([item for item in products_by_customer if item.get('item_code') != '---'])} Produkte von {len(all_customers_for_target)} Kunden",
                     "po_no": party_doc.name,
                     "company": frappe.defaults.get_global_default("company"),
                     "currency": frappe.defaults.get_global_default("currency"),
@@ -1866,6 +2017,11 @@ def create_picklists_for_party(party_doc, all_orders_with_shipping, created_orde
 					continue
 			
 			if sales_order_name:
+				# WICHTIG: Überspringe wenn Versandziel = Kunde selbst (für Pickliste nicht relevant)
+				if shipping_target == customer:
+					frappe.log_error(f"⏭️ Überspringe Picklist-Eintrag: {customer} sendet an sich selbst", "DEBUG: skip_self_shipping_picklist")
+					continue
+				
 				if shipping_target not in shipping_groups:
 					shipping_groups[shipping_target] = []
 				shipping_groups[shipping_target].append({
@@ -1873,8 +2029,12 @@ def create_picklists_for_party(party_doc, all_orders_with_shipping, created_orde
 					"sales_order": sales_order_name,
 					"order_info": order_info
 				})
+				frappe.log_error(f"➕ Picklist-Gruppe: {shipping_target} ← Kunde: {customer} (SO: {sales_order_name})", "DEBUG: picklist_group_added")
 		
-		frappe.log_error(f"📦 Picklist Shipping Groups: {list(shipping_groups.keys())}", "INFO: picklist_groups")
+				frappe.log_error(f"📦 Picklist Shipping Groups: {list(shipping_groups.keys())}", "INFO: picklist_groups")
+				for target, orders in shipping_groups.items():
+					customers_in_group = [o["customer"] for o in orders]
+					frappe.log_error(f"  → {target}: {len(orders)} Orders von Kunden: {customers_in_group}", "DEBUG: picklist_group_details")
 		
 		created_picklists = []
 		
@@ -1887,6 +2047,12 @@ def create_picklists_for_party(party_doc, all_orders_with_shipping, created_orde
 				all_picklist_items = []
 				invoice_data = []  # Ändere zu Liste mit Customer-Info
 				order_numbers = []
+				previous_customer = None  # Zum Erkennen von Kunden-Wechseln
+				
+				# Prüfe, ob es mehrere verschiedene Kunden gibt (Gruppenversand)
+				unique_customers = set(o["customer"] for o in orders_for_target)
+				is_group_shipping = len(unique_customers) > 1
+				frappe.log_error(f"🔍 Versandziel {shipping_target}: {len(unique_customers)} verschiedene Kunde(n) → is_group_shipping: {is_group_shipping}", "DEBUG: group_shipping_check")
 				
 				for order_data in orders_for_target:
 					customer = order_data["customer"]
@@ -1894,6 +2060,52 @@ def create_picklists_for_party(party_doc, all_orders_with_shipping, created_orde
 					order_info = order_data["order_info"]
 					
 					order_numbers.append(sales_order_name)
+					
+					# WICHTIG: Hole Kundenname für Anzeige (MUSS VOR Trenn-Item-Logik sein!)
+					try:
+						customer_doc = frappe.get_doc("Customer", customer)
+						customer_display_name = customer_doc.customer_name or customer
+					except:
+						customer_display_name = customer
+					
+					frappe.log_error(f"🔍 Verarbeite Kunde: {customer} ({customer_display_name}), vorheriger: {previous_customer}, is_group_shipping: {is_group_shipping}", "DEBUG: customer_processing")
+					
+					# WICHTIG: Füge Trenn-Item hinzu, wenn Kunde wechselt (nur bei Gruppenversand)
+					if is_group_shipping and previous_customer is not None and previous_customer != customer:
+						# Erstelle Trenn-Item mit dem existierenden Item "---"
+						try:
+							# Prüfe, ob das Trenn-Item existiert
+							trenner_item = frappe.get_doc("Item", "---")
+							
+							separator_item = {
+								"doctype": "Pick List Item",
+								"item_code": "---",
+								"item_name": f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n📦 Bestellung für: {customer_display_name}\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━",
+								"qty": 0.001,  # Sehr kleine Menge, damit es angezeigt wird aber nicht gepackt wird
+								"stock_qty": 0.001,
+								"picked_qty": 0.0,
+								"stock_reserved_qty": 0.0,
+								"uom": trenner_item.stock_uom or "Stk",
+								"stock_uom": trenner_item.stock_uom or "Stk",
+								"conversion_factor": 1.0,
+								"warehouse": get_default_warehouse(),
+								"sales_order": None,  # Kein Sales Order für Trenn-Item
+								"sales_order_item": None,
+								"batch_no": None,
+								"serial_no": None,
+								"use_serial_batch_fields": 0,
+								"serial_and_batch_bundle": None,
+								"product_bundle_item": None,
+								"material_request": None,
+								"material_request_item": None
+							}
+							all_picklist_items.append(separator_item)
+							frappe.log_error(f"📋 Trenn-Item hinzugefügt für Kunde: {customer_display_name} (vorheriger: {previous_customer})", "INFO: separator_item_added")
+						except Exception as e:
+							# Falls das Trenn-Item nicht existiert, logge Warnung aber mache weiter
+							frappe.log_error(f"⚠️ Trenn-Item '---' konnte nicht gefunden werden: {str(e)}", "WARNING: separator_item_not_found")
+					
+					previous_customer = customer
 					
 					# Finde Sales Invoices für diesen Sales Order
 					try:
@@ -1939,19 +2151,33 @@ def create_picklists_for_party(party_doc, all_orders_with_shipping, created_orde
 							frappe.log_error(f"📦 Versandartikel übersprungen für Picklist: {product['item_code']}", "INFO: shipping_item_skipped")
 							continue
 						
-						# Finde das entsprechende SO Item für Warehouse
+						# Finde das entsprechende SO Item für Warehouse UND item_name
 						so_warehouse = product.get("warehouse", get_default_warehouse())
 						so_item_name = None
+						so_item_name_display = None
 						for so_item in so_doc.items:
 							if so_item.item_code == product["item_code"] and so_item.qty == product["qty"]:
 								so_warehouse = so_item.warehouse or get_default_warehouse()
 								so_item_name = so_item.name  # Wichtig: Sales Order Item Reference!
+								so_item_name_display = so_item.item_name  # WICHTIG: item_name aus Sales Order übernehmen (enthält bereits Präfix bei Gruppenversand!)
 								break
+						
+						# WICHTIG: Verwende item_name aus Sales Order (enthält bereits Präfix bei Gruppenversand)
+						# Falls nicht vorhanden, füge Präfix hinzu
+						if so_item_name_display:
+							item_name_display = so_item_name_display
+							frappe.log_error(f"📦 Item-Name aus Sales Order übernommen: {item_name_display}", "DEBUG: item_name_from_so")
+						else:
+							# Fallback: Füge Präfix hinzu falls nicht vorhanden
+							item_name_display = product["item_name"] or product["item_code"]
+							if is_group_shipping:
+								item_name_display = f"[{customer_display_name}] {item_name_display}"
+								frappe.log_error(f"📦 Item-Name mit Präfix hinzugefügt: {item_name_display} (Original: {product.get('item_name', product.get('item_code'))})", "DEBUG: item_name_with_prefix")
 						
 						picklist_item = {
 							"doctype": "Pick List Item",  # WICHTIG: DocType
 							"item_code": product["item_code"],
-							"item_name": product["item_name"],
+							"item_name": item_name_display,  # Mit Kunden-Präfix bei Gruppenversand
 							"qty": float(product["qty"]),  # WICHTIG: Als Float!
 							"stock_qty": float(product.get("stock_qty", product["qty"])),
 							"picked_qty": 0.0,  # Standardwert
@@ -1973,6 +2199,8 @@ def create_picklists_for_party(party_doc, all_orders_with_shipping, created_orde
 						
 						all_picklist_items.append(picklist_item)
 						frappe.log_error(f"✅ Picklist Item hinzugefügt: {product['item_code']} (SO: {sales_order_name}, SO-Item: {so_item_name}, Customer: {customer})", "INFO: picklist_item_added")
+				
+				frappe.log_error(f"📊 Gesamt Items für {shipping_target}: {len(all_picklist_items)} (is_group_shipping: {is_group_shipping})", "DEBUG: total_items_count")
 				
 				if not all_picklist_items:
 					frappe.log_error(f"⚠️ Keine Items für Versandziel {shipping_target} gefunden", "WARNING: no_picklist_items")
@@ -2011,6 +2239,24 @@ def create_picklists_for_party(party_doc, all_orders_with_shipping, created_orde
 				picklist = frappe.get_doc(picklist_data)
 				picklist.insert()
 				frappe.log_error(f"✅ Picklist erstellt: {picklist.name}", "SUCCESS: picklist_created")
+				
+				# WICHTIG: Stelle sicher, dass item_name mit Präfix erhalten bleibt
+				# Frappe könnte den item_name beim Erstellen überschreiben, daher aktualisieren wir ihn
+				if is_group_shipping:
+					picklist.reload()  # Lade die Pickliste neu
+					for picklist_item in picklist.locations:
+						# Finde das entsprechende SO Item für diesen Picklist Item
+						if picklist_item.sales_order_item:
+							try:
+								so_item = frappe.get_doc("Sales Order Item", picklist_item.sales_order_item)
+								if so_item.item_name and so_item.item_name.startswith("[") and "]" in so_item.item_name:
+									# item_name aus Sales Order hat Präfix - übernehme ihn
+									picklist_item.item_name = so_item.item_name
+									frappe.log_error(f"📦 Picklist Item {picklist_item.item_code} item_name aktualisiert: {so_item.item_name}", "DEBUG: picklist_item_name_updated")
+							except Exception as e:
+								frappe.log_error(f"⚠️ Fehler beim Aktualisieren von item_name für Picklist Item: {str(e)}", "WARNING: item_name_update_failed")
+					picklist.save()  # Speichere die Änderungen
+					frappe.log_error(f"✅ Picklist {picklist.name} item_name aktualisiert", "INFO: picklist_item_names_updated")
 				
 				# Reiche die Picklist ein
 				try:

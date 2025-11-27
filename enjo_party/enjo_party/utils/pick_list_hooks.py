@@ -72,3 +72,24 @@ def before_submit_pick_list(doc, method):
     doc.flags.ignore_valuation_rate = True        # Ignoriere Bewertungsrate-Validierung
     
     frappe.log_error(f"✅ Validierungen für Pick List {doc.name} vor Submit deaktiviert", "INFO: picklist_pre_submit_validation_disabled")
+
+
+def before_save_pick_list(doc, method):
+    """
+    Hook für Pick List before_save
+    Stellt sicher, dass item_name aus Sales Order Item übernommen wird (für Gruppenversand mit Präfix)
+    """
+    if doc.doctype != "Pick List":
+        return
+    
+    # Stelle sicher, dass item_name aus Sales Order Item übernommen wird
+    for picklist_item in doc.locations:
+        if picklist_item.sales_order_item:
+            try:
+                so_item = frappe.get_doc("Sales Order Item", picklist_item.sales_order_item)
+                if so_item.item_name:
+                    # Übernehme item_name aus Sales Order Item (enthält bereits Präfix bei Gruppenversand)
+                    picklist_item.item_name = so_item.item_name
+                    frappe.log_error(f"📦 Picklist Item {picklist_item.item_code} item_name aus SO übernommen: {so_item.item_name}", "DEBUG: picklist_item_name_from_so")
+            except Exception as e:
+                frappe.log_error(f"⚠️ Fehler beim Übernehmen von item_name für Picklist Item: {str(e)}", "WARNING: picklist_item_name_error")

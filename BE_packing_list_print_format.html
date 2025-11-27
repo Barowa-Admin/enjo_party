@@ -39,24 +39,76 @@
             <tr style="background-color: #f8f9fa;">
                 <th style="padding: 8px; text-align: left; font-size: 12px; font-weight: bold; color: #333; border: 1px solid #ddd;">Artikel</th>
                 <th style="padding: 8px; text-align: left; font-size: 12px; font-weight: bold; color: #333; border: 1px solid #ddd;">Artikelname</th>
+                {# Prüfe ob mindestens ein Item ein [Kundenname] Präfix hat ODER Trenn-Items vorhanden sind (Gruppenversand) #}
+                {% set has_group_shipping = False %}
+                {% if doc.locations %}
+                    {% for item in doc.locations %}
+                        {% set item_name_clean = item.item_name or item.description or "" %}
+                        {% if item.item_code == "---" or (item_name_clean.startswith("[") and "]" in item_name_clean) %}
+                            {% set has_group_shipping = True %}
+                        {% endif %}
+                    {% endfor %}
+                {% endif %}
+                {% if has_group_shipping %}
+                <th style="padding: 8px; text-align: left; font-size: 12px; font-weight: bold; color: #333; border: 1px solid #ddd;">Empfänger</th>
+                {% endif %}
                 <th style="padding: 8px; text-align: right; font-size: 12px; font-weight: bold; color: #333; border: 1px solid #ddd;">Menge</th>
             </tr>
         </thead>
         <tbody>
             {% if doc.locations %}
                 {% for item in doc.locations %}
+                {% set item_name_clean = item.item_name or item.description or "N/A" %}
+                {% set recipient_name = "" %}
+                {% set display_item_name = item_name_clean %}
+                
+                {# Extrahiere Empfänger-Name aus Item-Name wenn vorhanden [Kundenname] Präfix #}
+                {% if item_name_clean.startswith("[") and "]" in item_name_clean %}
+                    {% set recipient_name = item_name_clean.split("]")[0].replace("[", "") %}
+                    {% set display_item_name = item_name_clean.split("]", 1)[1].strip() if item_name_clean.split("]", 1)|length > 1 else item_name_clean %}
+                {% endif %}
+                
+                {# Prüfe ob es ein Trenn-Item ist (item_code == "---") #}
+                {% if item.item_code == "---" %}
+                {# Extrahiere Kundenname aus Trenn-Item Text #}
+                {% set separator_text = item.item_name or "" %}
+                {% set customer_name_from_separator = "" %}
+                {% if "Bestellung für:" in separator_text %}
+                    {% set customer_name_from_separator = separator_text.split("Bestellung für:")[1].strip() if separator_text.split("Bestellung für:")|length > 1 else "" %}
+                {% endif %}
+                <tr style="background-color: #f0f0f0;">
+                    <td style="padding: 8px; font-size: 12px; color: #999; border: 1px solid #ddd; text-align: center;" colspan="{% if has_group_shipping %}4{% else %}3{% endif %}">
+                        {{ customer_name_from_separator if customer_name_from_separator else (item.item_name or "N/A") }}
+                    </td>
+                </tr>
+                {% else %}
                 <tr>
                     <td style="padding: 8px; font-size: 12px; color: #555; border: 1px solid #ddd;">{{ item.item_code or "N/A" }}</td>
                     <td style="padding: 8px; font-size: 12px; color: #555; border: 1px solid #ddd;">
-                        {{ item.item_name or item.description or "N/A" }}
+                        {{ display_item_name }}
                         <!-- DEBUG Bundle Fields: product_bundle_item={{ item.product_bundle_item or "None" }}, parent_item={{ item.parent_item or "None" }} -->
                     </td>
+                    {% if has_group_shipping %}
+                    <td style="padding: 8px; font-size: 12px; color: #555; border: 1px solid #ddd; font-weight: {% if recipient_name %}bold{% else %}normal{% endif %};">
+                        {{ recipient_name if recipient_name else "-" }}
+                    </td>
+                    {% endif %}
                     <td style="padding: 8px; text-align: right; font-size: 12px; color: #555; border: 1px solid #ddd;">{{ item.qty|int if item.qty|int == item.qty else item.qty or "0" }}</td>
                 </tr>
+                {% endif %}
                 {% endfor %}
             {% else %}
+                {% set has_group_shipping_debug = False %}
+                {% if doc.locations %}
+                    {% for item in doc.locations %}
+                        {% set item_name_clean = item.item_name or item.description or "" %}
+                        {% if item_name_clean.startswith("[") and "]" in item_name_clean %}
+                            {% set has_group_shipping_debug = True %}
+                        {% endif %}
+                    {% endfor %}
+                {% endif %}
                 <tr>
-                    <td colspan="3" style="padding: 8px; font-size: 12px; color: #999; border: 1px solid #ddd; text-align: center;">
+                    <td colspan="{% if has_group_shipping_debug %}4{% else %}3{% endif %}" style="padding: 8px; font-size: 12px; color: #999; border: 1px solid #ddd; text-align: center;">
                         DEBUG: Keine Items gefunden<br>
                         DocType: {{ doc.doctype }}<br>
                         Items vorhanden: {{ doc.items|length if doc.items else "None" }}<br>

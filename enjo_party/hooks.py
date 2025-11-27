@@ -188,6 +188,7 @@ doc_events = {
 	},
 	"Pick List": {
 		"before_validate": "enjo_party.enjo_party.utils.pick_list_hooks.before_validate_pick_list",
+		"before_save": "enjo_party.enjo_party.utils.pick_list_hooks.before_save_pick_list",
 		"before_submit": "enjo_party.enjo_party.utils.pick_list_hooks.before_submit_pick_list"
 	},
 	"Subscription": {

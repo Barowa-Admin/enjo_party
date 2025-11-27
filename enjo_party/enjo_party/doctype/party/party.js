@@ -125,50 +125,56 @@ function refreshButtons(frm) {
 						// Benutzer hat "Ja" geklickt
 						console.log("Benutzer hat Gastgeber Geschenke bestätigt");
 						
-						// Status zu "Gastgeber Geschenke" ändern
-						frm.set_value("status", "Gastgeber Geschenke");
-						
-						// SOFORT alle anderen Produkttabellen ausblenden
-						frm.toggle_display('produktauswahl_für_gastgeberin_section', false);
-						for (let i = 1; i <= 15; i++) {
-							frm.toggle_display(`produktauswahl_für_gast_${i}_section`, false);
-						}
-						
-						// SOFORT Gastgebergeschenke-Tabelle einblenden
-						frm.toggle_display('gastgeber_geschenke_section', true);
-						frm.toggle_display('gastgeber_geschenke', true);
-						
-						// Tabelle rendern, falls sie noch nicht gerendert wurde
-						if (frm.fields_dict['gastgeber_geschenke']) {
-							frm.refresh_field('gastgeber_geschenke');
-						}
-						
-						// Automatisch eine leere Zeile hinzufügen, wenn die Tabelle leer ist
-						if (!frm.doc.gastgeber_geschenke || frm.doc.gastgeber_geschenke.length === 0) {
-							let row = frm.add_child('gastgeber_geschenke');
-							frm.refresh_field('gastgeber_geschenke');
-							console.log("Leere Zeile zu Gastgeber Geschenke Tabelle hinzugefügt");
-						}
-						
-						// Speichern
-						frm.save().then(() => {
-							// Nach dem Speichern nochmal sicherstellen
+						// WICHTIG: Erst Aktions-System durchführen, DANN zur Gastgeber-Geschenke-Tabelle wechseln
+						console.log("Starte Aktions-System vor Wechsel zu Gastgeber Geschenke");
+						startAktionsSystem(frm, function() {
+							console.log("Aktions-System abgeschlossen - wechsle zu Gastgeber Geschenke");
+							
+				// Status zu "Gastgeber Geschenke" ändern
+				frm.set_value("status", "Gastgeber Geschenke");
+				
+							// SOFORT alle anderen Produkttabellen ausblenden
 							frm.toggle_display('produktauswahl_für_gastgeberin_section', false);
 							for (let i = 1; i <= 15; i++) {
 								frm.toggle_display(`produktauswahl_für_gast_${i}_section`, false);
 							}
+							
+							// SOFORT Gastgebergeschenke-Tabelle einblenden
 							frm.toggle_display('gastgeber_geschenke_section', true);
 							frm.toggle_display('gastgeber_geschenke', true);
-							if (frm.fields_dict['gastgeber_geschenke']) {
+							
+							// Tabelle rendern, falls sie noch nicht gerendert wurde
+				if (frm.fields_dict['gastgeber_geschenke']) {
 								frm.refresh_field('gastgeber_geschenke');
 							}
 							
-							// Nach dem Speichern nochmal prüfen ob eine leere Zeile da ist
+							// Automatisch eine leere Zeile hinzufügen, wenn die Tabelle leer ist
 							if (!frm.doc.gastgeber_geschenke || frm.doc.gastgeber_geschenke.length === 0) {
 								let row = frm.add_child('gastgeber_geschenke');
 								frm.refresh_field('gastgeber_geschenke');
-								console.log("Leere Zeile nach Speichern zu Gastgeber Geschenke Tabelle hinzugefügt");
+								console.log("Leere Zeile zu Gastgeber Geschenke Tabelle hinzugefügt");
 							}
+							
+							// Speichern
+							frm.save().then(() => {
+								// Nach dem Speichern nochmal sicherstellen
+								frm.toggle_display('produktauswahl_für_gastgeberin_section', false);
+								for (let i = 1; i <= 15; i++) {
+									frm.toggle_display(`produktauswahl_für_gast_${i}_section`, false);
+								}
+								frm.toggle_display('gastgeber_geschenke_section', true);
+								frm.toggle_display('gastgeber_geschenke', true);
+								if (frm.fields_dict['gastgeber_geschenke']) {
+									frm.refresh_field('gastgeber_geschenke');
+				}
+				
+								// Nach dem Speichern nochmal prüfen ob eine leere Zeile da ist
+								if (!frm.doc.gastgeber_geschenke || frm.doc.gastgeber_geschenke.length === 0) {
+									let row = frm.add_child('gastgeber_geschenke');
+									frm.refresh_field('gastgeber_geschenke');
+									console.log("Leere Zeile nach Speichern zu Gastgeber Geschenke Tabelle hinzugefügt");
+								}
+							});
 						});
 					},
 					function() {
@@ -241,10 +247,22 @@ function startAuftraegeErstellung(frm) {
 	}
 	
 	// Prüfe Gastgeberin
+	// WICHTIG: Gastgeberin hat Produkte, wenn sie in produktauswahl_für_gastgeberin ODER gastgeber_geschenke Produkte hat
 	if (frm.doc.gastgeberin) {
 		let hat_gastgeberin_produkte = false;
+		// Prüfe produktauswahl_für_gastgeberin
 		if (frm.doc.produktauswahl_für_gastgeberin && frm.doc.produktauswahl_für_gastgeberin.length > 0) {
 			for (let produkt of frm.doc.produktauswahl_für_gastgeberin) {
+				// Nur gefüllte Zeilen prüfen
+				if (produkt.item_code && produkt.qty && produkt.qty > 0) {
+					hat_gastgeberin_produkte = true;
+					break;
+				}
+			}
+		}
+		// Prüfe auch gastgeber_geschenke (falls noch keine Produkte gefunden)
+		if (!hat_gastgeberin_produkte && frm.doc.gastgeber_geschenke && frm.doc.gastgeber_geschenke.length > 0) {
+			for (let produkt of frm.doc.gastgeber_geschenke) {
 				// Nur gefüllte Zeilen prüfen
 				if (produkt.item_code && produkt.qty && produkt.qty > 0) {
 					hat_gastgeberin_produkte = true;
@@ -289,17 +307,14 @@ function startAuftraegeErstellung(frm) {
 		frappe.confirm(
 			__("Bist Du sicher, dass alle Produkte richtig ausgewählt wurden und Du die Bestellung abschicken möchtest? Dieser Vorgang kann nicht rückgängig gemacht werden!"),
 			function() {
-				console.log("Benutzer hat bestätigt - prüfe Aktionssystem");
-				// Erst Gutschein-System anwenden, dann Aktions-System, dann Aufträge erstellen
+				console.log("Benutzer hat bestätigt - starte Gutschein-System");
+				// WICHTIG: Aktions-System wurde bereits beim "Gastgeber Geschenke" Button durchgeführt
+				// Jetzt nur noch Gutschein-System anwenden, dann Aufträge erstellen
 				console.log("Starte Gutschein-System");
 				applyGutscheinSystem(frm, function() {
-					console.log("Gutschein-System abgeschlossen - starte Aktions-System");
-					// Aktions-System direkt aufrufen
-					startAktionsSystem(frm, function() {
-						console.log("Aktions-System abgeschlossen - erstelle Aufträge");
-						// Nach Aktionsprüfung Aufträge erstellen
+					console.log("Gutschein-System abgeschlossen - erstelle Aufträge");
+					// Nach Gutschein-System Aufträge erstellen
 						erstelleAuftraege(frm);
-					});
 				});
 			}
 		);
@@ -713,15 +728,37 @@ function startAktionsSystem(frm, callback) {
 									console.log("Fehler beim Refreshen nach Aktionsartikeln:", e);
 								}
 								
-								// ENTFERNT: frappe.show_alert(`${aktionsartikelHinzugefuegt} Aktionsartikel wurden hinzugefügt!`, 5);
-							}
-							
+								// WICHTIG: Dokument speichern, damit die Aktionsartikel persistiert werden!
+								console.log("Speichere Dokument nach Hinzufügen der Aktionsartikel...");
 							d.hide();
+								frm.save().then(() => {
+									console.log("Dokument erfolgreich gespeichert mit Aktionsartikeln");
+									// Aktualisiere Summen nach dem Speichern
+									setTimeout(() => {
+										updateAllSummenAnzeigen(frm);
+									}, 300);
 							// Cleanup der Backup-Variablen nach erfolgreichem Aktions-System
 							delete frm._originalGesamtumsatz;
 							delete frm._originalProductAmounts;
 							console.log("Aktions-System erfolgreich - Backup-Variablen aufgeräumt");
 							callback();
+								}).catch((saveError) => {
+									console.error("Fehler beim Speichern nach Aktionsartikeln:", saveError);
+									// Cleanup auch bei Speicherfehlern
+									delete frm._originalGesamtumsatz;
+									delete frm._originalProductAmounts;
+									console.log("Aktions-System mit Speicherfehler - Backup-Variablen aufgeräumt");
+									callback(); // Trotzdem fortfahren
+								});
+							} else {
+								// Keine Aktionsartikel hinzugefügt
+								d.hide();
+								// Cleanup der Backup-Variablen nach erfolgreichem Aktions-System
+								delete frm._originalGesamtumsatz;
+								delete frm._originalProductAmounts;
+								console.log("Aktions-System erfolgreich - Backup-Variablen aufgeräumt");
+								callback();
+							}
 						}).catch((error) => {
 							console.error("Fehler beim Hinzufügen der Aktionsartikel:", error);
 							// Entferne die Fehlermeldung, da die Artikel trotzdem hinzugefügt wurden
@@ -823,9 +860,10 @@ function startAktionsSystem(frm, callback) {
 	});
 }
 
-// Gutschein-System: Wendet Gastgeber-Gutschein auf aktionsfähige Produkte an
+// Gutschein-System: PRÜFT nur, wie viel Gutschein verbraucht werden würde (OHNE Preise zu ändern!)
+// Die tatsächliche Anwendung passiert erst beim Erstellen der Aufträge
 function applyGutscheinSystem(frm, callback) {
-	console.log("applyGutscheinSystem gestartet");
+	console.log("applyGutscheinSystem gestartet (nur Prüfung, keine Preisänderung)");
 	
 	// Markiere, dass das Gutschein-System durchlaufen wird
 	frm._gutscheinSystemDurchlaufen = true;
@@ -845,18 +883,18 @@ function applyGutscheinSystem(frm, callback) {
 		return;
 	}
 	
-	// Sammle nur aktionsfähige Produkte vom GASTGEBER (nicht von den Gästen!)
+	// Sammle nur aktionsfähige Produkte aus der GASTGEBER-GESCHENKE-Tabelle (nicht mehr aus der normalen Produkttabelle!)
 	let gastgeberProdukte = [];
 	
-	// Funktion zum Sammeln der Produkte aus der Gastgeberin-Tabelle
-	function sammleGastgeberProdukte() {
-		if (frm.doc.gastgeberin && frm.doc.produktauswahl_für_gastgeberin && frm.doc.produktauswahl_für_gastgeberin.length > 0) {
-			frm.doc.produktauswahl_für_gastgeberin.forEach((item, index) => {
+	// Funktion zum Sammeln der Produkte aus der Gastgeber-Geschenke-Tabelle
+	function sammleGastgeberGeschenkeProdukte() {
+		if (frm.doc.gastgeber_geschenke && frm.doc.gastgeber_geschenke.length > 0) {
+			frm.doc.gastgeber_geschenke.forEach((item, index) => {
 				if (item.item_code && item.qty && item.qty > 0 && item.rate && item.rate > 0) {
 					gastgeberProdukte.push({
 						item: item,
-						produktfeld: "produktauswahl_für_gastgeberin",
-						tabellenName: "Gastgeberin",
+						produktfeld: "gastgeber_geschenke",
+						tabellenName: "Gastgeber Geschenke",
 						index: index,
 						originalRate: item.rate,
 						originalAmount: item.amount
@@ -866,14 +904,15 @@ function applyGutscheinSystem(frm, callback) {
 		}
 	}
 	
-	// Sammle nur Produkte von der Gastgeberin (Gastgeber-Benefit!)
-	sammleGastgeberProdukte();
+	// Sammle nur Produkte aus der Gastgeber-Geschenke-Tabelle (Gutschein wird NUR auf Geschenke angewendet!)
+	sammleGastgeberGeschenkeProdukte();
 	
 	console.log("Gefundene Gastgeber-Produkte (vor Aktionsfähigkeits-Prüfung):", gastgeberProdukte.length);
 	
 	if (gastgeberProdukte.length === 0) {
-		console.log("Gastgeber hat keine Produkte - überspringe Gutschein-System");
-		callback();
+		console.log("Gastgeber hat keine Produkte - zeige Vollbetrag-Dialog");
+		// WICHTIG: Auch bei 0 Produkten den Dialog zeigen!
+		zeigeRestbetragDialog(gutscheinWert, frm, callback);
 		return;
 	}
 	
@@ -888,15 +927,16 @@ function applyGutscheinSystem(frm, callback) {
 			return;
 		}
 		
-			// Sichere ursprüngliche Produktbeträge BEVOR Gutschein angewendet wird (für Aktionsberechnung)
+		// Sichere ursprüngliche Produktbeträge für Aktionsberechnung
 	aktionsfaehigeGastgeberProdukte.forEach((produkt, index) => {
 		let key = `${produkt.produktfeld}_${produkt.index}`;
 		frm._originalProductAmounts[key] = produkt.originalAmount;
 		console.log(`Original-Betrag gesichert für Aktions-System: ${produkt.item.item_code} = ${produkt.originalAmount}€`);
 	});
 	
-	// Wende Gutschein nur auf Gastgeber-Produkte an (Gastgeber-Benefit!)
-	wendeGutscheinAn(aktionsfaehigeGastgeberProdukte, gutscheinWert, frm, callback);
+		// WICHTIG: Berechne nur, wie viel Gutschein verbraucht werden würde, aber ÄNDERE KEINE PREISE!
+		// Die tatsächliche Anwendung passiert erst beim Erstellen der Aufträge
+		berechneGutscheinVerbrauch(aktionsfaehigeGastgeberProdukte, gutscheinWert, frm, callback);
 	});
 }
 
@@ -930,7 +970,67 @@ function pruefeAktionsfaehigkeitAllerProdukte(alleProdukte, index, aktionsfaehig
 	});
 }
 
+// Berechnet nur, wie viel Gutschein verbraucht werden würde (OHNE Preise zu ändern!)
+// Die tatsächliche Anwendung passiert erst beim Erstellen der Aufträge
+function berechneGutscheinVerbrauch(aktionsfaehigeGastgeberProdukte, verfuegbarerGutschein, frm, callback) {
+	console.log("Berechne Gutschein-Verbrauch (ohne Preisänderung) - Verfügbar:", verfuegbarerGutschein);
+	
+	let verbrauchterGutschein = 0;
+	
+	// WICHTIG: Speichere die Original-Preise für spätere Anwendung beim Erstellen der Aufträge
+	if (!frm.originalPricesBackup) {
+		frm.originalPricesBackup = {};
+	}
+	
+	// Gehe von oben nach unten durch die Gastgeber-Produkte und berechne nur den Verbrauch
+	for (let i = 0; i < aktionsfaehigeGastgeberProdukte.length && verfuegbarerGutschein > verbrauchterGutschein; i++) {
+		let produkt = aktionsfaehigeGastgeberProdukte[i];
+		let produktWert = produkt.originalAmount;
+		let restGutschein = verfuegbarerGutschein - verbrauchterGutschein;
+		
+		// Speichere Original-Preis für spätere Anwendung beim Erstellen der Aufträge
+		let backupKey = `${produkt.produktfeld}_${produkt.index}`;
+		if (!frm.originalPricesBackup[backupKey]) {
+			frm.originalPricesBackup[backupKey] = {
+				originalRate: produkt.originalRate,
+				originalAmount: produkt.originalAmount,
+				item: produkt.item
+			};
+			console.log(`Original-Preis gespeichert für spätere Gutschein-Anwendung: ${produkt.item.item_code}: ${produkt.originalRate}€`);
+		}
+		
+		if (produktWert <= restGutschein) {
+			// Komplette Reduktion würde auf 0€ gehen
+			let rabatt = produktWert;
+			verbrauchterGutschein += rabatt;
+			console.log(`Gastgeber-Produkt ${produkt.item.item_code}: Würde vollständig reduziert werden um ${rabatt}€`);
+		} else {
+			// Teilweise Reduktion
+			let rabatt = restGutschein;
+			verbrauchterGutschein += rabatt;
+			console.log(`Gastgeber-Produkt ${produkt.item.item_code}: Würde teilweise reduziert werden um ${rabatt}€`);
+			break; // Gutschein wäre aufgebraucht
+		}
+	}
+	
+	let restbetrag = verfuegbarerGutschein - verbrauchterGutschein;
+	console.log("Gutschein-Verbrauch berechnet - Würde verbrauchen:", verbrauchterGutschein, "Restbetrag:", restbetrag);
+	
+	// WICHTIG: KEINE Preisänderung hier! Preise bleiben unverändert.
+	// Die Summen-Anzeige zeigt bereits den korrekten verbleibenden Gutschein basierend auf den Original-Preisen
+	
+	if (restbetrag > 0.01) { // Kleine Rundungsfehler ignorieren
+		// Zeige Restbetrag-Dialog
+		zeigeRestbetragDialog(restbetrag, frm, callback);
+	} else {
+		// Kein Restbetrag - weiter zum nächsten Schritt
+		console.log("Gutschein würde vollständig verbraucht werden - fahre fort");
+		callback();
+	}
+}
+
 // Wendet den Gutschein von oben nach unten auf die Gastgeber-Produkte an
+// WICHTIG: Diese Funktion wird nur noch beim tatsächlichen Erstellen der Aufträge aufgerufen!
 function wendeGutscheinAn(aktionsfaehigeGastgeberProdukte, verfuegbarerGutschein, frm, callback) {
 	console.log("Wende Gutschein auf Gastgeber-Produkte an - Verfügbar:", verfuegbarerGutschein);
 	
@@ -1024,8 +1124,22 @@ function wendeGutscheinAn(aktionsfaehigeGastgeberProdukte, verfuegbarerGutschein
 	let restbetrag = verfuegbarerGutschein - verbrauchterGutschein;
 	console.log("Gutschein angewendet - Verbraucht:", verbrauchterGutschein, "Restbetrag:", restbetrag);
 	
+	// Aktualisiere die Summen-Anzeigen NACH dem Refresh der Tabellen (mit reduzierten Preisen)
+	// WICHTIG: Längeres Timeout, damit die Preise sicher reduziert wurden
+	// Die Summe wird auch im Dialog-Handler aktualisiert, falls nötig
+	setTimeout(() => {
+		updateAllSummenAnzeigen(frm);
+		console.log("Summen-Anzeigen nach Gutschein-Anwendung aktualisiert (mit reduzierten Preisen)");
+	}, 800);
+	
 	if (restbetrag > 0.01) { // Kleine Rundungsfehler ignorieren
 		// Zeige Restbetrag-Dialog
+		// Die Summe wird bereits oben mit setTimeout aktualisiert (nach 800ms)
+		// Zusätzlich aktualisieren wir sie auch direkt vor dem Dialog, damit sie sicher korrekt ist
+		setTimeout(() => {
+			updateAllSummenAnzeigen(frm);
+			console.log("Summen-Anzeigen direkt vor Dialog aktualisiert (mit reduzierten Preisen)");
+		}, 600);
 		zeigeRestbetragDialog(restbetrag, frm, callback);
 	} else {
 		// Kein Restbetrag - weiter zum nächsten Schritt
@@ -1064,13 +1178,13 @@ function zeigeRestbetragDialog(restbetrag, frm, callback) {
 		primary_action_label: istVollbetrag ? 'Aktionsfähige Produkte hinzufügen' : 'Zurück zur Bearbeitung',
 		primary_action: function() {
 			dialog.hide();
+			// WICHTIG: Preise wurden noch nicht geändert, daher keine Wiederherstellung nötig
+			// Die Preise bleiben unverändert, da der Gutschein erst beim Erstellen der Aufträge angewendet wird
 			if (istVollbetrag) {
 				// Bei Vollbetrag: Zurück zur Bearbeitung (Produkte hinzufügen)
-				stelleOriginalPreiseWieder(frm); // SICHERHEIT: Verhindert Missbrauch von reduzierten Preisen
 				refreshButtons(frm);
 			} else {
 				// Bei Restbetrag: Zurück zur Bearbeitung 
-				stelleOriginalPreiseWieder(frm); // SICHERHEIT: Verhindert Missbrauch von reduzierten Preisen
 				refreshButtons(frm);
 			}
 		},
@@ -1080,16 +1194,18 @@ function zeigeRestbetragDialog(restbetrag, frm, callback) {
 			if (istVollbetrag) {
 				// Bei Vollbetrag: Gutschein verfällt, aber Party wird trotzdem gebucht
 				console.log("Vollbetrag-Gutschein verfällt - fahre mit Aufträge-Erstellung fort");
-				// WICHTIG: Markiere dass KEIN Gutschein angewendet wurde
+				// WICHTIG: Markiere dass KEIN Gutschein angewendet wurde (weil keine aktionsfähigen Produkte vorhanden)
 				frm._keinGutscheinAngewendet = true;
+				// WICHTIG: Preise wurden noch nicht geändert - Gutschein wird erst beim Erstellen der Aufträge angewendet
 				// ENTFERNT: frappe.show_alert(`Gutschein von ${restbetrag.toFixed(2)}€ verfällt - fahre mit Bestellung fort`, 3);
 				callback(); // WICHTIG: Weiter zum Aktions-System!
 			} else {
 				// Bei Restbetrag: Verfallen lassen und fortfahren
+				// WICHTIG: Preise wurden noch nicht geändert - Gutschein wird erst beim Erstellen der Aufträge angewendet
 				console.log("Restbetrag-Gutschein verfällt - fahre fort");
 				let nachricht = `Restbetrag von ${restbetrag.toFixed(2)}€ verfällt`;
 				// ENTFERNT: frappe.show_alert(nachricht, 3);
-				// Weiter zum nächsten Schritt
+				// Weiter zum nächsten Schritt (Aufträge erstellen, wo dann der Gutschein angewendet wird)
 				callback();
 			}
 		}
@@ -1109,6 +1225,9 @@ function stelleOriginalPreiseWieder(frm) {
 	
 	let wiederhergestellteProdukte = 0;
 	
+	// Sammle zuerst alle betroffenen Tabellen BEVOR wir das Backup löschen
+	let betroffeneTabellen = new Set();
+	
 	// Gehe durch alle gespeicherten Original-Preise
 	for (let backupKey in frm.originalPricesBackup) {
 		let backup = frm.originalPricesBackup[backupKey];
@@ -1120,6 +1239,15 @@ function stelleOriginalPreiseWieder(frm) {
 		// Entferne Gutschein-Markierung
 		delete item._gutschein_angewendet;
 		
+		// Sammle die betroffene Tabelle aus dem Backup-Key
+		// Backup-Key Format: "produktfeld_index" (z.B. "gastgeber_geschenke_0" oder "produktauswahl_für_gastgeberin_0")
+		let parts = backupKey.split('_');
+		if (backupKey.startsWith('gastgeber_geschenke')) {
+			betroffeneTabellen.add('gastgeber_geschenke');
+		} else if (backupKey.startsWith('produktauswahl_für_gastgeberin')) {
+			betroffeneTabellen.add('produktauswahl_für_gastgeberin');
+		}
+		
 		console.log(`Original-Preis wiederhergestellt für ${item.item_code}: ${backup.originalRate}€`);
 		wiederhergestellteProdukte++;
 	}
@@ -1128,7 +1256,14 @@ function stelleOriginalPreiseWieder(frm) {
 	frm.originalPricesBackup = {};
 	
 	// Aktualisiere alle betroffenen Tabellen
-	frm.refresh_field("produktauswahl_für_gastgeberin");
+	betroffeneTabellen.forEach(tabelle => {
+		if (frm.fields_dict[tabelle]) {
+			frm.refresh_field(tabelle);
+		}
+	});
+	
+	// Aktualisiere auch die Summen-Anzeigen
+	updateAllSummenAnzeigen(frm);
 	
 	// WICHTIG: Stelle ursprünglichen Gesamtumsatz wieder her (falls er durch Gutschein verändert wurde)
 	if (frm._originalGesamtumsatz) {
@@ -1143,9 +1278,83 @@ function stelleOriginalPreiseWieder(frm) {
 	// ENTFERNT: frappe.show_alert(`${wiederhergestellteProdukte} Produkte auf Original-Preise zurückgesetzt`, 3);
 }
 
+// Wendet den Gutschein JETZT an (beim Erstellen der Aufträge)
+function wendeGutscheinBeimErstellenAn(frm) {
+	console.log("Wende Gutschein jetzt an (beim Erstellen der Aufträge)");
+	
+	if (!frm.originalPricesBackup || Object.keys(frm.originalPricesBackup).length === 0) {
+		console.log("Keine Gutschein-Anwendung nötig - keine gespeicherten Preise gefunden");
+		return;
+	}
+	
+	let gutscheinWert = frm.doc.gastgeber_gutschein_wert || 0;
+	if (gutscheinWert <= 0) {
+		console.log("Kein Gutscheinwert - überspringe Anwendung");
+		return;
+	}
+	
+	let verbrauchterGutschein = 0;
+	let betroffeneTabellen = new Set();
+	
+	// Gehe durch alle gespeicherten Produkte und wende den Gutschein an
+	for (let backupKey in frm.originalPricesBackup) {
+		let backup = frm.originalPricesBackup[backupKey];
+		let item = backup.item;
+		let produktWert = backup.originalAmount;
+		let restGutschein = gutscheinWert - verbrauchterGutschein;
+		
+		// Sammle die betroffene Tabelle
+		if (backupKey.startsWith('gastgeber_geschenke')) {
+			betroffeneTabellen.add('gastgeber_geschenke');
+		}
+		
+		if (produktWert <= restGutschein) {
+			// Komplette Reduktion auf 0€
+			let rabatt = produktWert;
+			verbrauchterGutschein += rabatt;
+			
+			item.rate = 0;
+			item.amount = 0;
+			item._gutschein_angewendet = true;
+			item._original_amount_for_commission = backup.originalAmount;
+			
+			console.log(`Gutschein angewendet: ${item.item_code} auf 0€ reduziert`);
+		} else {
+			// Teilweise Reduktion
+			let rabatt = restGutschein;
+			verbrauchterGutschein += rabatt;
+			
+			let neuerPreis = (produktWert - rabatt) / item.qty;
+			let neuerBetrag = produktWert - rabatt;
+			
+			item.rate = neuerPreis;
+			item.amount = neuerBetrag;
+			item._gutschein_angewendet = true;
+			item._original_amount_for_commission = backup.originalAmount;
+			
+			console.log(`Gutschein angewendet: ${item.item_code} um ${rabatt}€ reduziert`);
+			break; // Gutschein ist aufgebraucht
+		}
+	}
+	
+	// Aktualisiere die betroffenen Tabellen
+	betroffeneTabellen.forEach(tabelle => {
+		if (frm.fields_dict[tabelle]) {
+			frm.refresh_field(tabelle);
+		}
+	});
+	
+	console.log(`Gutschein angewendet - Verbraucht: ${verbrauchterGutschein}€`);
+}
+
 // Hilfsfunktion zum Erstellen der Aufträge
 function erstelleAuftraege(frm) {
 	console.log("erstelleAuftraege aufgerufen");
+	
+	// WICHTIG: Wende den Gutschein JETZT an (beim Erstellen der Aufträge, nicht vorher!)
+	if (frm.originalPricesBackup && Object.keys(frm.originalPricesBackup).length > 0) {
+		wendeGutscheinBeimErstellenAn(frm);
+	}
 	
 	// Aktiviere Pflichtfelder für die finale Validierung
 	enableRequiredFields(frm);
@@ -1737,25 +1946,39 @@ frappe.ui.form.on('Party', {
 		// Zeige die Produktauswahl-Tabellen für die Gäste erst nach dem Speichern
 		// Alle Gäste-Tabellen werden im Neu-Modus ausgeblendet
 		// WICHTIG: Im Status "Gastgeber Geschenke" werden alle Produkttabellen ausgeblendet
+		// ABER: Wenn die Party abgeschlossen ist, werden alle Tabellen wieder angezeigt (für Übersicht)
+		const isAbgeschlossen = frm.doc.status === "Abgeschlossen";
+		const isGastgeberGeschenkeStatus = frm.doc.status === "Gastgeber Geschenke";
+		const showProduktTabellen = !isGastgeberGeschenkeStatus || isAbgeschlossen;
+		
 		for (let i = 1; i <= 15; i++) {
 			// Nur anzeigen, wenn das Dokument gespeichert ist UND genügend Gäste vorhanden sind
-			// UND NICHT im Status "Gastgeber Geschenke"
+			// UND NICHT im Status "Gastgeber Geschenke" (außer wenn abgeschlossen)
 			frm.toggle_display(
 				`produktauswahl_für_gast_${i}_section`, 
-				!frm.is_new() && frm.doc.kunden && frm.doc.kunden.length >= i && frm.doc.status !== "Gastgeber Geschenke"
+				!frm.is_new() && frm.doc.kunden && frm.doc.kunden.length >= i && showProduktTabellen
 			);
 		}
 		
+		// Gäste-Section und Kunden-Tabelle: Ausblenden im Status "Gastgeber Geschenke" (außer wenn abgeschlossen)
+		frm.toggle_display("section_break_gaeste", showProduktTabellen);
+		frm.toggle_display("kunden", showProduktTabellen);
+		
 		// Zeige Gastgeberin-Produktauswahl nur an, wenn eine Gastgeberin eingetragen und das Dokument gespeichert ist
-		// WICHTIG: Im Status "Gastgeber Geschenke" wird diese Tabelle ausgeblendet
-		const showGastgeberinSection = !frm.is_new() && frm.doc.gastgeberin && frm.doc.status !== "Gastgeber Geschenke";
+		// WICHTIG: Im Status "Gastgeber Geschenke" wird diese Tabelle ausgeblendet (außer wenn abgeschlossen)
+		const showGastgeberinSection = !frm.is_new() && frm.doc.gastgeberin && showProduktTabellen;
 		frm.toggle_display("produktauswahl_für_gastgeberin_section", showGastgeberinSection);
 		frm.toggle_display("summe_gastgeberin", showGastgeberinSection);
 		frm.toggle_display("versand_gastgeberin", showGastgeberinSection);
 		
-		// Gastgebergeschenke-Tabelle: Nur anzeigen wenn Status "Gastgeber Geschenke"
-		// WICHTIG: Standardmäßig immer ausgeblendet, nur wenn Status explizit "Gastgeber Geschenke" ist, anzeigen
-		const showGastgeberGeschenke = !frm.is_new() && frm.doc.status === "Gastgeber Geschenke";
+		// Gastgebergeschenke-Tabelle: Anzeigen wenn Status "Gastgeber Geschenke" ODER wenn Party abgeschlossen ist und Produkte vorhanden sind
+		// WICHTIG: Standardmäßig immer ausgeblendet, nur wenn Status explizit "Gastgeber Geschenke" ist ODER wenn Party abgeschlossen ist und Produkte vorhanden sind, anzeigen
+		const hasGastgeberGeschenke = frm.doc.gastgeber_geschenke && frm.doc.gastgeber_geschenke.length > 0 && 
+			frm.doc.gastgeber_geschenke.some(item => item.item_code && item.qty && item.qty > 0);
+		const showGastgeberGeschenke = !frm.is_new() && (
+			frm.doc.status === "Gastgeber Geschenke" || 
+			(frm.doc.status === "Abgeschlossen" && hasGastgeberGeschenke)
+		);
 		frm.toggle_display("gastgeber_geschenke_section", showGastgeberGeschenke);
 		frm.toggle_display("gastgeber_geschenke", showGastgeberGeschenke);
 		frm.toggle_display("summe_gastgeber_geschenke", showGastgeberGeschenke);
@@ -2008,6 +2231,37 @@ frappe.ui.form.on('Party', {
 			}
 		}
 		
+		// Auch für die Gastgeber-Geschenke-Tabelle (gleiche Formatierung wie Produkttabellen)
+		if (frm.fields_dict["gastgeber_geschenke"]) {
+			frm.fields_dict["gastgeber_geschenke"].grid.update_docfield_property('delivery_date', 'hidden', 1);
+			frm.fields_dict["gastgeber_geschenke"].grid.update_docfield_property('delivery_date', 'reqd', 0);
+			// Verstecke auch das Warehouse-Feld
+			frm.fields_dict["gastgeber_geschenke"].grid.update_docfield_property('warehouse', 'hidden', 1);
+			frm.fields_dict["gastgeber_geschenke"].grid.update_docfield_property('warehouse', 'reqd', 0);
+			// Mache das Preisfeld schreibgeschützt
+			frm.fields_dict["gastgeber_geschenke"].grid.update_docfield_property('rate', 'read_only', 1);
+			
+			// Zusätzlich: Verstecke die Spalten per CSS (robustere Methode)
+			setTimeout(() => {
+				$(frm.wrapper).find('[data-fieldname="gastgeber_geschenke"] .grid-body .data-row .col[data-fieldname="delivery_date"]').hide();
+				$(frm.wrapper).find('[data-fieldname="gastgeber_geschenke"] .grid-body .data-row .col[data-fieldname="warehouse"]').hide();
+				$(frm.wrapper).find('[data-fieldname="gastgeber_geschenke"] .grid-heading-row .col[data-fieldname="delivery_date"]').hide();
+				$(frm.wrapper).find('[data-fieldname="gastgeber_geschenke"] .grid-heading-row .col[data-fieldname="warehouse"]').hide();
+			}, 500);
+			
+			// Setze Filter für Item-Auswahl (nur Sales Items, nicht disabled)
+			if (frm.fields_dict["gastgeber_geschenke"].grid.get_field('item_code')) {
+				frm.fields_dict["gastgeber_geschenke"].grid.get_field('item_code').get_query = function() {
+					return {
+						filters: {
+							'is_sales_item': 1,
+							'disabled': 0
+						}
+					};
+				};
+			}
+		}
+		
 		// Standard-Submit-Button ausblenden - aber nur wenn nicht im Neu-Modus
 		if (!frm.is_new() && frm.page && frm.page.btn_primary) {
 			frm.page.btn_primary.hide();
@@ -2134,10 +2388,10 @@ frappe.ui.form.on('Party', {
 			'display': 'none'
 		});
 		$('.comment-input-wrapper').css({
-			'display': 'none'
-		});
-		
-		// Weißen Abstand am Ende hinzufügen statt radikalem Abschnitt
+				'display': 'none'
+			});
+			
+			// Weißen Abstand am Ende hinzufügen statt radikalem Abschnitt
 			if (!$('.custom-bottom-spacing').length) {
 				$('.form-layout').append('<div class="custom-bottom-spacing" style="height: 50px; background: white;"></div>');
 			}
@@ -2681,7 +2935,11 @@ function addPermanentColumnHideCSS() {
 		[data-fieldname="produktauswahl_für_gastgeberin"] .grid-heading-row .col[data-fieldname="delivery_date"],
 		[data-fieldname="produktauswahl_für_gastgeberin"] .grid-body .data-row .col[data-fieldname="delivery_date"],
 		[data-fieldname="produktauswahl_für_gastgeberin"] .grid-heading-row .col[data-fieldname="warehouse"],
-		[data-fieldname="produktauswahl_für_gastgeberin"] .grid-body .data-row .col[data-fieldname="warehouse"] {
+		[data-fieldname="produktauswahl_für_gastgeberin"] .grid-body .data-row .col[data-fieldname="warehouse"],
+		[data-fieldname="gastgeber_geschenke"] .grid-heading-row .col[data-fieldname="delivery_date"],
+		[data-fieldname="gastgeber_geschenke"] .grid-body .data-row .col[data-fieldname="delivery_date"],
+		[data-fieldname="gastgeber_geschenke"] .grid-heading-row .col[data-fieldname="warehouse"],
+		[data-fieldname="gastgeber_geschenke"] .grid-body .data-row .col[data-fieldname="warehouse"] {
 			display: none !important;
 		}
 	`;
@@ -2720,18 +2978,34 @@ function updateSummeForTable(frm, tableName, sumFieldName) {
 // Funktion zum Berechnen und Anzeigen der Gastgeber-Geschenke Summe mit Gutschein-Verbrauch
 function updateGastgeberGeschenkeSumme(frm) {
 	let sum = 0;
+	let sumOriginal = 0; // Summe basierend auf Original-Preisen (für Gutschein-Berechnung)
 	
 	if (frm.doc.gastgeber_geschenke && frm.doc.gastgeber_geschenke.length > 0) {
-		frm.doc.gastgeber_geschenke.forEach(function(item) {
+		frm.doc.gastgeber_geschenke.forEach(function(item, index) {
 			if (item.qty && item.rate) {
+				// Aktuelle Summe (kann reduziert sein, wenn Gutschein bereits angewendet wurde)
 				sum += flt(item.qty) * flt(item.rate);
+				
+				// Original-Summe für Gutschein-Berechnung
+				// Wenn originalPricesBackup existiert, verwende Original-Preis, sonst aktuellen Preis
+				let backupKey = `gastgeber_geschenke_${index}`;
+				if (frm.originalPricesBackup && frm.originalPricesBackup[backupKey]) {
+					// Verwende Original-Preis für Gutschein-Berechnung (wenn noch nicht angewendet)
+					sumOriginal += frm.originalPricesBackup[backupKey].originalAmount;
+				} else {
+					// Verwende aktuellen Preis (entweder Original oder bereits reduziert)
+					sumOriginal += flt(item.qty) * flt(item.rate);
+				}
 			}
 		});
 	}
 	
 	// Hole den verfügbaren Gutscheinwert
 	let gutscheinWert = frm.doc.gastgeber_gutschein_wert || 0;
-	let verbleibenderGutschein = gutscheinWert - sum;
+	
+	// WICHTIG: Berechne verbleibenden Gutschein basierend auf Original-Preisen
+	// (nur wenn Gutschein noch nicht angewendet wurde)
+	let verbleibenderGutschein = gutscheinWert - sumOriginal;
 	let zuzahlen = 0;
 	
 	if (verbleibenderGutschein < 0) {
