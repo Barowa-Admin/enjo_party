@@ -23,6 +23,33 @@ def before_validate_delivery_note(doc, method):
     if doc.doctype != "Delivery Note":
         return
     
+    # WICHTIG: Stelle sicher, dass Trenner-Items (item_code == "---") NICHT entfernt werden
+    # Speichere Trenner-Items vor Validierungen
+    separator_items_backup = []
+    if hasattr(doc, 'items') and doc.items:
+        for idx, item in enumerate(doc.items):
+            if item.item_code == "---":
+                separator_items_backup.append({
+                    'idx': idx,
+                    'item_code': item.item_code,
+                    'item_name': item.item_name,
+                    'qty': item.qty,
+                    'rate': item.rate,
+                    'amount': item.amount,
+                    'uom': item.uom,
+                    'stock_uom': item.stock_uom,
+                    'conversion_factor': item.conversion_factor,
+                    'stock_qty': item.stock_qty,
+                    'base_amount': item.base_amount,
+                    'base_rate': item.base_rate,
+                    'warehouse': item.warehouse,
+                    # HINWEIS: Delivery Note Item hat kein delivery_date Feld!
+                    'sales_order': getattr(item, 'sales_order', None),
+                    'sales_order_item': getattr(item, 'sales_order_item', None),
+                    'allow_zero_valuation_rate': getattr(item, 'allow_zero_valuation_rate', 1)
+                })
+                frappe.log_error(f"🔍 Trenner-Item gesichert vor validate: item_code='{item.item_code}', item_name='{item.item_name}'", "DEBUG: separator_item_backed_up_validate")
+    
     # ===================================================================================
     # ABSCHNITT 1: DEAKTIVIERUNG VON VALIDIERUNGEN
     # ===================================================================================
@@ -66,6 +93,41 @@ def before_validate_delivery_note(doc, method):
                 item.allow_zero_valuation_rate = 1
             elif hasattr(item, 'allow_zero_valuation'):
                 item.allow_zero_valuation = 1
+    
+    # WICHTIG: Stelle sicher, dass Trenner-Items nach Validierungen wieder vorhanden sind
+    if separator_items_backup:
+        # Prüfe, ob Trenner-Items noch vorhanden sind
+        current_separator_count = sum(1 for item in doc.items if item.item_code == "---")
+        if current_separator_count < len(separator_items_backup):
+            frappe.log_error(f"⚠️ Trenner-Items wurden bei validate entfernt! Wiederherstelle {len(separator_items_backup)} Trenner-Items", "WARNING: separator_items_restored_validate")
+            # Füge fehlende Trenner-Items wieder hinzu
+            for backup_item in separator_items_backup:
+                # Prüfe ob dieses Trenner-Item bereits vorhanden ist
+                item_exists = any(
+                    item.item_code == "---" and 
+                    item.item_name == backup_item['item_name'] 
+                    for item in doc.items
+                )
+                if not item_exists:
+                    # Füge Trenner-Item wieder hinzu (OHNE delivery_date, da Delivery Note Item dieses Feld nicht hat)
+                    new_item = doc.append('items', {
+                        'item_code': backup_item['item_code'],
+                        'item_name': backup_item['item_name'],
+                        'qty': backup_item['qty'],
+                        'rate': backup_item['rate'],
+                        'amount': backup_item['amount'],
+                        'uom': backup_item['uom'],
+                        'stock_uom': backup_item['stock_uom'],
+                        'conversion_factor': backup_item['conversion_factor'],
+                        'stock_qty': backup_item['stock_qty'],
+                        'base_amount': backup_item['base_amount'],
+                        'base_rate': backup_item['base_rate'],
+                        'warehouse': backup_item['warehouse'],
+                        'sales_order': backup_item['sales_order'],
+                        'sales_order_item': backup_item['sales_order_item'],
+                        'allow_zero_valuation_rate': backup_item['allow_zero_valuation_rate']
+                    })
+                    frappe.log_error(f"✅ Trenner-Item bei validate wiederhergestellt: item_code='{backup_item['item_code']}', item_name='{backup_item['item_name']}'", "INFO: separator_item_restored_validate")
     
     # Prüfe, ob es sich um eine fremde Lieferadresse handelt ODER ob es ein Gruppenversand-Auftrag ist
     is_foreign_shipping = False
@@ -164,6 +226,33 @@ def before_insert_delivery_note(doc, method):
     # Prüfe ob es ein Gruppenversand-Auftrag ist
     is_gruppenversand = doc.customer == "Gruppenversand"
     
+    # WICHTIG: Stelle sicher, dass Trenner-Items (item_code == "---") NICHT entfernt werden
+    # Speichere Trenner-Items vor Validierungen
+    separator_items_backup = []
+    if hasattr(doc, 'items') and doc.items:
+        for idx, item in enumerate(doc.items):
+            if item.item_code == "---":
+                separator_items_backup.append({
+                    'idx': idx,
+                    'item_code': item.item_code,
+                    'item_name': item.item_name,
+                    'qty': item.qty,
+                    'rate': item.rate,
+                    'amount': item.amount,
+                    'uom': item.uom,
+                    'stock_uom': item.stock_uom,
+                    'conversion_factor': item.conversion_factor,
+                    'stock_qty': item.stock_qty,
+                    'base_amount': item.base_amount,
+                    'base_rate': item.base_rate,
+                    'warehouse': item.warehouse,
+                    # HINWEIS: Delivery Note Item hat kein delivery_date Feld!
+                    'sales_order': getattr(item, 'sales_order', None),
+                    'sales_order_item': getattr(item, 'sales_order_item', None),
+                    'allow_zero_valuation_rate': getattr(item, 'allow_zero_valuation_rate', 1)
+                })
+                frappe.log_error(f"🔍 Trenner-Item gesichert vor insert: item_code='{item.item_code}', item_name='{item.item_name}'", "DEBUG: separator_item_backed_up")
+    
     # ===================================================================================
     # ABSCHNITT 1: DEAKTIVIERUNG VON VALIDIERUNGEN BEIM ERSTELLEN
     # ===================================================================================
@@ -228,6 +317,41 @@ def before_insert_delivery_note(doc, method):
                 item.allow_zero_valuation_rate = 1
             elif hasattr(item, 'allow_zero_valuation'):
                 item.allow_zero_valuation = 1
+    
+    # WICHTIG: Stelle sicher, dass Trenner-Items nach Validierungen wieder vorhanden sind
+    if separator_items_backup:
+        # Prüfe, ob Trenner-Items noch vorhanden sind
+        current_separator_count = sum(1 for item in doc.items if item.item_code == "---")
+        if current_separator_count < len(separator_items_backup):
+            frappe.log_error(f"⚠️ Trenner-Items wurden entfernt! Wiederherstelle {len(separator_items_backup)} Trenner-Items", "WARNING: separator_items_restored")
+            # Füge fehlende Trenner-Items wieder hinzu
+            for backup_item in separator_items_backup:
+                # Prüfe ob dieses Trenner-Item bereits vorhanden ist
+                item_exists = any(
+                    item.item_code == "---" and 
+                    item.item_name == backup_item['item_name'] 
+                    for item in doc.items
+                )
+                if not item_exists:
+                    # Füge Trenner-Item wieder hinzu (OHNE delivery_date, da Delivery Note Item dieses Feld nicht hat)
+                    new_item = doc.append('items', {
+                        'item_code': backup_item['item_code'],
+                        'item_name': backup_item['item_name'],
+                        'qty': backup_item['qty'],
+                        'rate': backup_item['rate'],
+                        'amount': backup_item['amount'],
+                        'uom': backup_item['uom'],
+                        'stock_uom': backup_item['stock_uom'],
+                        'conversion_factor': backup_item['conversion_factor'],
+                        'stock_qty': backup_item['stock_qty'],
+                        'base_amount': backup_item['base_amount'],
+                        'base_rate': backup_item['base_rate'],
+                        'warehouse': backup_item['warehouse'],
+                        'sales_order': backup_item['sales_order'],
+                        'sales_order_item': backup_item['sales_order_item'],
+                        'allow_zero_valuation_rate': backup_item['allow_zero_valuation_rate']
+                    })
+                    frappe.log_error(f"✅ Trenner-Item wiederhergestellt: item_code='{backup_item['item_code']}', item_name='{backup_item['item_name']}'", "INFO: separator_item_restored")
     
     if is_gruppenversand:
         frappe.log_error(f"✅ Gruppenversand erkannt - Adressvalidierung für Delivery Note {doc.name if hasattr(doc, 'name') else '(neu)'} beim Erstellen deaktiviert", "INFO: delivery_note_pre_insert_validation_disabled")

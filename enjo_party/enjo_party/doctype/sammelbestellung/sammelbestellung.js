@@ -1119,6 +1119,12 @@ frappe.ui.form.on('Sammelbestellung', {
 			$('.timeline-content').css({
 				'display': 'none'
 			});
+			$('.timeline-dot').css({
+				'display': 'none'
+			});
+			$('.scroll-to-top').css({
+				'display': 'none'
+			});
 			$('.comment-input-wrapper').css({
 				'display': 'none'
 			});
@@ -1142,6 +1148,9 @@ frappe.ui.form.on('Sammelbestellung', {
 		setTimeout(hideUnwantedElements, 100);
 		setTimeout(hideUnwantedElements, 500);
 		setTimeout(hideUnwantedElements, 1000);
+		
+		// Permanente CSS-Regeln hinzufügen
+		addPermanentColumnHideCSS();
 		
 		if (frm.doc.docstatus === 1) {
 			frm.disable_save();
@@ -1487,6 +1496,21 @@ function addPermanentColumnHideCSS() {
 		[data-fieldname*="produktauswahl_für_kunde"] .grid-body .data-row .col[data-fieldname="delivery_date"],
 		[data-fieldname*="produktauswahl_für_kunde"] .grid-heading-row .col[data-fieldname="warehouse"],
 		[data-fieldname*="produktauswahl_für_kunde"] .grid-body .data-row .col[data-fieldname="warehouse"] {
+			display: none !important;
+		}
+		
+		/* Timeline-Dot im gesamten Sammelbestellungsbereich ausblenden */
+		.form-document[data-doctype="Sammelbestellung"] .timeline-dot,
+		[data-doctype="Sammelbestellung"] .timeline-dot,
+		.form-layout[data-doctype="Sammelbestellung"] .timeline-dot {
+			display: none !important;
+		}
+		
+		/* Scroll-to-Top Button im gesamten Sammelbestellungsbereich ausblenden */
+		.form-document[data-doctype="Sammelbestellung"] .scroll-to-top,
+		[data-doctype="Sammelbestellung"] .scroll-to-top,
+		.form-layout[data-doctype="Sammelbestellung"] .scroll-to-top,
+		body[data-doctype="Sammelbestellung"] .scroll-to-top {
 			display: none !important;
 		}
 	`;

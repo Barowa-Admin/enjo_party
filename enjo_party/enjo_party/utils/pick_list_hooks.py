@@ -78,12 +78,18 @@ def before_save_pick_list(doc, method):
     """
     Hook für Pick List before_save
     Stellt sicher, dass item_name aus Sales Order Item übernommen wird (für Gruppenversand mit Präfix)
+    WICHTIG: Überschreibt NICHT Trenner-Items (item_code == "---")
     """
     if doc.doctype != "Pick List":
         return
     
     # Stelle sicher, dass item_name aus Sales Order Item übernommen wird
+    # ABER: Überschreibe NICHT Trenner-Items (item_code == "---")
     for picklist_item in doc.locations:
+        # Überspringe Trenner-Items - diese haben bereits das korrekte item_name
+        if picklist_item.item_code == "---":
+            continue
+            
         if picklist_item.sales_order_item:
             try:
                 so_item = frappe.get_doc("Sales Order Item", picklist_item.sales_order_item)

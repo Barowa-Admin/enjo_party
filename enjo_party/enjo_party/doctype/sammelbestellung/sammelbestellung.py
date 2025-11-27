@@ -36,6 +36,44 @@ def get_default_warehouse():
         return "Stores - Default"
 
 
+def should_add_separator_for_customer(customer, order_info_list, partnerin=None):
+    """
+    Prüft, ob für einen Kunden ein Trenner hinzugefügt werden soll.
+    
+    Trenner werden NUR hinzugefügt für:
+    - Echte Kunden/Gäste mit Produkten
+    - NICHT für Vertriebspartner (partnerin)
+    - NICHT wenn der Kunde nur Versandkosten-Artikel hat
+    
+    Args:
+        customer: Der Kunde
+        order_info_list: Liste von order_info Dictionaries mit 'products'
+        partnerin: Optional - Name der Partnerin (Sales Partner)
+    
+    Returns:
+        True wenn Trenner hinzugefügt werden soll, False sonst
+    """
+    # Prüfe ob Kunde die Partnerin ist
+    if partnerin and customer == partnerin:
+        return False
+    
+    # Prüfe ob der Kunde echte Produkte hat (nicht nur Versandkosten)
+    has_real_products = False
+    for order_info in order_info_list:
+        if order_info.get('customer') == customer:
+            products = order_info.get('products', [])
+            for product in products:
+                item_code = product.get('item_code', '')
+                # Wenn mindestens ein Produkt NICHT shipping-* ist, hat der Kunde echte Produkte
+                if item_code and not item_code.startswith('shipping-'):
+                    has_real_products = True
+                    break
+            if has_real_products:
+                break
+    
+    return has_real_products
+
+
 class Sammelbestellung(Document):
 	def before_validate(self):
 		"""
@@ -1212,179 +1250,235 @@ def find_existing_address(entity_name, preferred_type="Billing"):
         frappe.log_error(f"=== find_existing_address ENDE für '{entity_name}' ===", "DEBUG: find_address_end")
 
 def create_picklists_for_sammelbestellung(sammelbestellung_doc, all_orders_with_shipping, created_order_names):
-	"""
-	Erstellt Picklists (Auswahllisten) gruppiert nach Versandziel
-	"""
-	try:
-		frappe.log_error(f"🎯 create_picklists_for_sammelbestellung gestartet", "INFO: picklist_function")
-		
-		shipping_groups = {}
-		
-		for order_info in all_orders_with_shipping:
-			customer = order_info["customer"]
-			shipping_target = order_info["shipping_target"]
-			
-			sales_order_name = None
-			for order_name in created_order_names:
-				try:
-					order_doc = frappe.get_doc("Sales Order", order_name)
-					if order_doc.customer == customer:
-						sales_order_name = order_name
-						break
-				except:
-					continue
-			
-			if sales_order_name:
-				if shipping_target not in shipping_groups:
-					shipping_groups[shipping_target] = []
-				shipping_groups[shipping_target].append({
-					"customer": customer,
-					"sales_order": sales_order_name,
-					"order_info": order_info
-				})
-		
-		frappe.log_error(f"📦 Picklist Shipping Groups: {list(shipping_groups.keys())}", "INFO: picklist_groups")
-		
-		created_picklists = []
-		
-		for shipping_target, orders_for_target in shipping_groups.items():
-			try:
-				frappe.log_error(f"🏭 Erstelle Picklist für Versandziel: {shipping_target}", "INFO: creating_picklist")
-				
-				all_picklist_items = []
-				invoice_data = []
-				order_numbers = []
-				
-				for order_data in orders_for_target:
-					customer = order_data["customer"]
-					sales_order_name = order_data["sales_order"]
-					order_info = order_data["order_info"]
-					
-					order_numbers.append(sales_order_name)
-					
-					try:
-						frappe.log_error(f"🔍 Suche Sales Invoices für SO: {sales_order_name}", "DEBUG: invoice_search_start")
-						current_invoices = frappe.get_all(
-							"Sales Invoice",
-							filters={
-								"sales_order": sales_order_name,
-								"docstatus": 1
-							},
-							fields=["name"]
-						)
-						
-						frappe.log_error(f"📋 Gefundene Invoices für SO {sales_order_name}: {len(current_invoices)} - {[inv.name for inv in current_invoices]}", "DEBUG: invoice_search_result")
-						
-						for inv in current_invoices:
-							customer_name = customer
-							try:
-								customer_doc = frappe.get_doc("Customer", customer)
-								customer_display_name = customer_doc.customer_name or customer
-							except:
-								customer_display_name = customer
-							
-							invoice_with_customer = f"{inv.name} ({customer_display_name})"
-							invoice_data.append(invoice_with_customer)
-							frappe.log_error(f"💳 Sales Invoice für SO {sales_order_name} gefunden: {invoice_with_customer}", "INFO: invoice_found_for_picklist")
-							
-					except Exception as e:
-						frappe.log_error(f"⚠️ Fehler beim Finden der Sales Invoice für {sales_order_name}: {str(e)}", "WARNING: invoice_search")
-					
-					try:
-						so_doc = frappe.get_doc("Sales Order", sales_order_name)
-					except:
-						frappe.log_error(f"❌ Sales Order {sales_order_name} nicht gefunden", "ERROR: so_not_found")
-						continue
-					
-					for product in order_info["products"]:
-						if product.get("_shipping_item", False):
-							frappe.log_error(f"📦 Versandartikel übersprungen für Picklist: {product['item_code']}", "INFO: shipping_item_skipped")
-							continue
-						
-						so_warehouse = product.get("warehouse", get_default_warehouse())
-						so_item_name = None
-						for so_item in so_doc.items:
-							if so_item.item_code == product["item_code"] and so_item.qty == product["qty"]:
-								so_warehouse = so_item.warehouse or get_default_warehouse()
-								so_item_name = so_item.name
-								break
-						
-						picklist_item = {
-							"doctype": "Pick List Item",
-							"item_code": product["item_code"],
-							"item_name": product["item_name"],
-							"qty": float(product["qty"]),
-							"stock_qty": float(product.get("stock_qty", product["qty"])),
-							"picked_qty": 0.0,
-							"stock_reserved_qty": 0.0,
-							"uom": product.get("uom", "Stk"),
-							"stock_uom": product.get("stock_uom", "Stk"),
-							"conversion_factor": float(product.get("conversion_factor", 1.0)),
-							"warehouse": so_warehouse,
-							"sales_order": sales_order_name,
-							"sales_order_item": so_item_name,
-							"batch_no": None,
-							"serial_no": None,
-							"use_serial_batch_fields": 0,
-							"serial_and_batch_bundle": None,
-							"product_bundle_item": None,
-							"material_request": None,
-							"material_request_item": None
-						}
-						
-						all_picklist_items.append(picklist_item)
-						frappe.log_error(f"✅ Picklist Item hinzugefügt: {product['item_code']} (SO: {sales_order_name}, SO-Item: {so_item_name}, Customer: {customer})", "INFO: picklist_item_added")
-				
-				if not all_picklist_items:
-					frappe.log_error(f"⚠️ Keine Items für Versandziel {shipping_target} gefunden", "WARNING: no_picklist_items")
-					continue
-				
-				invoice_data = list(set(invoice_data))
-				order_numbers = list(set(order_numbers))
-				
-				if invoice_data:
-					invoice_text = "\n".join(sorted(invoice_data))
-					remarks = f"Sammelbestellung: {sammelbestellung_doc.name} | {len(invoice_data)} Rechnungen"
-					frappe.log_error(f"✅ Picklist mit {len(invoice_data)} Rechnungen erstellt", "INFO: picklist_created_with_invoices")
-				else:
-					order_text = ", ".join(sorted(order_numbers))
-					remarks = f"Sammelbestellung: {sammelbestellung_doc.name} | {len(order_numbers)} Aufträge"
-					frappe.log_error(f"⚠️ Picklist ohne Rechnungen - {len(order_numbers)} Aufträge", "WARNING: picklist_no_invoices")
-				
-				picklist_data = {
-					"doctype": "Pick List",
-					"purpose": "Delivery",
-					"company": frappe.defaults.get_user_default("Company"),
-					"customer": shipping_target,
-					"custom_invoice_references": "\n".join(sorted(invoice_data)) if invoice_data else None,
-					"remarks": remarks,
-					"locations": all_picklist_items
-				}
-				
-				frappe.log_error(f"🎯 Erstelle Picklist für {shipping_target} mit {len(all_picklist_items)} Items", "INFO: picklist_creation")
-				
-				picklist = frappe.get_doc(picklist_data)
-				picklist.insert()
-				frappe.log_error(f"✅ Picklist erstellt: {picklist.name}", "SUCCESS: picklist_created")
-				
-				try:
-					picklist.submit()
-					frappe.log_error(f"🎉 Picklist eingereicht: {picklist.name}", "SUCCESS: picklist_submitted")
-				except Exception as e:
-					frappe.log_error(f"⚠️ Picklist konnte nicht eingereicht werden: {str(e)}", "WARNING: picklist_submit_failed")
-				
-				created_picklists.append(picklist.name)
-				
-			except Exception as e:
-				frappe.log_error(f"❌ Fehler beim Erstellen der Picklist für {shipping_target}: {str(e)}", "ERROR: picklist_creation_error")
-				continue
-		
-		frappe.log_error(f"🎉 Picklists erstellt: {created_picklists}", "SUCCESS: all_picklists_created")
-		return created_picklists
-		
-	except Exception as e:
-		frappe.log_error(f"💥 Allgemeiner Fehler in create_picklists_for_sammelbestellung: {str(e)}\n{frappe.get_traceback()}", "ERROR: picklist_function_error")
-		return []
+    """
+    Erstellt Picklists (Auswahllisten) gruppiert nach Versandziel
+    """
+    try:
+        frappe.log_error(f"🎯 create_picklists_for_sammelbestellung gestartet", "INFO: picklist_function")
+        
+        shipping_groups = {}
+        
+        for order_info in all_orders_with_shipping:
+            customer = order_info["customer"]
+            shipping_target = order_info["shipping_target"]
+            
+            sales_order_name = None
+            for order_name in created_order_names:
+                try:
+                    order_doc = frappe.get_doc("Sales Order", order_name)
+                    if order_doc.customer == customer:
+                        sales_order_name = order_name
+                        break
+                except:
+                    continue
+            
+            if sales_order_name:
+                if shipping_target not in shipping_groups:
+                    shipping_groups[shipping_target] = []
+                shipping_groups[shipping_target].append({
+                    "customer": customer,
+                    "sales_order": sales_order_name,
+                    "order_info": order_info
+                })
+        
+        frappe.log_error(f"📦 Picklist Shipping Groups: {list(shipping_groups.keys())}", "INFO: picklist_groups")
+        
+        created_picklists = []
+        
+        for shipping_target, orders_for_target in shipping_groups.items():
+            try:
+                frappe.log_error(f"🏭 Erstelle Picklist für Versandziel: {shipping_target}", "INFO: creating_picklist")
+                
+                all_picklist_items = []
+                invoice_data = []
+                order_numbers = []
+                
+                # Prüfe ob Gruppenversand (mehrere Kunden an dasselbe Versandziel)
+                is_group_shipping = len(orders_for_target) > 1
+                
+                for idx, order_data in enumerate(orders_for_target):
+                    customer = order_data["customer"]
+                    sales_order_name = order_data["sales_order"]
+                    order_info = order_data["order_info"]
+                    
+                    order_numbers.append(sales_order_name)
+                    
+                    # Hole Kundenname für Anzeige
+                    try:
+                        customer_doc = frappe.get_doc("Customer", customer)
+                        customer_display_name = customer_doc.customer_name or customer
+                    except:
+                        customer_display_name = customer
+                    
+                    # WICHTIG: Prüfe ob Trenner hinzugefügt werden soll
+                    # Trenner nur für echte Kunden mit Produkten, NICHT für Vertriebspartner oder nur Versandkosten
+                    # WICHTIG: Filtere nach aktuellem Versandziel, nicht nach allen Versandzielen!
+                    customer_order_infos = [oi for oi in all_orders_with_shipping if oi.get('customer') == customer and oi.get('shipping_target') == shipping_target]
+                    should_add_separator = should_add_separator_for_customer(customer, customer_order_infos, sammelbestellung_doc.partnerin)
+                    
+                    # WICHTIG: Füge Trenner hinzu für JEDEN Kunden (auch den ersten) bei Gruppenversand UND Kunde hat echte Produkte
+                    # Genau wie bei Party! (siehe party.py)
+                    if is_group_shipping and should_add_separator:
+                        # Erstelle Trenn-Item mit dem existierenden Item "---"
+                        try:
+                            # Prüfe, ob das Trenn-Item existiert
+                            trenner_item = frappe.get_doc("Item", "---")
+                            
+                            separator_item = {
+                                "doctype": "Pick List Item",
+                                "item_code": "---",
+                                "item_name": f"📦 Bestellung für: {customer_display_name}",
+                                "qty": 0.001,  # Sehr kleine Menge, damit es angezeigt wird aber nicht gepackt wird
+                                "stock_qty": 0.001,
+                                "picked_qty": 0.0,
+                                "stock_reserved_qty": 0.0,
+                                "uom": trenner_item.stock_uom or "Stk",
+                                "stock_uom": trenner_item.stock_uom or "Stk",
+                                "conversion_factor": 1.0,
+                                "warehouse": get_default_warehouse(),
+                                "sales_order": None,  # Kein Sales Order für Trenn-Item
+                                "sales_order_item": None,
+                                "batch_no": None,
+                                "serial_no": None,
+                                "use_serial_batch_fields": 0,
+                                "serial_and_batch_bundle": None,
+                                "product_bundle_item": None,
+                                "material_request": None,
+                                "material_request_item": None
+                            }
+                            all_picklist_items.append(separator_item)
+                            frappe.log_error(f"📋 Trenn-Item hinzugefügt für Kunde: {customer_display_name} (Index: {idx}) - item_code: {separator_item.get('item_code')}, item_name: {separator_item.get('item_name')}", "INFO: separator_item_added")
+                        except Exception as e:
+                            # Falls das Trenn-Item nicht existiert, logge Warnung aber mache weiter
+                            frappe.log_error(f"⚠️ Trenn-Item '---' konnte nicht gefunden werden: {str(e)}", "WARNING: separator_item_not_found")
+                    elif not should_add_separator:
+                        frappe.log_error(f"⏭️ Überspringe Trenner für {customer_display_name} (Vertriebspartner oder nur Versandkosten)", "DEBUG: skip_separator_for_partner_picklist")
+                    
+                    try:
+                        frappe.log_error(f"🔍 Suche Sales Invoices für SO: {sales_order_name}", "DEBUG: invoice_search_start")
+                        current_invoices = frappe.get_all(
+                            "Sales Invoice",
+                            filters={
+                                "sales_order": sales_order_name,
+                                "docstatus": 1
+                            },
+                            fields=["name"]
+                        )
+                        
+                        frappe.log_error(f"📋 Gefundene Invoices für SO {sales_order_name}: {len(current_invoices)} - {[inv.name for inv in current_invoices]}", "DEBUG: invoice_search_result")
+                        
+                        for inv in current_invoices:
+                            invoice_with_customer = f"{inv.name} ({customer_display_name})"
+                            invoice_data.append(invoice_with_customer)
+                            frappe.log_error(f"💳 Sales Invoice für SO {sales_order_name} gefunden: {invoice_with_customer}", "INFO: invoice_found_for_picklist")
+                            
+                    except Exception as e:
+                        frappe.log_error(f"⚠️ Fehler beim Finden der Sales Invoice für {sales_order_name}: {str(e)}", "WARNING: invoice_search")
+                    
+                    try:
+                        so_doc = frappe.get_doc("Sales Order", sales_order_name)
+                    except:
+                        frappe.log_error(f"❌ Sales Order {sales_order_name} nicht gefunden", "ERROR: so_not_found")
+                        continue
+                    
+                    for product in order_info["products"]:
+                        if product.get("_shipping_item", False):
+                            frappe.log_error(f"📦 Versandartikel übersprungen für Picklist: {product['item_code']}", "INFO: shipping_item_skipped")
+                            continue
+                        
+                        so_warehouse = product.get("warehouse", get_default_warehouse())
+                        so_item_name = None
+                        for so_item in so_doc.items:
+                            if so_item.item_code == product["item_code"] and so_item.qty == product["qty"]:
+                                so_warehouse = so_item.warehouse or get_default_warehouse()
+                                so_item_name = so_item.name
+                                break
+                        
+                        picklist_item = {
+                            "doctype": "Pick List Item",
+                            "item_code": product["item_code"],
+                            "item_name": product["item_name"],
+                            "qty": float(product["qty"]),
+                            "stock_qty": float(product.get("stock_qty", product["qty"])),
+                            "picked_qty": 0.0,
+                            "stock_reserved_qty": 0.0,
+                            "uom": product.get("uom", "Stk"),
+                            "stock_uom": product.get("stock_uom", "Stk"),
+                            "conversion_factor": float(product.get("conversion_factor", 1.0)),
+                            "warehouse": so_warehouse,
+                            "sales_order": sales_order_name,
+                            "sales_order_item": so_item_name,
+                            "batch_no": None,
+                            "serial_no": None,
+                            "use_serial_batch_fields": 0,
+                            "serial_and_batch_bundle": None,
+                            "product_bundle_item": None,
+                            "material_request": None,
+                            "material_request_item": None
+                        }
+                        
+                        all_picklist_items.append(picklist_item)
+                        frappe.log_error(f"✅ Picklist Item hinzugefügt: {product['item_code']} (SO: {sales_order_name}, SO-Item: {so_item_name}, Customer: {customer})", "INFO: picklist_item_added")
+                
+                if not all_picklist_items:
+                    frappe.log_error(f"⚠️ Keine Items für Versandziel {shipping_target} gefunden", "WARNING: no_picklist_items")
+                    continue
+                
+                invoice_data = list(set(invoice_data))
+                order_numbers = list(set(order_numbers))
+                
+                if invoice_data:
+                    invoice_text = "\n".join(sorted(invoice_data))
+                    remarks = f"Sammelbestellung: {sammelbestellung_doc.name} | {len(invoice_data)} Rechnungen"
+                    frappe.log_error(f"✅ Picklist mit {len(invoice_data)} Rechnungen erstellt", "INFO: picklist_created_with_invoices")
+                else:
+                    order_text = ", ".join(sorted(order_numbers))
+                    remarks = f"Sammelbestellung: {sammelbestellung_doc.name} | {len(order_numbers)} Aufträge"
+                    frappe.log_error(f"⚠️ Picklist ohne Rechnungen - {len(order_numbers)} Aufträge", "WARNING: picklist_no_invoices")
+                
+                picklist_data = {
+                    "doctype": "Pick List",
+                    "purpose": "Delivery",
+                    "company": frappe.defaults.get_user_default("Company"),
+                    "customer": shipping_target,
+                    "custom_invoice_references": "\n".join(sorted(invoice_data)) if invoice_data else None,
+                    "remarks": remarks,
+                    "locations": all_picklist_items
+                }
+                
+                frappe.log_error(f"🎯 Erstelle Picklist für {shipping_target} mit {len(all_picklist_items)} Items", "INFO: picklist_creation")
+                
+                # Debug: Prüfe ob Trenner-Items vorhanden sind
+                trenner_count = sum(1 for item in all_picklist_items if item.get('item_code') == '---')
+                frappe.log_error(f"🔍 Trenner-Items in Picklist: {trenner_count} von {len(all_picklist_items)} Items", "DEBUG: separator_items_check")
+                
+                picklist = frappe.get_doc(picklist_data)
+                picklist.insert()
+                
+                # Debug: Prüfe ob Trenner-Items nach insert noch vorhanden sind
+                trenner_after_insert = sum(1 for item in picklist.locations if item.item_code == '---')
+                frappe.log_error(f"🔍 Trenner-Items nach insert: {trenner_after_insert} von {len(picklist.locations)} Items", "DEBUG: separator_items_after_insert")
+                
+                frappe.log_error(f"✅ Picklist erstellt: {picklist.name}", "SUCCESS: picklist_created")
+                
+                try:
+                    picklist.submit()
+                    frappe.log_error(f"🎉 Picklist eingereicht: {picklist.name}", "SUCCESS: picklist_submitted")
+                except Exception as e:
+                    frappe.log_error(f"⚠️ Picklist konnte nicht eingereicht werden: {str(e)}", "WARNING: picklist_submit_failed")
+                
+                created_picklists.append(picklist.name)
+                
+            except Exception as e:
+                frappe.log_error(f"❌ Fehler beim Erstellen der Picklist für {shipping_target}: {str(e)}", "ERROR: picklist_creation_error")
+                continue
+        
+        frappe.log_error(f"🎉 Picklists erstellt: {created_picklists}", "SUCCESS: all_picklists_created")
+        return created_picklists
+        
+    except Exception as e:
+        frappe.log_error(f"💥 Allgemeiner Fehler in create_picklists_for_sammelbestellung: {str(e)}\n{frappe.get_traceback()}", "ERROR: picklist_function_error")
+        return []
 
 
 def create_shipping_orders_for_customers(sammelbestellung_doc, all_orders_with_shipping):
@@ -1449,20 +1543,96 @@ def create_shipping_orders_for_customers(sammelbestellung_doc, all_orders_with_s
                     frappe.log_error(f"Keine Adresse für Versandziel {shipping_target} gefunden - überspringe", "WARNING: no_shipping_address")
                     continue
                 
-                # Sammle ALLE Produkte die an dieses Versandziel gehen (auch die eigenen!)
-                all_products_for_target = []
-                
-                # Füge alle Produkte hinzu, die an dieses Versandziel gehen
+                # Sammle alle Kunden, die an dieses Versandziel senden
+                all_customers_for_target = []
                 for order_info in all_orders_with_shipping:
                     if order_info.get('shipping_target') == shipping_target:
-                        for product in order_info.get('products', []):
-                            if product.get('item_code') and not product.get('item_code', '').startswith('shipping-'):
-                                all_products_for_target.append({
-                                    'product': product,
-                                    'from_customer': order_info.get('customer')
-                                })
+                        customer = order_info.get('customer')
+                        if customer and customer not in all_customers_for_target:
+                            all_customers_for_target.append(customer)
                 
-                frappe.log_error(f"Versandauftrag für {shipping_target}: {len(all_products_for_target)} Produkte (inkl. eigene)", "INFO: shipping_order_products")
+                # Sortiere Kunden für konsistente Reihenfolge
+                all_customers_for_target.sort()
+                
+                # Sammle ALLE Produkte mit Trennern (wie bei Party!)
+                products_by_customer = []
+                
+                for idx, customer in enumerate(all_customers_for_target):
+                    # Hole Kundenname für Anzeige
+                    try:
+                        customer_doc = frappe.get_doc("Customer", customer)
+                        customer_display_name = customer_doc.customer_name or customer
+                    except:
+                        customer_display_name = customer
+                    
+                    # WICHTIG: Prüfe ob Trenner hinzugefügt werden soll
+                    # Trenner nur für echte Kunden mit Produkten, NICHT für Vertriebspartner oder nur Versandkosten
+                    customer_order_infos = [oi for oi in all_orders_with_shipping if oi.get('customer') == customer and oi.get('shipping_target') == shipping_target]
+                    should_add_separator = should_add_separator_for_customer(customer, customer_order_infos, sammelbestellung_doc.partnerin)
+                    
+                    # WICHTIG: Füge Trenn-Item hinzu für JEDEN Kunden (auch den ersten) wenn mehrere Kunden UND Kunde hat echte Produkte
+                    # Genau wie bei Party! (siehe party.py Zeile 1854)
+                    if len(all_customers_for_target) > 1 and should_add_separator:
+                        # Erstelle Trenn-Item (Überschrift für jeden Kunden)
+                        try:
+                            trenner_item = frappe.get_doc("Item", "---")
+                            separator_item_data = {
+                                "doctype": "Sales Order Item",
+                                "item_code": "---",
+                                "item_name": f"📦 Bestellung für: {customer_display_name}",
+                                "qty": 0.001,  # Sehr kleine Menge, damit es angezeigt wird aber nicht gepackt wird
+                                "rate": 0,
+                                "amount": 0,
+                                "uom": trenner_item.stock_uom or "Stk",
+                                "stock_uom": trenner_item.stock_uom or "Stk",
+                                "conversion_factor": 1.0,
+                                "stock_qty": 0.001,
+                                "base_amount": 0,
+                                "base_rate": 0,
+                                "warehouse": get_default_warehouse(),
+                                "delivery_date": today(),
+                            }
+                            products_by_customer.append(separator_item_data)
+                            frappe.log_error(f"📋 Trenn-Item (Überschrift) im Gruppenversand-Auftrag hinzugefügt für Kunde: {customer_display_name} (Index: {idx})", "INFO: separator_item_in_order")
+                        except Exception as e:
+                            frappe.log_error(f"⚠️ Trenn-Item '---' konnte nicht gefunden werden: {str(e)}", "WARNING: separator_item_not_found")
+                    elif not should_add_separator:
+                        frappe.log_error(f"⏭️ Überspringe Trenner für {customer_display_name} (Vertriebspartner oder nur Versandkosten)", "DEBUG: skip_separator_for_partner")
+                    
+                    # Füge alle Produkte dieses Kunden hinzu
+                    for order_info in all_orders_with_shipping:
+                        if order_info.get('shipping_target') == shipping_target and order_info.get('customer') == customer:
+                            for product in order_info.get('products', []):
+                                if product.get('item_code') and not product.get('item_code', '').startswith('shipping-'):
+                                    # WICHTIG: Bei Gruppenversand Kunden-Namen als Präfix zum Item-Namen hinzufügen
+                                    item_name_display = product.get('item_name', product.get('item_code'))
+                                    try:
+                                        customer_doc = frappe.get_doc("Customer", customer)
+                                        customer_display_name = customer_doc.customer_name or customer
+                                    except:
+                                        customer_display_name = customer
+                                    
+                                    if len(all_customers_for_target) > 1:
+                                        item_name_display = f"[{customer_display_name}] {item_name_display}"
+                                    
+                                    products_by_customer.append({
+                                        "doctype": "Sales Order Item",
+                                        "item_code": product.get('item_code'),
+                                        "item_name": item_name_display,
+                                        "qty": product.get('qty', 1),
+                                        "rate": 0,  # WICHTIG: Keine Rechnung = 0€ Rate
+                                        "amount": 0,  # WICHTIG: Keine Rechnung = 0€ Amount
+                                        "uom": product.get('uom', 'Stk'),
+                                        "stock_uom": product.get('stock_uom', 'Stk'),
+                                        "conversion_factor": product.get('conversion_factor', 1.0),
+                                        "stock_qty": product.get('stock_qty', product.get('qty', 1)),
+                                        "base_amount": 0,  # WICHTIG: Keine Rechnung = 0€ Base Amount
+                                        "base_rate": 0,  # WICHTIG: Keine Rechnung = 0€ Base Rate
+                                        "warehouse": product.get('warehouse', get_default_warehouse()),
+                                        "delivery_date": product.get('delivery_date', today()),
+                                    })
+                
+                frappe.log_error(f"Versandauftrag für {shipping_target}: {len(products_by_customer)} Items (inkl. Trenn-Items) von {len(all_customers_for_target)} Kunden", "INFO: shipping_order_products")
                 frappe.log_error(f"DEBUG: shipping_address = {shipping_address}", "DEBUG: address_debug")
                 
                 # Erstelle Versandauftrag
@@ -1471,27 +1641,10 @@ def create_shipping_orders_for_customers(sammelbestellung_doc, all_orders_with_s
                     "customer": "Gruppenversand",  # Immer Gruppenversand als Customer
                     "transaction_date": today(),
                     "delivery_date": today(),
-                    "items": [
-                        {
-                            "doctype": "Sales Order Item",
-                            "item_code": item['product'].get('item_code'),
-                            "item_name": item['product'].get('item_name', item['product'].get('item_code')),
-                            "qty": item['product'].get('qty', 1),
-                            "rate": 0,  # WICHTIG: Keine Rechnung = 0€ Rate
-                            "amount": 0,  # WICHTIG: Keine Rechnung = 0€ Amount
-                            "uom": item['product'].get('uom', 'Stk'),
-                            "stock_uom": item['product'].get('stock_uom', 'Stk'),
-                            "conversion_factor": item['product'].get('conversion_factor', 1.0),
-                            "stock_qty": item['product'].get('stock_qty', item['product'].get('qty', 1)),
-                            "base_amount": 0,  # WICHTIG: Keine Rechnung = 0€ Base Amount
-                            "base_rate": 0,  # WICHTIG: Keine Rechnung = 0€ Base Rate
-                            "warehouse": item['product'].get('warehouse', get_default_warehouse()),
-                            "delivery_date": item['product'].get('delivery_date', today()),
-                        } for item in all_products_for_target
-                    ],
+                    "items": products_by_customer,
                     "customer_address": None,  # Gruppenversand hat keine eigene Adresse
                     "shipping_address_name": shipping_address,  # Korrekte Versandadresse
-                    "remarks": f"Versandauftrag aus Sammelbestellung: {sammelbestellung_doc.name} | Versandziel: {shipping_target} | {len(all_products_for_target)} Produkte (inkl. eigene)",
+                    "remarks": f"Versandauftrag aus Sammelbestellung: {sammelbestellung_doc.name} | Versandziel: {shipping_target} | {len(products_by_customer)} Items (inkl. Trenn-Items) von {len(all_customers_for_target)} Kunden",
                     "po_no": sammelbestellung_doc.name,
                     "company": frappe.defaults.get_global_default("company"),
                     "currency": frappe.defaults.get_global_default("currency"),
@@ -1710,13 +1863,67 @@ def create_delivery_notes_for_receiving_customers(sammelbestellung_doc, all_orde
                 invoice_data = []
                 order_numbers = []
                 
-                for order_data in orders_for_target:
+                # Prüfe ob Gruppenversand (mehrere Kunden an dasselbe Versandziel)
+                is_group_shipping = len(orders_for_target) > 1
+                
+                for idx, order_data in enumerate(orders_for_target):
                     customer = order_data["customer"]
                     sales_order_name = order_data["sales_order"]
                     order_info = order_data["order_info"]
                     products = order_info.get("products", [])
                     
                     order_numbers.append(sales_order_name)
+                    
+                    # Hole Kundenname für Anzeige
+                    try:
+                        customer_doc = frappe.get_doc("Customer", customer)
+                        customer_display_name = customer_doc.customer_name or customer
+                    except:
+                        customer_display_name = customer
+                    
+                    # WICHTIG: Prüfe ob Trenner hinzugefügt werden soll
+                    # Trenner nur für echte Kunden mit Produkten, NICHT für Vertriebspartner oder nur Versandkosten
+                    # WICHTIG: Filtere nach aktuellem Versandziel, nicht nach allen Versandzielen!
+                    customer_order_infos = [oi for oi in all_orders_with_shipping if oi.get('customer') == customer and oi.get('shipping_target') == shipping_target]
+                    should_add_separator = should_add_separator_for_customer(customer, customer_order_infos, sammelbestellung_doc.partnerin)
+                    
+                    # WICHTIG: Füge Trenner hinzu für JEDEN Kunden (auch den ersten) bei Gruppenversand UND Kunde hat echte Produkte
+                    # Genau wie bei Party! (siehe party.py)
+                    if is_group_shipping and should_add_separator:
+                        # Erstelle Trenn-Item mit dem existierenden Item "---"
+                        try:
+                            # Prüfe, ob das Trenn-Item existiert
+                            trenner_item = frappe.get_doc("Item", "---")
+                            
+                            separator_item = {
+                                "doctype": "Delivery Note Item",
+                                "item_code": "---",
+                                "item_name": f"📦 Bestellung für: {customer_display_name}",
+                                "qty": 0.001,  # Sehr kleine Menge, damit es angezeigt wird aber nicht geliefert wird
+                                "rate": 0,
+                                "amount": 0,
+                                "uom": trenner_item.stock_uom or "Stk",
+                                "stock_uom": trenner_item.stock_uom or "Stk",
+                                "conversion_factor": 1.0,
+                                "stock_qty": 0.001,
+                                "base_amount": 0,
+                                "base_rate": 0,
+                                "warehouse": get_default_warehouse(),
+                                "sales_order": sales_order_name,  # WICHTIG: Verwende Sales Order damit Item nicht entfernt wird
+                                "sales_order_item": None,
+                                "allow_zero_valuation_rate": 1,
+                            }
+                            all_products.append({
+                                'product': separator_item,
+                                'from_customer': customer,
+                                'sales_order': sales_order_name  # Verwende Sales Order statt None
+                            })
+                            frappe.log_error(f"📋 Trenn-Item hinzugefügt für Kunde: {customer_display_name} - item_code: {separator_item.get('item_code')}, item_name: {separator_item.get('item_name')}", "INFO: separator_item_added")
+                        except Exception as e:
+                            # Falls das Trenn-Item nicht existiert, logge Warnung aber mache weiter
+                            frappe.log_error(f"⚠️ Trenn-Item '---' konnte nicht gefunden werden: {str(e)}", "WARNING: separator_item_not_found")
+                    elif not should_add_separator:
+                        frappe.log_error(f"⏭️ Überspringe Trenner für {customer_display_name} (Vertriebspartner oder nur Versandkosten)", "DEBUG: skip_separator_for_partner_dn")
                     
                     # Füge alle Produkte hinzu (außer Versandkosten)
                     for product in products:
@@ -1786,7 +1993,15 @@ def create_delivery_notes_for_receiving_customers(sammelbestellung_doc, all_orde
                     "selling_price_list": target_sales_order.selling_price_list,
                 }
                 
+                # Debug: Prüfe ob Trenner-Items vorhanden sind
+                trenner_count = sum(1 for item in all_products if item.get('product', {}).get('item_code') == '---')
+                frappe.log_error(f"🔍 Trenner-Items in Delivery Note: {trenner_count} von {len(all_products)} Items", "DEBUG: separator_items_check_dn")
+                
                 delivery_note = frappe.get_doc(delivery_note_data)
+                
+                # Debug: Prüfe ob Trenner-Items nach doc creation vorhanden sind
+                trenner_after_doc = sum(1 for item in delivery_note.items if item.item_code == '---')
+                frappe.log_error(f"🔍 Trenner-Items nach doc creation: {trenner_after_doc} von {len(delivery_note.items)} Items", "DEBUG: separator_items_after_doc")
                 
                 # WICHTIG: Setze Flags VOR dem insert, damit Validierungen übersprungen werden
                 # Dies ist eine zusätzliche Sicherheitsmaßnahme, falls der Hook nicht greift
@@ -1804,6 +2019,16 @@ def create_delivery_notes_for_receiving_customers(sammelbestellung_doc, all_orde
                             item.allow_zero_valuation = 1
                 
                 delivery_note.insert()
+                
+                # Debug: Prüfe ob Trenner-Items nach insert noch vorhanden sind
+                trenner_after_insert = sum(1 for item in delivery_note.items if item.item_code == '---')
+                frappe.log_error(f"🔍 Trenner-Items nach insert: {trenner_after_insert} von {len(delivery_note.items)} Items", "DEBUG: separator_items_after_insert_dn")
+                
+                # Debug: Zeige Details aller Trenner-Items
+                for idx, item in enumerate(delivery_note.items):
+                    if item.item_code == '---':
+                        frappe.log_error(f"🔍 Trenner-Item #{idx}: item_code='{item.item_code}', item_name='{item.item_name}', qty={item.qty}", "DEBUG: separator_item_details")
+                
                 frappe.log_error(f"✅ Delivery Note erstellt: {delivery_note.name} für {shipping_target}", "SUCCESS: delivery_note_created")
                 
                 # Delivery Note NICHT einreichen - nur als Entwurf speichern

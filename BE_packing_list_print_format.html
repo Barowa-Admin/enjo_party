@@ -135,13 +135,15 @@
                     {% set qty_list = [] %}
                     {% if doc.locations %}
                         {% for item in doc.locations %}
-                            {% set item_qty = item.qty|float if item.qty else 0 %}
-                            {% set _ = qty_list.append(item_qty) %}
+                            {# WICHTIG: Trenner-Items (item_code == "---") nicht mitzählen #}
+                            {% if item.item_code != "---" %}
+                                {% set item_qty = item.qty|float if item.qty else 0 %}
+                                {% set _ = qty_list.append(item_qty) %}
+                            {% endif %}
                         {% endfor %}
                     {% endif %}
                     {% set total_qty = qty_list|sum %}
                     {{ total_qty|int if total_qty|int == total_qty else total_qty }} Stück
-                    <!-- DEBUG: Items: {{ doc.locations|length if doc.locations else 0 }}, List: {{ qty_list }}, Total: {{ total_qty }} -->
                 </span>
             </div>
             <div>
@@ -150,18 +152,21 @@
                     {% set weight_list_kg = [] %}
                     {% if doc.locations %}
                         {% for item in doc.locations %}
-                            {% set item_qty = item.qty|float if item.qty else 0 %}
-                            {% set item_weight_per_unit = frappe.db.get_value("Item", item.item_code, "weight_per_unit") or 0 %}
-                            {% set item_weight_uom = frappe.db.get_value("Item", item.item_code, "weight_uom") or "kg" %}
-                            {% if item_qty and item_weight_per_unit %}
-                                {% set item_total_weight = (item_weight_per_unit|float) * item_qty %}
-                                {# Umrechnung auf kg #}
-                                {% if item_weight_uom == "g" or item_weight_uom == "Gram" %}
-                                    {% set item_total_weight_kg = item_total_weight / 1000 %}
-                                {% else %}
-                                    {% set item_total_weight_kg = item_total_weight %}
+                            {# WICHTIG: Trenner-Items (item_code == "---") nicht mitzählen #}
+                            {% if item.item_code != "---" %}
+                                {% set item_qty = item.qty|float if item.qty else 0 %}
+                                {% set item_weight_per_unit = frappe.db.get_value("Item", item.item_code, "weight_per_unit") or 0 %}
+                                {% set item_weight_uom = frappe.db.get_value("Item", item.item_code, "weight_uom") or "kg" %}
+                                {% if item_qty and item_weight_per_unit %}
+                                    {% set item_total_weight = (item_weight_per_unit|float) * item_qty %}
+                                    {# Umrechnung auf kg #}
+                                    {% if item_weight_uom == "g" or item_weight_uom == "Gram" %}
+                                        {% set item_total_weight_kg = item_total_weight / 1000 %}
+                                    {% else %}
+                                        {% set item_total_weight_kg = item_total_weight %}
+                                    {% endif %}
+                                    {% set _ = weight_list_kg.append(item_total_weight_kg) %}
                                 {% endif %}
-                                {% set _ = weight_list_kg.append(item_total_weight_kg) %}
                             {% endif %}
                         {% endfor %}
                     {% endif %}

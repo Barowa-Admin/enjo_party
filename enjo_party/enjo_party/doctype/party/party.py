@@ -663,31 +663,69 @@ def link_address_to_customer(address_name, customer_name):
 # Warehouse-Hilfsfunktion hinzufügen
 @frappe.whitelist()
 def get_default_warehouse():
-	"""
-	Ermittelt das Standard-Warehouse flexibel für verschiedene Installationen
-	"""
-	# Versuche zuerst das Benutzer-Default-Warehouse
-	warehouse = frappe.defaults.get_user_default("Warehouse")
-	if warehouse:
-		return warehouse
-	
-	# Fallback: Erstes verfügbares nicht-Gruppen-Warehouse
-	warehouses = frappe.get_all("Warehouse", 
-		filters={"is_group": 0}, 
-		fields=["name"], 
-		limit=1
-	)
-	
-	if warehouses:
-		return warehouses[0].name
-	
-	# Letzter Fallback: Erstes verfügbares Warehouse überhaupt
-	all_warehouses = frappe.get_all("Warehouse", fields=["name"], limit=1)
-	if all_warehouses:
-		return all_warehouses[0].name
-	
-	# Wenn gar nichts gefunden wird, verwende einen Standard-Namen
-	return "Stores - Main"
+    """
+    Ermittelt das Standard-Warehouse flexibel für verschiedene Installationen
+    """
+    # Versuche zuerst das Benutzer-Default-Warehouse
+    warehouse = frappe.defaults.get_user_default("Warehouse")
+    if warehouse:
+        return warehouse
+    
+    # Fallback: Erstes verfügbares nicht-Gruppen-Warehouse
+    warehouses = frappe.get_all("Warehouse", 
+        filters={"is_group": 0}, 
+        fields=["name"], 
+        limit=1
+    )
+    
+    if warehouses:
+        return warehouses[0].name
+    
+    # Letzter Fallback: Erstes verfügbares Warehouse überhaupt
+    all_warehouses = frappe.get_all("Warehouse", fields=["name"], limit=1)
+    if all_warehouses:
+        return all_warehouses[0].name
+    
+    # Wenn gar nichts gefunden wird, verwende einen Standard-Namen
+    return "Stores - Main"
+
+
+def should_add_separator_for_customer(customer, order_info_list, partnerin=None):
+    """
+    Prüft, ob für einen Kunden ein Trenner hinzugefügt werden soll.
+    
+    Trenner werden NUR hinzugefügt für:
+    - Echte Kunden/Gäste mit Produkten
+    - NICHT für Vertriebspartner (partnerin)
+    - NICHT wenn der Kunde nur Versandkosten-Artikel hat
+    
+    Args:
+        customer: Der Kunde
+        order_info_list: Liste von order_info Dictionaries mit 'products'
+        partnerin: Optional - Name der Partnerin (Sales Partner)
+    
+    Returns:
+        True wenn Trenner hinzugefügt werden soll, False sonst
+    """
+    # Prüfe ob Kunde die Partnerin ist
+    if partnerin and customer == partnerin:
+        return False
+    
+    # Prüfe ob der Kunde echte Produkte hat (nicht nur Versandkosten)
+    has_real_products = False
+    for order_info in order_info_list:
+        if order_info.get('customer') == customer:
+            products = order_info.get('products', [])
+            for product in products:
+                item_code = product.get('item_code', '')
+                # Wenn mindestens ein Produkt NICHT shipping-* ist, hat der Kunde echte Produkte
+                if item_code and not item_code.startswith('shipping-'):
+                    has_real_products = True
+                    break
+            if has_real_products:
+                break
+    
+    return has_real_products
 
 def calculate_shipping_costs_for_party(party_doc):
     """
@@ -1850,15 +1888,20 @@ def create_shipping_orders_for_party_customers(party_doc, all_orders_with_shippi
                 
                 # Füge alle Produkte hinzu, die an dieses Versandziel gehen
                 for idx, customer in enumerate(all_customers_for_target):
-                    # WICHTIG: Füge Trenn-Item hinzu für JEDEN Kunden (auch den ersten) wenn mehrere Kunden
-                    if len(all_customers_for_target) > 1:
-                        # Hole Kundenname für Anzeige
-                        try:
-                            customer_doc = frappe.get_doc("Customer", customer)
-                            customer_display_name = customer_doc.customer_name or customer
-                        except:
-                            customer_display_name = customer
-                        
+                    # Hole Kundenname für Anzeige
+                    try:
+                        customer_doc = frappe.get_doc("Customer", customer)
+                        customer_display_name = customer_doc.customer_name or customer
+                    except:
+                        customer_display_name = customer
+                    
+                    # WICHTIG: Prüfe ob Trenner hinzugefügt werden soll
+                    # Trenner nur für echte Kunden mit Produkten, NICHT für Vertriebspartner oder nur Versandkosten
+                    customer_order_infos = [oi for oi in all_orders_with_shipping if oi.get('customer') == customer and oi.get('shipping_target') == shipping_target]
+                    should_add_separator = should_add_separator_for_customer(customer, customer_order_infos, party_doc.partnerin)
+                    
+                    # WICHTIG: Füge Trenn-Item hinzu für JEDEN Kunden (auch den ersten) wenn mehrere Kunden UND Kunde hat echte Produkte
+                    if len(all_customers_for_target) > 1 and should_add_separator:
                         # Erstelle Trenn-Item (Überschrift für jeden Kunden)
                         try:
                             trenner_item = frappe.get_doc("Item", "---")
@@ -1882,6 +1925,8 @@ def create_shipping_orders_for_party_customers(party_doc, all_orders_with_shippi
                             frappe.log_error(f"📋 Trenn-Item (Überschrift) im Gruppenversand-Auftrag hinzugefügt für Kunde: {customer_display_name} (Index: {idx})", "INFO: separator_item_in_order")
                         except Exception as e:
                             frappe.log_error(f"⚠️ Trenn-Item '---' konnte nicht gefunden werden: {str(e)}", "WARNING: separator_item_not_found")
+                    elif not should_add_separator:
+                        frappe.log_error(f"⏭️ Überspringe Trenner für {customer_display_name} (Vertriebspartner oder nur Versandkosten)", "DEBUG: skip_separator_for_partner")
                     
                     # Füge alle Produkte dieses Kunden hinzu
                     for order_info in all_orders_with_shipping:
@@ -2070,8 +2115,14 @@ def create_picklists_for_party(party_doc, all_orders_with_shipping, created_orde
 					
 					frappe.log_error(f"🔍 Verarbeite Kunde: {customer} ({customer_display_name}), vorheriger: {previous_customer}, is_group_shipping: {is_group_shipping}", "DEBUG: customer_processing")
 					
-					# WICHTIG: Füge Trenn-Item hinzu, wenn Kunde wechselt (nur bei Gruppenversand)
-					if is_group_shipping and previous_customer is not None and previous_customer != customer:
+					# WICHTIG: Prüfe ob Trenner hinzugefügt werden soll
+					# Trenner nur für echte Kunden mit Produkten, NICHT für Vertriebspartner oder nur Versandkosten
+					# WICHTIG: Filtere nach aktuellem Versandziel, nicht nach allen Versandzielen!
+					customer_order_infos = [oi for oi in all_orders_with_shipping if oi.get('customer') == customer and oi.get('shipping_target') == shipping_target]
+					should_add_separator = should_add_separator_for_customer(customer, customer_order_infos, party_doc.partnerin)
+					
+					# WICHTIG: Füge Trenn-Item hinzu für JEDEN Kunden (auch den ersten) wenn Gruppenversand UND Kunde hat echte Produkte
+					if is_group_shipping and should_add_separator:
 						# Erstelle Trenn-Item mit dem existierenden Item "---"
 						try:
 							# Prüfe, ob das Trenn-Item existiert
@@ -2100,10 +2151,12 @@ def create_picklists_for_party(party_doc, all_orders_with_shipping, created_orde
 								"material_request_item": None
 							}
 							all_picklist_items.append(separator_item)
-							frappe.log_error(f"📋 Trenn-Item hinzugefügt für Kunde: {customer_display_name} (vorheriger: {previous_customer})", "INFO: separator_item_added")
+							frappe.log_error(f"📋 Trenn-Item hinzugefügt für Kunde: {customer_display_name}", "INFO: separator_item_added")
 						except Exception as e:
 							# Falls das Trenn-Item nicht existiert, logge Warnung aber mache weiter
 							frappe.log_error(f"⚠️ Trenn-Item '---' konnte nicht gefunden werden: {str(e)}", "WARNING: separator_item_not_found")
+					elif not should_add_separator:
+						frappe.log_error(f"⏭️ Überspringe Trenner für {customer_display_name} (Vertriebspartner oder nur Versandkosten)", "DEBUG: skip_separator_for_partner_picklist")
 					
 					previous_customer = customer
 					
@@ -2278,5 +2331,4 @@ def create_picklists_for_party(party_doc, all_orders_with_shipping, created_orde
 	except Exception as e:
 		frappe.log_error(f"💥 Allgemeiner Fehler in create_picklists_for_party: {str(e)}\n{frappe.get_traceback()}", "ERROR: picklist_function_error")
 		return []
-
 
