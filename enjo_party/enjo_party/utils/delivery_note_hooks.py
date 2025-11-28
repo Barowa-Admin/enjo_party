@@ -4,6 +4,9 @@
 import frappe
 import types
 
+# PATCH: Verhindere mehrfache Webhook-Auslösung für dasselbe Dokument
+_webhook_patch_applied = False
+
 def before_validate_delivery_note(doc, method):
     """
     Hook für Delivery Note before_validate
@@ -378,11 +381,61 @@ def before_submit_delivery_note(doc, method):
     if doc.doctype != "Delivery Note":
         return
     
+    # PATCH: Verhindere mehrfache Webhook-Auslösung für dasselbe Dokument
+    # Wird VOR dem Submit angewendet, damit es vor Frappe's Webhook-Auslösung greift
+    global _webhook_patch_applied
+    
+    if not _webhook_patch_applied:
+        try:
+            from frappe.integrations.doctype.webhook.webhook import enqueue_webhook as original_enqueue_webhook
+            
+            # Track bereits getriggerte Webhooks
+            if not hasattr(frappe.local, '_webhook_triggered'):
+                frappe.local._webhook_triggered = set()
+            
+            def patched_enqueue_webhook(doc=None, webhook=None, method="POST", **kwargs):
+                """Verhindert mehrfache Webhook-Auslösung für dasselbe Dokument"""
+                if doc and webhook and doc.doctype == "Delivery Note":
+                    doc_key = f"{doc.doctype}:{doc.name}:{webhook}"
+                    
+                    # Wenn dieser Webhook bereits für dieses Dokument getriggert wurde, überspringe
+                    if doc_key in frappe.local._webhook_triggered:
+                        frappe.log_error(
+                            f"⏭️ Webhook {webhook} für {doc.name} wurde bereits getriggert - überspringe mehrfache Auslösung",
+                            "INFO: webhook_already_triggered"
+                        )
+                        return
+                    
+                    # Markiere als getriggert
+                    frappe.local._webhook_triggered.add(doc_key)
+                    
+                    frappe.log_error(
+                        f"✅ Webhook {webhook} für {doc.name} wird getriggert (Customer: {doc.customer})",
+                        "INFO: webhook_triggered_once"
+                    )
+                
+                # Rufe die originale Funktion auf
+                return original_enqueue_webhook(doc=doc, webhook=webhook, method=method, **kwargs)
+            
+            # PATCH: Überschreibe die Funktion
+            import frappe.integrations.doctype.webhook.webhook as webhook_module
+            webhook_module.enqueue_webhook = patched_enqueue_webhook
+            _webhook_patch_applied = True
+            
+            frappe.log_error("✅ Webhook-System gepatcht in before_submit - mehrfache Auslösungen werden verhindert", "INFO: webhook_patch_applied")
+            
+        except Exception as e:
+            frappe.log_error(
+                f"Fehler beim Patchen des Webhook-Systems: {str(e)}\n{frappe.get_traceback()}",
+                "WARNING: webhook_patch_failed"
+            )
+    
+    
     # ===================================================================================
     # ABSCHNITT 1: DEAKTIVIERUNG VON VALIDIERUNGEN VOR DEM BUCHEN
     # ===================================================================================
     # Diese Flags werden VOR dem Submit gesetzt, um sicherzustellen, dass alle
-    # Validierungen auch zu diesem späten Zeitpunkt noch deaktiviert sind.
+    # Validierungen auch zu diesem Zeitpunkt noch deaktiviert sind.
     # ERPNext führt Validierungen zu verschiedenen Zeitpunkten durch, daher ist
     # diese doppelte Absicherung notwendig.
     #
@@ -433,199 +486,11 @@ def before_submit_delivery_note(doc, method):
 def on_submit_delivery_note(doc, method):
     """
     Hook für Delivery Note on_submit
-    Stellt sicher, dass Webhooks auch für Gruppenversand-Lieferscheine ausgelöst werden
-    
-    PROBLEM: Frappe's Webhook-System hat eine Bedingung, die Gruppenversand-Lieferscheine
-    (customer == "Gruppenversand") ausschließt. Diese Funktion triggert den Webhook
-    DIREKT über HTTP-Request und umgeht die Bedingungsprüfung komplett.
+    DEAKTIVIERT: Webhook-Triggern wird komplett von Frappe's Standard-System übernommen.
+    Das Patchen des Webhook-Systems erfolgt beim Import des Moduls.
     """
-    if doc.doctype != "Delivery Note":
-        return
-    
-    # Prüfe ob es ein Gruppenversand-Lieferschein ist
-    is_gruppenversand = doc.customer == "Gruppenversand"
-    
-    if is_gruppenversand:
-        frappe.log_error(
-            f"🔔 Gruppenversand-Lieferschein {doc.name} gebucht - triggere Webhook direkt",
-            "INFO: group_shipping_webhook_trigger"
-        )
-        
-        try:
-            # Lade alle aktiven Webhooks für Delivery Note on_submit (nur Basisfelder)
-            webhooks = frappe.get_all(
-                "Webhook",
-                filters={
-                    "webhook_doctype": "Delivery Note",
-                    "webhook_docevent": "on_submit",
-                    "enabled": 1
-                },
-                fields=["name", "request_url"]
-            )
-            
-            if not webhooks:
-                frappe.log_error(
-                    f"Keine Webhooks für Delivery Note on_submit gefunden",
-                    "WARNING: no_webhooks_found"
-                )
-                return
-            
-            frappe.log_error(
-                f"Gefunden: {len(webhooks)} Webhook(s) für Delivery Note on_submit - triggere direkt",
-                "INFO: webhooks_found"
-            )
-            
-            # Triggere jeden Webhook DIREKT über HTTP-Request (umgeht Bedingungsprüfung)
-            for webhook in webhooks:
-                try:
-                    frappe.log_error(
-                        f"Versuche Webhook {webhook.name} zu triggern...",
-                        "INFO: webhook_attempt"
-                    )
-                    trigger_webhook_directly(doc, webhook)
-                except Exception as e:
-                    frappe.log_error(
-                        f"Fehler beim Triggern des Webhooks {webhook.name}: {str(e)}\n{frappe.get_traceback()}",
-                        "ERROR: webhook_trigger_failed"
-                    )
-                        
-        except Exception as e:
-            frappe.log_error(
-                f"Fehler beim Prüfen von Webhooks: {str(e)}\n{frappe.get_traceback()}",
-                "ERROR: webhook_check_failed"
-            )
+    # Der Patch wird beim Import des Moduls angewendet
+    # Diese Funktion macht nichts mehr
+    return
 
 
-def trigger_webhook_directly(doc, webhook):
-    """
-    Triggert einen Webhook DIREKT über HTTP-Request.
-    Umgeht Frappe's Webhook-Bedingungsprüfung komplett.
-    """
-    import json
-    import hashlib
-    import hmac
-    
-    try:
-        frappe.log_error(
-            f"🔧 Lade Webhook-Dokument {webhook.name}",
-            "DEBUG: webhook_load_doc"
-        )
-        
-        # Lade vollständiges Webhook-Dokument
-        webhook_doc = frappe.get_doc("Webhook", webhook.name)
-        
-        frappe.log_error(
-            f"🔧 Webhook-URL: {webhook_doc.request_url}",
-            "DEBUG: webhook_url"
-        )
-        
-        # Erstelle Webhook-Daten basierend auf der Webhook-Konfiguration
-        webhook_data = {}
-        
-        # Füge Standard-Felder hinzu
-        webhook_data["doctype"] = doc.doctype
-        webhook_data["name"] = doc.name
-        webhook_data["event"] = "on_submit"
-        
-        # Füge alle Felder des Dokuments hinzu
-        doc_dict = doc.as_dict()
-        webhook_data["doc"] = doc_dict
-        
-        # Füge spezifische Webhook-Daten hinzu, falls konfiguriert
-        if hasattr(webhook_doc, 'webhook_data') and webhook_doc.webhook_data:
-            for field in webhook_doc.webhook_data:
-                if hasattr(field, 'fieldname') and field.fieldname and hasattr(doc, field.fieldname):
-                    key = getattr(field, 'key', None) or field.fieldname
-                    webhook_data[key] = doc.get(field.fieldname)
-        
-        # Erstelle Headers
-        headers = {
-            "Content-Type": "application/json"
-        }
-        
-        # Füge konfigurierte Headers hinzu
-        if hasattr(webhook_doc, 'webhook_headers') and webhook_doc.webhook_headers:
-            for header in webhook_doc.webhook_headers:
-                if hasattr(header, 'key') and header.key:
-                    headers[header.key] = getattr(header, 'value', '') or ""
-        
-        # Füge Webhook-Secret als Header hinzu, falls konfiguriert
-        if hasattr(webhook_doc, 'webhook_secret') and webhook_doc.webhook_secret:
-            # Erstelle HMAC-Signatur
-            payload_str = json.dumps(webhook_data, sort_keys=True, default=str)
-            signature = hmac.new(
-                webhook_doc.webhook_secret.encode(),
-                payload_str.encode(),
-                hashlib.sha256
-            ).hexdigest()
-            headers["X-Frappe-Webhook-Signature"] = signature
-        
-        frappe.log_error(
-            f"📤 Sende Webhook-Request an {webhook_doc.request_url} für {doc.name}",
-            "INFO: webhook_request_sending"
-        )
-        
-        # Verwende Frappe's eingebaute HTTP-Funktionen
-        try:
-            from frappe.integrations.utils import make_post_request
-            
-            response = make_post_request(
-                webhook_doc.request_url,
-                data=json.dumps(webhook_data, default=str),
-                headers=headers
-            )
-            
-            frappe.log_error(
-                f"✅ Webhook {webhook.name} erfolgreich ausgelöst für {doc.name} (Response: {str(response)[:200]})",
-                "SUCCESS: webhook_triggered"
-            )
-            
-            # Erstelle Webhook Request Log für Nachverfolgung
-            try:
-                log = frappe.new_doc("Webhook Request Log")
-                log.webhook = webhook.name
-                log.reference_doctype = doc.doctype
-                log.reference_document = doc.name
-                log.response_code = "200"
-                log.response = str(response)[:1000] if response else ""
-                log.flags.ignore_permissions = True
-                log.insert()
-                frappe.db.commit()
-                frappe.log_error(
-                    f"📝 Webhook-Log erstellt für {doc.name}",
-                    "INFO: webhook_log_created"
-                )
-            except Exception as log_error:
-                frappe.log_error(
-                    f"Webhook-Log konnte nicht erstellt werden: {str(log_error)}\n{frappe.get_traceback()}",
-                    "WARNING: webhook_log_failed"
-                )
-                
-        except ImportError:
-            # Fallback: Verwende requests direkt
-            import requests
-            
-            response = requests.post(
-                webhook_doc.request_url,
-                json=webhook_data,
-                headers=headers,
-                timeout=30
-            )
-            
-            # Logge Ergebnis
-            if response.status_code >= 200 and response.status_code < 300:
-                frappe.log_error(
-                    f"✅ Webhook {webhook.name} erfolgreich ausgelöst für {doc.name} (Status: {response.status_code})",
-                    "SUCCESS: webhook_triggered"
-                )
-            else:
-                frappe.log_error(
-                    f"⚠️ Webhook {webhook.name} für {doc.name} - Status: {response.status_code}",
-                    "WARNING: webhook_unexpected_status"
-                )
-            
-    except Exception as e:
-        frappe.log_error(
-            f"❌ Webhook {webhook.name} Fehler für {doc.name}: {str(e)}\n{frappe.get_traceback()}",
-            "ERROR: webhook_general_error"
-        )
