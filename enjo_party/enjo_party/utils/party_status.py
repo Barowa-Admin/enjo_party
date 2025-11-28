@@ -522,6 +522,16 @@ def update_party_completion_status(party_name):
             frappe.db.commit()
             frappe.log_error(f"Party {party_name} auf 'Abgeschlossen' gesetzt!", 
                            "SUCCESS: party_completed")
+            
+            # Sende Realtime-Event um geöffnete Dokumente zu aktualisieren
+            frappe.publish_realtime(
+                "party_status_updated",
+                {
+                    "doctype": "Party",
+                    "name": party_name,
+                    "status": "Abgeschlossen"
+                }
+            )
         
     except Exception as e:
         frappe.log_error(f"Fehler beim Update des Party-Status: {str(e)}", 

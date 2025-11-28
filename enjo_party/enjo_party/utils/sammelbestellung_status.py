@@ -530,6 +530,16 @@ def update_sammelbestellung_completion_status(sammelbestellung_name):
             frappe.db.commit()
             frappe.log_error(f"Sammelbestellung {sammelbestellung_name} auf 'Abgeschlossen' gesetzt!", 
                            "SUCCESS: sammelbestellung_completed")
+            
+            # Sende Realtime-Event um geöffnete Dokumente zu aktualisieren
+            frappe.publish_realtime(
+                "party_status_updated",
+                {
+                    "doctype": "Sammelbestellung",
+                    "name": sammelbestellung_name,
+                    "status": "Abgeschlossen"
+                }
+            )
         
     except Exception as e:
         frappe.log_error(f"Fehler beim Update des Sammelbestellung-Status: {str(e)}", 

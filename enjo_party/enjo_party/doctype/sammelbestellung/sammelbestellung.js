@@ -1623,3 +1623,19 @@ function updateAllSummenAnzeigen(frm) {
 	}
 }
 
+// Realtime-Event-Listener für Status-Updates
+frappe.realtime.on("party_status_updated", function(data) {
+	if (data && data.doctype === "Sammelbestellung" && data.name) {
+		// Prüfe ob das Dokument aktuell geöffnet ist
+		let frm = frappe.get_route()[0] === "Form" && 
+		          frappe.get_route()[1] === "Sammelbestellung" && 
+		          frappe.get_route()[2] === data.name ?
+		          cur_frm : null;
+		
+		if (frm && frm.doc && frm.doc.name === data.name) {
+			// Dokument ist geöffnet - lade es neu
+			frm.reload_doc();
+		}
+	}
+});
+
