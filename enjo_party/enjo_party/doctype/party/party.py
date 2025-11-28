@@ -250,8 +250,9 @@ class Party(Document):
 			)
 	
 	def set_status(self):
-		# Wenn wir bereits abgeschlossen sind oder in "Gastgeber Geschenke" Status, nicht mehr ändern
-		if self.status == "Abgeschlossen" or self.status == "Gastgeber Geschenke":
+		# Wenn wir bereits "Geschenke", "Gebucht" oder "Abgeschlossen" sind, nicht mehr ändern
+		# Diese Status werden durch die Status-Update-Funktionen gesetzt
+		if self.status in ["Geschenke", "Gebucht", "Abgeschlossen"]:
 			return
 			
 		# Prüfen, ob Produkte vorhanden sind
@@ -1497,11 +1498,19 @@ def create_invoices(party, from_submit=False, from_button=False):
             # Picklist wird automatisch über Sales Order Hooks erstellt
             created_picklists = []  # Fallback für Fehlerfälle
             
-            # Status auf "Abgeschlossen" setzen
+            # Status auf "Geschenke" setzen (alle Orders erstellt)
+            # "Gebucht" wird später automatisch gesetzt wenn alle Orders erstellt sind
+            # "Abgeschlossen" wird automatisch gesetzt wenn alle Orders "Completed" sind
             party_doc.set_status = lambda: None  # Überschreibe die Methode temporär
-            party_doc.status = "Abgeschlossen"
+            party_doc.status = "Geschenke"
             party_doc.save()
             party_doc.submit()
+            
+            # Nach dem Submit: Setze Status auf "Gebucht" (alle Orders erstellt, wartet auf Zahlung/Lieferung)
+            party_doc.reload()
+            party_doc.status = "Gebucht"
+            party_doc.db_set("status", "Gebucht", update_modified=False)
+            frappe.db.commit()
             
             # Erfolgsmeldung anzeigen
             picklist_msg = f" und {len(created_picklists)} Auswahllisten" if created_picklists else ""

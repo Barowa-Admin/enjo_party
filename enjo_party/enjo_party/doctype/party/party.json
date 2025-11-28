@@ -150,7 +150,7 @@
    "fieldname": "status",
    "fieldtype": "Select",
    "label": "Status",
-   "options": "Gäste\nProdukte\nGastgeber Geschenke\nAbgeschlossen",
+   "options": "Gäste\nProdukte\nGeschenke\nGebucht\nAbgeschlossen",
    "read_only": 1
   },
   {

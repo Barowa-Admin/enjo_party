@@ -2,10 +2,10 @@
 # For license information, please see license.txt
 
 """
-Sammelbestellungs-Status-Manipulation
+Party-Status-Manipulation
 
 Dieses Modul manipuliert den ECHTEN ERPNext-Status (per_billed, per_delivered, 
-billing_status, delivery_status) für Sammelbestellungen.
+billing_status, delivery_status) für Parties.
 
 Problem:
 - Einzelne Kunden-Aufträge bekommen Rechnungen aber keine Lieferscheine
@@ -13,7 +13,7 @@ Problem:
 - ERPNext berechnet Status falsch weil die Dokumente "getrennt" sind
 
 Lösung:
-- Wenn ALLE Rechnungen der Sammelbestellung bezahlt sind → setze per_billed=100 
+- Wenn ALLE Rechnungen der Party bezahlt sind → setze per_billed=100 
   für ALLE Sales Orders (inkl. Gruppenversand)
 - Wenn Gruppenversand-Lieferschein gebucht → setze per_delivered=100 
   für ALLE Sales Orders (inkl. Kunden-Aufträge)
@@ -23,73 +23,52 @@ import frappe
 from frappe.utils import flt
 
 
-def update_sammelbestellung_status_on_payment(doc, method):
+def update_party_status_on_payment(doc, method):
     """
     Hook für Payment Entry on_submit
-    Prüft ob alle Rechnungen einer Sammelbestellung ODER Party bezahlt sind
+    Prüft ob alle Rechnungen einer Party bezahlt sind
     """
     try:
-        # Importiere Party-Status-Funktionen
-        from enjo_party.enjo_party.utils.party_status import update_party_billing_status
-        
         # Finde alle Sales Invoices die durch diesen Payment Entry bezahlt wurden
         for ref in doc.references:
             if ref.reference_doctype == "Sales Invoice":
                 invoice = frappe.get_doc("Sales Invoice", ref.reference_name)
                 
-                # Prüfe ob die Invoice zu einer Sammelbestellung gehört
+                # Prüfe ob die Invoice zu einer Party gehört
                 party_reference = getattr(invoice, "custom_party_reference", None)
-                if party_reference:
-                    if frappe.db.exists("Sammelbestellung", party_reference):
-                        frappe.log_error(f"Payment für Sammelbestellung {party_reference} erkannt", 
-                                        "INFO: sammelbestellung_payment")
-                        update_sammelbestellung_billing_status(party_reference)
-                    elif frappe.db.exists("Party", party_reference):
-                        frappe.log_error(f"Payment für Party {party_reference} erkannt", 
-                                        "INFO: party_payment")
-                        update_party_billing_status(party_reference)
+                if party_reference and frappe.db.exists("Party", party_reference):
+                    frappe.log_error(f"Payment für Party {party_reference} erkannt", 
+                                    "INFO: party_payment")
+                    update_party_billing_status(party_reference)
                     
     except Exception as e:
         frappe.log_error(f"Fehler beim Update des Billing-Status nach Zahlung: {str(e)}", 
-                        "ERROR: sammelbestellung_status_payment")
+                        "ERROR: party_status_payment")
 
 
-def update_sammelbestellung_status_on_invoice_payment(doc, method):
+def update_party_status_on_invoice_payment(doc, method):
     """
     Hook für Sales Invoice on_update_after_submit
     Wird aufgerufen wenn der outstanding_amount sich ändert
-    Prüft sowohl Sammelbestellung als auch Party
     """
     try:
-        # Importiere Party-Status-Funktionen
-        from enjo_party.enjo_party.utils.party_status import update_party_billing_status
-        
         party_reference = getattr(doc, "custom_party_reference", None)
-        if party_reference:
-            if frappe.db.exists("Sammelbestellung", party_reference):
-                frappe.log_error(f"Invoice-Update für Sammelbestellung {party_reference}", 
-                                "INFO: invoice_update")
-                update_sammelbestellung_billing_status(party_reference)
-            elif frappe.db.exists("Party", party_reference):
-                frappe.log_error(f"Invoice-Update für Party {party_reference}", 
-                                "INFO: invoice_update")
-                update_party_billing_status(party_reference)
+        if party_reference and frappe.db.exists("Party", party_reference):
+            frappe.log_error(f"Invoice-Update für Party {party_reference}", 
+                            "INFO: invoice_update")
+            update_party_billing_status(party_reference)
             
     except Exception as e:
         frappe.log_error(f"Fehler beim Update nach Invoice-Update: {str(e)}", 
-                        "ERROR: sammelbestellung_status_invoice")
+                        "ERROR: party_status_invoice")
 
 
-def update_sammelbestellung_status_on_delivery(doc, method):
+def update_party_status_on_delivery(doc, method):
     """
     Hook für Delivery Note on_submit
     Prüft ob es sich um einen Gruppenversand-Lieferschein handelt
-    Prüft sowohl Sammelbestellung als auch Party
     """
     try:
-        # Importiere Party-Status-Funktionen
-        from enjo_party.enjo_party.utils.party_status import update_party_delivery_status
-        
         # Finde den Sales Order für diesen Lieferschein
         sales_order_name = None
         for item in doc.items:
@@ -108,49 +87,44 @@ def update_sammelbestellung_status_on_delivery(doc, method):
         if not is_shipping_order:
             return
         
-        # Hole die Referenz (Sammelbestellung oder Party)
+        # Hole die Party-Referenz
         party_reference = getattr(sales_order, "custom_party_reference", None)
-        if party_reference:
-            if frappe.db.exists("Sammelbestellung", party_reference):
-                frappe.log_error(f"Gruppenversand-Lieferschein für Sammelbestellung {party_reference}", 
-                               "INFO: shipping_delivery")
-                update_sammelbestellung_delivery_status(party_reference)
-            elif frappe.db.exists("Party", party_reference):
-                frappe.log_error(f"Gruppenversand-Lieferschein für Party {party_reference}", 
-                               "INFO: shipping_delivery")
-                update_party_delivery_status(party_reference)
+        if party_reference and frappe.db.exists("Party", party_reference):
+            frappe.log_error(f"Gruppenversand-Lieferschein für Party {party_reference}", 
+                           "INFO: shipping_delivery")
+            update_party_delivery_status(party_reference)
             
     except Exception as e:
         frappe.log_error(f"Fehler beim Update nach Lieferschein: {str(e)}", 
-                        "ERROR: sammelbestellung_status_delivery")
+                        "ERROR: party_status_delivery")
 
 
-def update_sammelbestellung_billing_status(sammelbestellung_name):
+def update_party_billing_status(party_name):
     """
     Prüft ob alle Rechnungen bezahlt sind und setzt per_billed=100 
-    für ALLE Sales Orders der Sammelbestellung
+    für ALLE Sales Orders der Party
     
     WICHTIG: Prüft nur ob alle existierenden Rechnungen bezahlt sind.
     Orders die keine Rechnungen bekommen (z.B. Vertriebspartner-Orders, Gruppenversand) 
     werden nicht als fehlend betrachtet.
     """
     try:
-        # Finde alle GEBUCHTEN Sales Invoices der Sammelbestellung
+        # Finde alle GEBUCHTEN Sales Invoices der Party
         invoices = frappe.get_all(
             "Sales Invoice",
             filters={
-                "custom_party_reference": sammelbestellung_name,
+                "custom_party_reference": party_name,
                 "docstatus": 1
             },
             fields=["name", "outstanding_amount", "grand_total"]
         )
         
         if not invoices:
-            frappe.log_error(f"Keine gebuchten Rechnungen für {sammelbestellung_name} gefunden", 
+            frappe.log_error(f"Keine gebuchten Rechnungen für {party_name} gefunden", 
                            "DEBUG: no_invoices")
             return
         
-        frappe.log_error(f"Gefunden: {len(invoices)} gebuchte Rechnungen für Sammelbestellung {sammelbestellung_name}", 
+        frappe.log_error(f"Gefunden: {len(invoices)} gebuchte Rechnungen für Party {party_name}", 
                         "DEBUG: invoice_count")
         
         # Prüfe ob ALLE Rechnungen bezahlt sind (outstanding_amount = 0)
@@ -163,18 +137,18 @@ def update_sammelbestellung_billing_status(sammelbestellung_name):
                 break
         
         if not all_paid:
-            frappe.log_error(f"Nicht alle Rechnungen bezahlt für {sammelbestellung_name}", 
+            frappe.log_error(f"Nicht alle Rechnungen bezahlt für {party_name}", 
                            "DEBUG: not_all_paid")
             return
         
-        frappe.log_error(f"ALLE {len(invoices)} Rechnungen bezahlt für {sammelbestellung_name} - setze Status!", 
+        frappe.log_error(f"ALLE {len(invoices)} Rechnungen bezahlt für {party_name} - setze Status!", 
                         "INFO: all_paid")
         
-        # Finde ALLE Sales Orders der Sammelbestellung
+        # Finde ALLE Sales Orders der Party
         sales_orders = frappe.get_all(
             "Sales Order",
             filters={
-                "custom_party_reference": sammelbestellung_name,
+                "custom_party_reference": party_name,
                 "docstatus": 1
             },
             fields=["name"]
@@ -208,23 +182,23 @@ def update_sammelbestellung_billing_status(sammelbestellung_name):
         all_orders_check = frappe.get_all(
             "Sales Order",
             filters={
-                "custom_party_reference": sammelbestellung_name,
+                "custom_party_reference": party_name,
                 "docstatus": 1
             },
             fields=["name", "per_delivered"]
         )
         if not all(flt(so.per_delivered) >= 100 for so in all_orders_check):
-            update_sammelbestellung_delivery_status_if_exists(sammelbestellung_name)
+            update_party_delivery_status_if_exists(party_name)
         
-        # Prüfen ob die Sammelbestellung abgeschlossen werden kann
-        update_sammelbestellung_completion_status(sammelbestellung_name)
+        # Prüfen ob die Party abgeschlossen werden kann
+        update_party_completion_status(party_name)
         
     except Exception as e:
         frappe.log_error(f"Fehler beim Update des Billing-Status: {str(e)}", 
                         "ERROR: update_billing_status")
 
 
-def update_sammelbestellung_billing_status_if_exists(sammelbestellung_name):
+def update_party_billing_status_if_exists(party_name):
     """
     Prüft ob bereits alle Rechnungen bezahlt sind
     und aktualisiert dann den Billing-Status für alle Orders
@@ -235,7 +209,7 @@ def update_sammelbestellung_billing_status_if_exists(sammelbestellung_name):
         all_orders = frappe.get_all(
             "Sales Order",
             filters={
-                "custom_party_reference": sammelbestellung_name,
+                "custom_party_reference": party_name,
                 "docstatus": 1
             },
             fields=["name", "per_billed"]
@@ -243,15 +217,15 @@ def update_sammelbestellung_billing_status_if_exists(sammelbestellung_name):
         
         # Wenn bereits alle Orders per_billed=100 haben, nichts tun
         if all_orders and all(flt(so.per_billed) >= 100 for so in all_orders):
-            frappe.log_error(f"Billing-Status bereits gesetzt für {sammelbestellung_name}", 
+            frappe.log_error(f"Billing-Status bereits gesetzt für {party_name}", 
                            "DEBUG: billing_already_set")
             return
         
-        # Finde alle GEBUCHTEN Sales Invoices der Sammelbestellung
+        # Finde alle GEBUCHTEN Sales Invoices der Party
         invoices = frappe.get_all(
             "Sales Invoice",
             filters={
-                "custom_party_reference": sammelbestellung_name,
+                "custom_party_reference": party_name,
                 "docstatus": 1
             },
             fields=["name", "outstanding_amount"]
@@ -265,14 +239,14 @@ def update_sammelbestellung_billing_status_if_exists(sammelbestellung_name):
         
         if all_paid:
             # Alle Rechnungen bezahlt → setze Billing-Status direkt (ohne erneute Delivery-Prüfung)
-            frappe.log_error(f"Alle Rechnungen bereits bezahlt für {sammelbestellung_name} - setze Billing-Status direkt", 
+            frappe.log_error(f"Alle Rechnungen bereits bezahlt für {party_name} - setze Billing-Status direkt", 
                            "DEBUG: billing_already_paid")
             
-            # Finde ALLE Sales Orders der Sammelbestellung (inkl. Gruppenversand)
+            # Finde ALLE Sales Orders der Party (inkl. Gruppenversand)
             all_orders = frappe.get_all(
                 "Sales Order",
                 filters={
-                    "custom_party_reference": sammelbestellung_name,
+                    "custom_party_reference": party_name,
                     "docstatus": 1
                 },
                 fields=["name"]
@@ -295,7 +269,7 @@ def update_sammelbestellung_billing_status_if_exists(sammelbestellung_name):
                         "ERROR: check_billing_status")
 
 
-def update_sammelbestellung_delivery_status_if_exists(sammelbestellung_name):
+def update_party_delivery_status_if_exists(party_name):
     """
     Prüft ob bereits ein Lieferschein für den Gruppenversand existiert
     und aktualisiert dann den Delivery-Status für alle Orders
@@ -306,7 +280,7 @@ def update_sammelbestellung_delivery_status_if_exists(sammelbestellung_name):
         all_orders = frappe.get_all(
             "Sales Order",
             filters={
-                "custom_party_reference": sammelbestellung_name,
+                "custom_party_reference": party_name,
                 "docstatus": 1
             },
             fields=["name", "per_delivered"]
@@ -314,7 +288,7 @@ def update_sammelbestellung_delivery_status_if_exists(sammelbestellung_name):
         
         # Wenn bereits alle Orders per_delivered=100 haben, nichts tun
         if all_orders and all(flt(so.per_delivered) >= 100 for so in all_orders):
-            frappe.log_error(f"Delivery-Status bereits gesetzt für {sammelbestellung_name}", 
+            frappe.log_error(f"Delivery-Status bereits gesetzt für {party_name}", 
                            "DEBUG: delivery_already_set")
             return
         
@@ -322,7 +296,7 @@ def update_sammelbestellung_delivery_status_if_exists(sammelbestellung_name):
         shipping_orders = frappe.get_all(
             "Sales Order",
             filters={
-                "custom_party_reference": sammelbestellung_name,
+                "custom_party_reference": party_name,
                 "custom_shipping_order": 1,
                 "docstatus": 1
             },
@@ -347,14 +321,14 @@ def update_sammelbestellung_delivery_status_if_exists(sammelbestellung_name):
         
         if delivery_notes:
             # Lieferschein existiert bereits → setze Delivery-Status direkt (ohne erneute Billing-Prüfung)
-            frappe.log_error(f"Lieferschein bereits vorhanden für {sammelbestellung_name} - setze Delivery-Status direkt", 
+            frappe.log_error(f"Lieferschein bereits vorhanden für {party_name} - setze Delivery-Status direkt", 
                            "DEBUG: delivery_already_exists")
             
-            # Finde ALLE Sales Orders der Sammelbestellung
+            # Finde ALLE Sales Orders der Party
             all_orders = frappe.get_all(
                 "Sales Order",
                 filters={
-                    "custom_party_reference": sammelbestellung_name,
+                    "custom_party_reference": party_name,
                     "docstatus": 1
                 },
                 fields=["name"]
@@ -377,17 +351,17 @@ def update_sammelbestellung_delivery_status_if_exists(sammelbestellung_name):
                         "ERROR: check_delivery_status")
 
 
-def update_sammelbestellung_delivery_status(sammelbestellung_name):
+def update_party_delivery_status(party_name):
     """
     Prüft ob der Gruppenversand ausgeliefert wurde und setzt per_delivered=100 
-    für ALLE Sales Orders der Sammelbestellung
+    für ALLE Sales Orders der Party
     """
     try:
         # Finde den Gruppenversand-Auftrag
         shipping_orders = frappe.get_all(
             "Sales Order",
             filters={
-                "custom_party_reference": sammelbestellung_name,
+                "custom_party_reference": party_name,
                 "custom_shipping_order": 1,
                 "docstatus": 1
             },
@@ -395,7 +369,7 @@ def update_sammelbestellung_delivery_status(sammelbestellung_name):
         )
         
         if not shipping_orders:
-            frappe.log_error(f"Kein Gruppenversand für {sammelbestellung_name} gefunden", 
+            frappe.log_error(f"Kein Gruppenversand für {party_name} gefunden", 
                            "DEBUG: no_shipping_order")
             return
         
@@ -420,11 +394,11 @@ def update_sammelbestellung_delivery_status(sammelbestellung_name):
         frappe.log_error(f"Gruppenversand {shipping_order_name} ausgeliefert - setze Status!", 
                         "INFO: shipping_delivered")
         
-        # Finde ALLE Sales Orders der Sammelbestellung
+        # Finde ALLE Sales Orders der Party
         sales_orders = frappe.get_all(
             "Sales Order",
             filters={
-                "custom_party_reference": sammelbestellung_name,
+                "custom_party_reference": party_name,
                 "docstatus": 1
             },
             fields=["name"]
@@ -458,56 +432,74 @@ def update_sammelbestellung_delivery_status(sammelbestellung_name):
         all_orders_check = frappe.get_all(
             "Sales Order",
             filters={
-                "custom_party_reference": sammelbestellung_name,
+                "custom_party_reference": party_name,
                 "docstatus": 1
             },
             fields=["name", "per_billed"]
         )
         if not all(flt(so.per_billed) >= 100 for so in all_orders_check):
-            update_sammelbestellung_billing_status_if_exists(sammelbestellung_name)
+            update_party_billing_status_if_exists(party_name)
         
-        # Prüfen ob die Sammelbestellung abgeschlossen werden kann
-        update_sammelbestellung_completion_status(sammelbestellung_name)
+        # Prüfen ob die Party abgeschlossen werden kann
+        update_party_completion_status(party_name)
         
     except Exception as e:
         frappe.log_error(f"Fehler beim Update des Delivery-Status: {str(e)}", 
                         "ERROR: update_delivery_status")
 
 
-def update_sammelbestellung_completion_status(sammelbestellung_name):
+def update_party_completion_status(party_name):
     """
-    Prüft ob ALLE Sales Orders einer Sammelbestellung wirklich "Completed" sind
+    Prüft ob ALLE Sales Orders einer Party wirklich "Completed" sind
     (per_billed=100 UND per_delivered=100) und setzt dann den Status der 
-    Sammelbestellung selbst auf "Abgeschlossen"
+    Party selbst auf "Abgeschlossen"
     
     WICHTIG: Setzt nur auf "Abgeschlossen", wenn wirklich beide Bedingungen erfüllt sind
     und der Status noch nicht "Abgeschlossen" ist (um alte Daten nicht zu überschreiben)
     """
     try:
-        # Prüfe zuerst den aktuellen Status der Sammelbestellung
-        current_status = frappe.db.get_value("Sammelbestellung", sammelbestellung_name, "status")
+        # Prüfe zuerst ob die Party überhaupt submitted ist
+        party_docstatus = frappe.db.get_value("Party", party_name, "docstatus")
+        if party_docstatus != 1:
+            # Party ist nicht submitted - keine Status-Änderung
+            frappe.log_error(f"Party {party_name} ist nicht submitted (docstatus={party_docstatus}) - überspringe", 
+                           "DEBUG: party_not_submitted")
+            return
+        
+        # Prüfe zuerst den aktuellen Status der Party
+        current_status = frappe.db.get_value("Party", party_name, "status")
         
         # Wenn bereits "Abgeschlossen", nichts tun (verhindert Überschreibung alter Daten)
         if current_status == "Abgeschlossen":
-            frappe.log_error(f"Sammelbestellung {sammelbestellung_name} bereits 'Abgeschlossen' - überspringe", 
+            frappe.log_error(f"Party {party_name} bereits 'Abgeschlossen' - überspringe", 
                            "DEBUG: already_completed")
             return
         
-        # Finde alle Sales Orders der Sammelbestellung mit ihren Status-Werten
+        # WICHTIG: Nur prüfen wenn Party im Status "Geschenke" oder "Gebucht" ist
+        # In früheren Status ("Gäste", "Produkte") sollten noch keine Orders existieren
+        if current_status not in ["Geschenke", "Gebucht"]:
+            frappe.log_error(f"Party {party_name} ist im Status '{current_status}' - noch keine Orders erwartet, überspringe", 
+                           "DEBUG: party_not_ready")
+            return
+        
+        # Finde alle Sales Orders der Party mit ihren Status-Werten
         sales_orders = frappe.get_all(
             "Sales Order",
             filters={
-                "custom_party_reference": sammelbestellung_name,
+                "custom_party_reference": party_name,
                 "docstatus": 1
             },
             fields=["name", "status", "per_billed", "per_delivered", "billing_status", "delivery_status"]
         )
         
         if not sales_orders:
+            # Keine Orders gefunden - Party sollte nicht auf "Abgeschlossen" gesetzt werden
+            frappe.log_error(f"Party {party_name}: Keine Sales Orders gefunden - überspringe", 
+                           "DEBUG: no_orders")
             return
         
         # WICHTIG: Prüfe nicht nur den Status, sondern auch ob wirklich per_billed=100 UND per_delivered=100
-        # Das verhindert, dass alte Orders die zufällig "Completed" sind, die Sammelbestellung auf "Abgeschlossen" setzen
+        # Das verhindert, dass alte Orders die zufällig "Completed" sind, die Party auf "Abgeschlossen" setzen
         all_really_completed = True
         for so in sales_orders:
             per_billed = flt(so.per_billed) or 0
@@ -520,43 +512,43 @@ def update_sammelbestellung_completion_status(sammelbestellung_name):
                                "DEBUG: not_really_completed")
                 break
         
-        frappe.log_error(f"Sammelbestellung {sammelbestellung_name}: {len(sales_orders)} Orders, alle wirklich completed: {all_really_completed}", 
+        frappe.log_error(f"Party {party_name}: {len(sales_orders)} Orders, alle wirklich completed: {all_really_completed}", 
                         "DEBUG: completion_check")
         
         if all_really_completed:
-            # Setze den Status der Sammelbestellung auf "Abgeschlossen"
-            frappe.db.set_value("Sammelbestellung", sammelbestellung_name, "status", "Abgeschlossen", 
+            # Setze den Status der Party auf "Abgeschlossen"
+            frappe.db.set_value("Party", party_name, "status", "Abgeschlossen", 
                                update_modified=False)
             frappe.db.commit()
-            frappe.log_error(f"Sammelbestellung {sammelbestellung_name} auf 'Abgeschlossen' gesetzt!", 
-                           "SUCCESS: sammelbestellung_completed")
+            frappe.log_error(f"Party {party_name} auf 'Abgeschlossen' gesetzt!", 
+                           "SUCCESS: party_completed")
         
     except Exception as e:
-        frappe.log_error(f"Fehler beim Update des Sammelbestellung-Status: {str(e)}", 
+        frappe.log_error(f"Fehler beim Update des Party-Status: {str(e)}", 
                         "ERROR: completion_status")
 
 
 @frappe.whitelist()
-def recalculate_sammelbestellung_status(sammelbestellung_name):
+def recalculate_party_status(party_name):
     """
-    Manuelles Neuberechnen des Status für eine Sammelbestellung
+    Manuelles Neuberechnen des Status für eine Party
     """
     try:
-        frappe.log_error(f"Manuelles Status-Update für {sammelbestellung_name}", 
+        frappe.log_error(f"Manuelles Status-Update für {party_name}", 
                         "INFO: manual_update")
         
-        update_sammelbestellung_billing_status(sammelbestellung_name)
-        update_sammelbestellung_delivery_status(sammelbestellung_name)
+        update_party_billing_status(party_name)
+        update_party_delivery_status(party_name)
         
         # Auch den Completion-Status prüfen
-        update_sammelbestellung_completion_status(sammelbestellung_name)
+        update_party_completion_status(party_name)
         
         # Aktuellen Status holen
-        current_status = frappe.db.get_value("Sammelbestellung", sammelbestellung_name, "status")
+        current_status = frappe.db.get_value("Party", party_name, "status")
         
         return {
             "success": True,
-            "message": f"Status wurde aktualisiert (Sammelbestellung: {current_status})"
+            "message": f"Status wurde aktualisiert (Party: {current_status})"
         }
         
     except Exception as e:
@@ -567,30 +559,30 @@ def recalculate_sammelbestellung_status(sammelbestellung_name):
 
 
 @frappe.whitelist()
-def recalculate_all_sammelbestellung_status():
+def recalculate_all_party_status():
     """
-    Berechnet den Status für ALLE Sammelbestellungen neu
+    Berechnet den Status für ALLE Parties neu
     """
     try:
-        sammelbestellungen = frappe.get_all(
-            "Sammelbestellung",
+        parties = frappe.get_all(
+            "Party",
             filters={"docstatus": 1},
             fields=["name"]
         )
         
         updated = 0
-        for sb in sammelbestellungen:
+        for party in parties:
             try:
-                update_sammelbestellung_billing_status(sb.name)
-                update_sammelbestellung_delivery_status(sb.name)
+                update_party_billing_status(party.name)
+                update_party_delivery_status(party.name)
                 updated += 1
             except Exception as e:
-                frappe.log_error(f"Fehler bei {sb.name}: {str(e)}", 
+                frappe.log_error(f"Fehler bei {party.name}: {str(e)}", 
                                "ERROR: batch_update")
         
         return {
             "success": True,
-            "message": f"{updated} Sammelbestellungen aktualisiert"
+            "message": f"{updated} Parties aktualisiert"
         }
         
     except Exception as e:

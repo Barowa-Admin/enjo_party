@@ -130,8 +130,8 @@ function refreshButtons(frm) {
 						startAktionsSystem(frm, function() {
 							console.log("Aktions-System abgeschlossen - wechsle zu Gastgeber Geschenke");
 							
-				// Status zu "Gastgeber Geschenke" ändern
-				frm.set_value("status", "Gastgeber Geschenke");
+				// Status zu "Geschenke" ändern
+				frm.set_value("status", "Geschenke");
 				
 							// SOFORT alle anderen Produkttabellen ausblenden
 							frm.toggle_display('produktauswahl_für_gastgeberin_section', false);
@@ -188,7 +188,7 @@ function refreshButtons(frm) {
 			frm.add_custom_button(__("Speichern"), function() {
 				frm.save();
 			});
-		} else if (frm.doc.status === "Gastgeber Geschenke") {
+		} else if (frm.doc.status === "Geschenke") {
 			console.log("Status Gastgeber Geschenke: Aufträge erstellen + Speichern Buttons hinzufügen");
 			// Status "Gastgeber Geschenke": Speichern und "Aufträge erstellen"-Button
 			frm.add_custom_button(__("Aufträge erstellen"), function() {
@@ -1948,7 +1948,7 @@ frappe.ui.form.on('Party', {
 		// WICHTIG: Im Status "Gastgeber Geschenke" werden alle Produkttabellen ausgeblendet
 		// ABER: Wenn die Party abgeschlossen ist, werden alle Tabellen wieder angezeigt (für Übersicht)
 		const isAbgeschlossen = frm.doc.status === "Abgeschlossen";
-		const isGastgeberGeschenkeStatus = frm.doc.status === "Gastgeber Geschenke";
+		const isGastgeberGeschenkeStatus = frm.doc.status === "Geschenke";
 		const showProduktTabellen = !isGastgeberGeschenkeStatus || isAbgeschlossen;
 		
 		for (let i = 1; i <= 15; i++) {
@@ -1976,7 +1976,7 @@ frappe.ui.form.on('Party', {
 		const hasGastgeberGeschenke = frm.doc.gastgeber_geschenke && frm.doc.gastgeber_geschenke.length > 0 && 
 			frm.doc.gastgeber_geschenke.some(item => item.item_code && item.qty && item.qty > 0);
 		const showGastgeberGeschenke = !frm.is_new() && (
-			frm.doc.status === "Gastgeber Geschenke" || 
+			frm.doc.status === "Geschenke" || 
 			(frm.doc.status === "Abgeschlossen" && hasGastgeberGeschenke)
 		);
 		frm.toggle_display("gastgeber_geschenke_section", showGastgeberGeschenke);
@@ -1985,8 +1985,8 @@ frappe.ui.form.on('Party', {
 
 		// Automatisch leere Zeilen zu sichtbaren, leeren Produkttabellen hinzufügen
 		setTimeout(() => {
-			// Spezielle Behandlung für Gastgeber Geschenke Status
-			if (frm.doc.status === "Gastgeber Geschenke") {
+			// Spezielle Behandlung für Geschenke Status
+			if (frm.doc.status === "Geschenke") {
 				// Für Gastgeber Geschenke Tabelle eine leere Zeile hinzufügen
 				if (!frm.doc.gastgeber_geschenke || frm.doc.gastgeber_geschenke.length === 0) {
 					let row = frm.add_child('gastgeber_geschenke');
