@@ -520,30 +520,54 @@ def update_sammelbestellung_delivery_status(sammelbestellung_name):
 
 def update_sammelbestellung_completion_status(sammelbestellung_name):
     """
-    Prüft ob ALLE Sales Orders einer Sammelbestellung "Completed" sind
-    und setzt dann den Status der Sammelbestellung selbst auf "Abgeschlossen"
+    Prüft ob ALLE Sales Orders einer Sammelbestellung wirklich "Completed" sind
+    (per_billed=100 UND per_delivered=100) und setzt dann den Status der 
+    Sammelbestellung selbst auf "Abgeschlossen"
+    
+    WICHTIG: Setzt nur auf "Abgeschlossen", wenn wirklich beide Bedingungen erfüllt sind
+    und der Status noch nicht "Abgeschlossen" ist (um alte Daten nicht zu überschreiben)
     """
     try:
-        # Finde alle Sales Orders der Sammelbestellung
+        # Prüfe zuerst den aktuellen Status der Sammelbestellung
+        current_status = frappe.db.get_value("Sammelbestellung", sammelbestellung_name, "status")
+        
+        # Wenn bereits "Abgeschlossen", nichts tun (verhindert Überschreibung alter Daten)
+        if current_status == "Abgeschlossen":
+            frappe.log_error(f"Sammelbestellung {sammelbestellung_name} bereits 'Abgeschlossen' - überspringe", 
+                           "DEBUG: already_completed")
+            return
+        
+        # Finde alle Sales Orders der Sammelbestellung mit ihren Status-Werten
         sales_orders = frappe.get_all(
             "Sales Order",
             filters={
                 "custom_party_reference": sammelbestellung_name,
                 "docstatus": 1
             },
-            fields=["name", "status"]
+            fields=["name", "status", "per_billed", "per_delivered", "billing_status", "delivery_status"]
         )
         
         if not sales_orders:
             return
         
-        # Prüfe ob ALLE Sales Orders "Completed" sind
-        all_completed = all(so.status == "Completed" for so in sales_orders)
+        # WICHTIG: Prüfe nicht nur den Status, sondern auch ob wirklich per_billed=100 UND per_delivered=100
+        # Das verhindert, dass alte Orders die zufällig "Completed" sind, die Sammelbestellung auf "Abgeschlossen" setzen
+        all_really_completed = True
+        for so in sales_orders:
+            per_billed = flt(so.per_billed) or 0
+            per_delivered = flt(so.per_delivered) or 0
+            
+            # Nur wenn wirklich beide 100% sind UND Status "Completed", dann ist es wirklich abgeschlossen
+            if not (per_billed >= 100 and per_delivered >= 100 and so.status == "Completed"):
+                all_really_completed = False
+                frappe.log_error(f"Sales Order {so.name}: per_billed={per_billed}, per_delivered={per_delivered}, status={so.status} - NICHT wirklich completed", 
+                               "DEBUG: not_really_completed")
+                break
         
-        frappe.log_error(f"Sammelbestellung {sammelbestellung_name}: {len(sales_orders)} Orders, alle completed: {all_completed}", 
+        frappe.log_error(f"Sammelbestellung {sammelbestellung_name}: {len(sales_orders)} Orders, alle wirklich completed: {all_really_completed}", 
                         "DEBUG: completion_check")
         
-        if all_completed:
+        if all_really_completed:
             # Setze den Status der Sammelbestellung auf "Abgeschlossen"
             frappe.db.set_value("Sammelbestellung", sammelbestellung_name, "status", "Abgeschlossen", 
                                update_modified=False)
