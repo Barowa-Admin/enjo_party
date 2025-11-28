@@ -129,7 +129,7 @@
    "fieldname": "status",
    "fieldtype": "Select",
    "label": "Status",
-   "options": "Kunden\nProdukte\nAbgeschlossen",
+   "options": "Kunden\nProdukte\nGebucht\nAbgeschlossen",
    "read_only": 1
   },
   {

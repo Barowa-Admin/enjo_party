@@ -161,10 +161,16 @@ doc_events = {
 			"enjo_party.enjo_party.utils.subscription_hooks.create_payment_request_for_subscription_invoice"
 			# "enjo_party.enjo_party.utils.sales_invoice_hooks.auto_create_picklist_from_invoice"  # DEAKTIVIERT - wird jetzt in Sammelbestellung gesteuert
 		],
-		"on_cancel": "enjo_party.enjo_party.server_scripts.enjo_punkte_vergabe.cancel_points_on_invoice_cancel"
+		"on_cancel": "enjo_party.enjo_party.server_scripts.enjo_punkte_vergabe.cancel_points_on_invoice_cancel",
+		# Sammelbestellungs-Status: Prüfe ob alle Rechnungen bezahlt sind
+		"on_update_after_submit": "enjo_party.enjo_party.utils.sammelbestellung_status.update_sammelbestellung_status_on_invoice_payment"
 	},
 	"Sales Order": {
 		"on_submit": "enjo_party.enjo_party.utils.sales_order_hooks.auto_create_and_submit_sales_invoice"
+	},
+	# Sammelbestellungs-Status: Update bei Zahlungseingang
+	"Payment Entry": {
+		"on_submit": "enjo_party.enjo_party.utils.sammelbestellung_status.update_sammelbestellung_status_on_payment"
 	},
 	# ===================================================================================
 	# DELIVERY NOTE & PICK LIST HOOKS - LAGER-VALIDIERUNG DEAKTIVIERT
@@ -184,7 +190,9 @@ doc_events = {
 	"Delivery Note": {
 		"before_insert": "enjo_party.enjo_party.utils.delivery_note_hooks.before_insert_delivery_note",
 		"before_validate": "enjo_party.enjo_party.utils.delivery_note_hooks.before_validate_delivery_note",
-		"before_submit": "enjo_party.enjo_party.utils.delivery_note_hooks.before_submit_delivery_note"
+		"before_submit": "enjo_party.enjo_party.utils.delivery_note_hooks.before_submit_delivery_note",
+		# Sammelbestellungs-Status: Update wenn Gruppenversand-Lieferschein gebucht wird
+		"on_submit": "enjo_party.enjo_party.utils.sammelbestellung_status.update_sammelbestellung_status_on_delivery"
 	},
 	"Pick List": {
 		"before_validate": "enjo_party.enjo_party.utils.pick_list_hooks.before_validate_pick_list",

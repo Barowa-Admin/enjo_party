@@ -2,6 +2,20 @@
 // For license information, please see license.txt
 
 frappe.listview_settings['Sammelbestellung'] = {
+    // Status-Farben definieren
+    get_indicator: function(doc) {
+        if (doc.status === "Kunden") {
+            return [__("Kunden"), "orange", "status,=,Kunden"];
+        } else if (doc.status === "Produkte") {
+            return [__("Produkte"), "yellow", "status,=,Produkte"];
+        } else if (doc.status === "Gebucht") {
+            return [__("Gebucht"), "blue", "status,=,Gebucht"];
+        } else if (doc.status === "Abgeschlossen") {
+            return [__("Abgeschlossen"), "green", "status,=,Abgeschlossen"];
+        }
+        return [__(doc.status), "gray", "status,=," + doc.status];
+    },
+    
     refresh: function(listview) {
         // CSS für bessere Formatierung der Listenansicht - wie bei Party
         function addListFormattingCSS() {

@@ -1,8 +1,17 @@
 frappe.ui.form.on('Sales Invoice', {
     refresh: function(frm) {
         // Adress-Synchronisation läuft jetzt automatisch über Server-Side Hooks
-    },
+    }
     
+    /* ====================================================================
+       AUSKOMMENTIERT: Aktionsartikel-Abfrage bei Sales Invoice
+       ====================================================================
+       Die Aktionsartikel-Abfrage soll nur beim Sales Order erfolgen,
+       nicht bei der Sales Invoice. Die Aktionsartikel werden automatisch
+       vom Sales Order zur Sales Invoice übertragen.
+       ==================================================================== */
+    
+    /*
     before_save: function(frm) {
         console.log("Before Save wird ausgeführt");
         console.log("Dokument Status:", frm.doc.docstatus);
@@ -421,8 +430,12 @@ frappe.ui.form.on('Sales Invoice', {
                     }
                     
                     function saveFromDialog(dialog) {
-                        dialog.hide();
+                        // WICHTIG: Flag ZUERST setzen, BEVOR der Dialog geschlossen wird!
+                        // Sonst setzt onhide frappe.validated = false
                         frm.doc.__from_dialog = true;
+                        frappe.validated = true;
+                        
+                        dialog.hide();
                         
                         setTimeout(function() {
                             console.log("Speichere Dokument...");
@@ -447,6 +460,7 @@ frappe.ui.form.on('Sales Invoice', {
             recalculateActionItems(frm);
         }, 100);
     }
+    */
 });
 
 // Event Handler für Items Tabelle
@@ -516,6 +530,10 @@ frappe.ui.form.on('Sales Invoice Item', {
     }
 });
 
+/* ====================================================================
+   AUSKOMMENTIERT: recalculateActionItems Funktion
+   ==================================================================== */
+/*
 function recalculateActionItems(frm) {
     // Lade Aktionseinstellungen
     frappe.call({
@@ -568,6 +586,7 @@ function recalculateActionItems(frm) {
         }
     });
 }
+*/
 
 // ===== EINFACHE ADRESS-SYNCHRONISATION =====
 // Nur ein Button, der die Adressen manuell aktualisiert 

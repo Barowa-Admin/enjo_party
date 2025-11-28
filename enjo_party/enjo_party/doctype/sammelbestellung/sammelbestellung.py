@@ -271,8 +271,8 @@ class Sammelbestellung(Document):
 			)
 	
 	def set_status(self):
-		# Wenn wir bereits abgeschlossen sind, nicht mehr ändern
-		if self.status == "Abgeschlossen":
+		# Wenn wir bereits "Gebucht" oder "Abgeschlossen" sind, nicht mehr ändern (außer durch Status-Update)
+		if self.status in ["Gebucht", "Abgeschlossen"]:
 			return
 			
 		# Prüfen, ob Produkte vorhanden sind
@@ -1018,7 +1018,7 @@ def create_invoices(sammelbestellung, from_submit=False, from_button=False):
                 frappe.log_error(f"Fehler beim Erstellen der Delivery Notes: {str(e)}", "ERROR: delivery_notes_failed")
             
             sammelbestellung_doc.set_status = lambda: None
-            sammelbestellung_doc.status = "Abgeschlossen"
+            sammelbestellung_doc.status = "Gebucht"  # "Abgeschlossen" erst wenn alle Aufträge completed sind
             sammelbestellung_doc.save()
             sammelbestellung_doc.submit()
             
