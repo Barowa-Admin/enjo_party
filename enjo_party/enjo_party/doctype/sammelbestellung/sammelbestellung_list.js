@@ -60,6 +60,21 @@ frappe.listview_settings['Sammelbestellung'] = {
                 .list-row-head {
                     padding-left: 15px !important;
                 }
+                
+                /* Erste Spalte (ID) schmaler machen */
+                .list-container .list-row .list-row-col:first-child,
+                .list-view .list-row .list-row-col:first-child {
+                    max-width: 120px !important;
+                    min-width: 100px !important;
+                    width: 120px !important;
+                }
+                
+                .list-container .list-row-head .list-row-col:first-child,
+                .list-view .list-row-head .list-row-col:first-child {
+                    max-width: 120px !important;
+                    min-width: 100px !important;
+                    width: 120px !important;
+                }
             `;
             
             let style = document.createElement('style');
@@ -90,11 +105,35 @@ frappe.listview_settings['Sammelbestellung'] = {
             });
         }
         
+        // JavaScript Fix für erste Spalte - schmaler machen
+        function fixFirstColumnWidth() {
+            // Erste Spalte (ID) schmaler machen
+            $('.list-row .list-row-col:first-child').each(function() {
+                $(this).css({
+                    'max-width': '120px',
+                    'min-width': '100px',
+                    'width': '120px'
+                });
+            });
+            
+            $('.list-row-head .list-row-col:first-child').each(function() {
+                $(this).css({
+                    'max-width': '120px',
+                    'min-width': '100px',
+                    'width': '120px'
+                });
+            });
+        }
+        
         // Formatierung sofort und nach Verzögerung anwenden
         fixHeaderFormatting();
+        fixFirstColumnWidth();
         setTimeout(fixHeaderFormatting, 100);
+        setTimeout(fixFirstColumnWidth, 100);
         setTimeout(fixHeaderFormatting, 500);
+        setTimeout(fixFirstColumnWidth, 500);
         setTimeout(fixHeaderFormatting, 1000);
+        setTimeout(fixFirstColumnWidth, 1000);
         
         // Titel-Anpassungen
         function changeTitleToSammelbestellung() {

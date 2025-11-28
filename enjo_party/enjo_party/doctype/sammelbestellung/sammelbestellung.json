@@ -13,6 +13,7 @@
   "column_break_info",
   "gesamtumsatz",
   "status",
+  "erster_kunde",
   "skip_total_calculation",
   "section_break_kunden",
   "kunden",
@@ -128,8 +129,16 @@
    "default": "Kunden",
    "fieldname": "status",
    "fieldtype": "Select",
+   "in_list_view": 1,
    "label": "Status",
    "options": "Kunden\nProdukte\nGebucht\nAbgeschlossen",
+   "read_only": 1
+  },
+  {
+   "fieldname": "erster_kunde",
+   "fieldtype": "Data",
+   "in_list_view": 0,
+   "label": "Erster Kunde",
    "read_only": 1
   },
   {

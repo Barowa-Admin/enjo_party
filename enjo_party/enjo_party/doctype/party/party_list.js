@@ -18,8 +18,191 @@ frappe.listview_settings['Party'] = {
         return [__(doc.status), "gray", "status,=," + doc.status];
     },
     
+    
     refresh: function(listview) {
         // Wir fügen keine direkte Aktion hinzu, sondern verwenden den onload-Hook
+        
+        // CSS für schmalere erste Spalte (ID) hinzufügen
+        function addColumnWidthCSS() {
+            if (document.getElementById('party-list-column-width-css')) {
+                return;
+            }
+            
+            let css = `
+                /* Erste Spalte (ID) schmaler machen */
+                .list-container .list-row .list-row-col:first-child,
+                .list-view .list-row .list-row-col:first-child {
+                    max-width: 120px !important;
+                    min-width: 100px !important;
+                    width: 120px !important;
+                }
+                
+                /* Header erste Spalte */
+                .list-container .list-row-head .list-row-col:first-child,
+                .list-view .list-row-head .list-row-col:first-child {
+                    max-width: 120px !important;
+                    min-width: 100px !important;
+                    width: 120px !important;
+                }
+                
+                /* Gastgeber-Spalte schmaler machen */
+                .list-container .list-row .list-row-col[data-fieldname="gastgeberin"],
+                .list-view .list-row .list-row-col[data-fieldname="gastgeberin"] {
+                    max-width: 180px !important;
+                    min-width: 150px !important;
+                    width: 180px !important;
+                }
+                
+                .list-container .list-row-head .list-row-col[data-fieldname="gastgeberin"],
+                .list-view .list-row-head .list-row-col[data-fieldname="gastgeberin"] {
+                    max-width: 180px !important;
+                    min-width: 150px !important;
+                    width: 180px !important;
+                }
+                
+                /* Status-Spalte schmaler machen */
+                .list-container .list-row .list-row-col[data-fieldname="status"],
+                .list-view .list-row .list-row-col[data-fieldname="status"] {
+                    max-width: 120px !important;
+                    min-width: 100px !important;
+                    width: 120px !important;
+                }
+                
+                .list-container .list-row-head .list-row-col[data-fieldname="status"],
+                .list-view .list-row-head .list-row-col[data-fieldname="status"] {
+                    max-width: 120px !important;
+                    min-width: 100px !important;
+                    width: 120px !important;
+                }
+                
+                /* Datum-Spalte schmaler machen */
+                .list-container .list-row .list-row-col[data-fieldname="party_date"],
+                .list-view .list-row .list-row-col[data-fieldname="party_date"] {
+                    max-width: 120px !important;
+                    min-width: 100px !important;
+                    width: 120px !important;
+                }
+                
+                .list-container .list-row-head .list-row-col[data-fieldname="party_date"],
+                .list-view .list-row-head .list-row-col[data-fieldname="party_date"] {
+                    max-width: 120px !important;
+                    min-width: 100px !important;
+                    width: 120px !important;
+                }
+            `;
+            
+            let style = document.createElement('style');
+            style.id = 'party-list-column-width-css';
+            style.type = 'text/css';
+            style.innerHTML = css;
+            document.head.appendChild(style);
+        }
+        
+        addColumnWidthCSS();
+        
+        // JavaScript Fix für Spaltenbreiten - direkter Ansatz
+        function fixColumnWidths() {
+            // Erste Spalte (ID) schmaler machen
+            $('.list-row .list-row-col:first-child').each(function() {
+                $(this).css({
+                    'max-width': '120px',
+                    'min-width': '100px',
+                    'width': '120px'
+                });
+            });
+            
+            $('.list-row-head .list-row-col:first-child').each(function() {
+                $(this).css({
+                    'max-width': '120px',
+                    'min-width': '100px',
+                    'width': '120px'
+                });
+            });
+            
+            // Gastgeber-Spalte schmaler machen
+            $('.list-row .list-row-col[data-fieldname="gastgeberin"]').each(function() {
+                $(this).css({
+                    'max-width': '180px',
+                    'min-width': '150px',
+                    'width': '180px'
+                });
+            });
+            
+            $('.list-row-head .list-row-col[data-fieldname="gastgeberin"]').each(function() {
+                $(this).css({
+                    'max-width': '180px',
+                    'min-width': '150px',
+                    'width': '180px'
+                });
+            });
+            
+            // Status-Spalte schmaler machen
+            $('.list-row .list-row-col[data-fieldname="status"]').each(function() {
+                $(this).css({
+                    'max-width': '120px',
+                    'min-width': '100px',
+                    'width': '120px'
+                });
+            });
+            
+            $('.list-row-head .list-row-col[data-fieldname="status"]').each(function() {
+                $(this).css({
+                    'max-width': '120px',
+                    'min-width': '100px',
+                    'width': '120px'
+                });
+            });
+            
+            // Datum-Spalte schmaler machen
+            $('.list-row .list-row-col[data-fieldname="party_date"]').each(function() {
+                $(this).css({
+                    'max-width': '120px',
+                    'min-width': '100px',
+                    'width': '120px'
+                });
+            });
+            
+            $('.list-row-head .list-row-col[data-fieldname="party_date"]').each(function() {
+                $(this).css({
+                    'max-width': '120px',
+                    'min-width': '100px',
+                    'width': '120px'
+                });
+            });
+        }
+        
+        // Formatierung sofort und nach Verzögerung anwenden
+        fixColumnWidths();
+        setTimeout(fixColumnWidths, 100);
+        setTimeout(fixColumnWidths, 500);
+        setTimeout(fixColumnWidths, 1000);
+        
+        // Gastgeber-Namen statt ID anzeigen
+        function updateGastgeberNames() {
+            $('.list-row').each(function() {
+                const $row = $(this);
+                const $gastgeberCell = $row.find('.list-row-col[data-fieldname="gastgeberin"]');
+                if ($gastgeberCell.length) {
+                    const cellText = $gastgeberCell.text().trim();
+                    const gastgeberId = $gastgeberCell.attr('data-value') || 
+                                       $gastgeberCell.attr('data-id') || 
+                                       cellText;
+                    
+                    // Wenn es nur eine Zahl ist (ID), hole den Namen
+                    if (gastgeberId && /^\d+$/.test(gastgeberId.toString())) {
+                        frappe.db.get_value('Customer', gastgeberId, 'customer_name', function(r) {
+                            if (r && r.customer_name && $gastgeberCell.length) {
+                                $gastgeberCell.text(r.customer_name);
+                            }
+                        });
+                    }
+                }
+            });
+        }
+        
+        setTimeout(updateGastgeberNames, 500);
+        setTimeout(updateGastgeberNames, 1500);
+        setTimeout(updateGastgeberNames, 2500);
         
         // Titel von "Party" zu "Präsentation" ändern (wie im Formular)
         function changeTitleToPräsentation() {
@@ -81,12 +264,25 @@ frappe.listview_settings['Party'] = {
                 this.nodeValue = this.nodeValue.replace('Party hinzufügen', 'Präsentation hinzufügen');
             });
             
-            // Spaltenheader "Name der Partei" zu "Name der Präsentation"
+            // Spaltenheader "Gastgeberin" zu "Gastgeber" ändern
+            $('.list-row-col:contains("Gastgeberin")').each(function() {
+                $(this).text($(this).text().replace('Gastgeberin', 'Gastgeber'));
+            });
+            $('.column-header:contains("Gastgeberin")').each(function() {
+                $(this).text($(this).text().replace('Gastgeberin', 'Gastgeber'));
+            });
+            // Auch "Name der Präsentation" zu "Gastgeber" ändern (falls noch vorhanden)
+            $('.list-row-col:contains("Name der Präsentation")').each(function() {
+                $(this).text($(this).text().replace('Name der Präsentation', 'Gastgeber'));
+            });
+            $('.column-header:contains("Name der Präsentation")').each(function() {
+                $(this).text($(this).text().replace('Name der Präsentation', 'Gastgeber'));
+            });
             $('.list-row-col:contains("Name der Partei")').each(function() {
-                $(this).text($(this).text().replace('Name der Partei', 'Name der Präsentation'));
+                $(this).text($(this).text().replace('Name der Partei', 'Gastgeber'));
             });
             $('.column-header:contains("Name der Partei")').each(function() {
-                $(this).text($(this).text().replace('Name der Partei', 'Name der Präsentation'));
+                $(this).text($(this).text().replace('Name der Partei', 'Gastgeber'));
             });
         }
         

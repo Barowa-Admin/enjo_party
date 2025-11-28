@@ -91,6 +91,22 @@ class Sammelbestellung(Document):
 		
 		# Status automatisch setzen
 		self.set_status()
+		
+		# Ersten Kunden setzen
+		self.set_erster_kunde()
+	
+	def set_erster_kunde(self):
+		"""Setzt den Namen des ersten Kunden aus der Kunden-Tabelle"""
+		if self.kunden and len(self.kunden) > 0:
+			erster_kunde_id = self.kunden[0].kunde
+			if erster_kunde_id:
+				try:
+					customer = frappe.get_cached_value("Customer", erster_kunde_id, "customer_name")
+					self.erster_kunde = customer or erster_kunde_id
+				except:
+					self.erster_kunde = erster_kunde_id
+		else:
+			self.erster_kunde = None
 
 	def remove_empty_product_rows(self):
 		"""
