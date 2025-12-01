@@ -3,6 +3,7 @@ from frappe import _
 from frappe.utils import today
 from enjo_party.enjo_party.utils.stripe_checkout import create_stripe_checkout_session
 from enjo_party.enjo_party.utils.stripe_subscription import cancel_stripe_subscription_at_period_end
+from enjo_party.enjo_party.utils.sales_invoice_hooks import ensure_inclusive_taxes
 
 def handle_subscription_cancel(doc, method):
     """
@@ -51,9 +52,11 @@ def force_subscription_update(doc, method):
         elif doc.cancel_at_period_end == 1:
             frappe.log_error(f"HOOK {doc.name}: cancel_at_period_end bereits True (wurde schon behandelt)", "DEBUG: subscription_hook")
         
-        # Prüfe ob das Abo aktiv ist (Status "Active")
+        # Prüfe ob das Abo aktiv ist (Status "Active") und das Startdatum erreicht ist
         subscription = frappe.get_doc("Subscription", doc.name)
-        if subscription.start_date and frappe.utils.getdate(subscription.start_date) <= frappe.utils.getdate():
+        start_date_reached = subscription.start_date and frappe.utils.getdate(subscription.start_date) <= frappe.utils.getdate()
+        
+        if start_date_reached:
             frappe.log_error(f"SUBSCRIPTION HOOK: Startdatum {subscription.start_date} ist erreicht, führe process() aus", "DEBUG: subscription_hook")
             
             subscription.process()
@@ -96,6 +99,47 @@ def force_subscription_update(doc, method):
                 frappe.db.commit()  # Sicherstellen, dass Invoice vollständig gespeichert ist
                 invoice = frappe.get_doc("Sales Invoice", invoice_name)
                 invoice.reload()  # Neu laden
+                
+                # WICHTIG: Stelle sicher, dass Steuern auf "inklusive" gesetzt sind
+                # Da subscription.process() die Rechnung direkt submitted, müssen wir sie temporär auf Draft setzen,
+                # die Steuern anwenden, und dann wieder submiten
+                try:
+                    # Prüfe ob Steuern vorhanden sind und ob sie auf "inklusive" gesetzt sind
+                    needs_tax_update = False
+                    if invoice.taxes:
+                        for tax in invoice.taxes:
+                            if tax.included_in_print_rate != 1:
+                                needs_tax_update = True
+                                break
+                    elif not invoice.taxes_and_charges:
+                        # Keine Steuern vorhanden - muss Steuer-Template setzen
+                        needs_tax_update = True
+                    
+                    if needs_tax_update:
+                        frappe.log_error(f"SUBSCRIPTION HOOK: Steuern müssen aktualisiert werden für Invoice {invoice_name}", "DEBUG: subscription_hook")
+                        # Setze Rechnung auf Draft (nur wenn sie submitted ist)
+                        if invoice.docstatus == 1:
+                            invoice.docstatus = 0
+                            invoice.flags.ignore_validate_update_after_submit = True
+                            invoice.flags.ignore_validate = True
+                            invoice.save(ignore_permissions=True)
+                            frappe.db.commit()
+                        
+                        # Wende Steuerlogik an
+                        ensure_inclusive_taxes(invoice)
+                        
+                        # Speichere Änderungen
+                        invoice.save(ignore_permissions=True)
+                        frappe.db.commit()
+                        
+                        # Submit wieder (nur wenn sie vorher submitted war)
+                        if invoice.docstatus == 0:
+                            invoice.submit()
+                            frappe.db.commit()
+                            frappe.log_error(f"SUBSCRIPTION HOOK: Invoice {invoice_name} mit Steuern aktualisiert und wieder submitted", "SUCCESS: subscription_hook")
+                except Exception as e:
+                    frappe.log_error(f"SUBSCRIPTION HOOK: Fehler beim Aktualisieren der Steuern für Invoice {invoice_name}: {str(e)}\n{frappe.get_traceback()}", "ERROR: subscription_hook")
+                    # Weiter mit der normalen Verarbeitung, auch wenn Steuer-Update fehlgeschlagen ist
                 
                 # Betrag direkt aus DB lesen für exakte Übereinstimmung
                 invoice_grand_total = frappe.db.get_value("Sales Invoice", invoice_name, "grand_total")
@@ -230,6 +274,8 @@ def force_subscription_update(doc, method):
                 #                 "doc": invoice,
                 #                 "payment_url": stripe_url
                 #             })
+                #     # Setze spezifisches Email Account für Abo-Mails
+                #     payment_request.flags.email_account = "Abo Mails"
                 #     payment_request.send_email()
                 #     payment_request.make_communication_entry()
                 # except Exception as e:
@@ -276,6 +322,15 @@ def create_payment_request_for_subscription_invoice(doc, method):
     try:
         # Prüfe ob die Rechnung zu einem Abonnement gehört
         if doc.subscription and doc.docstatus == 1:
+            # WICHTIG: Prüfe ob das Startdatum des Abos erreicht ist
+            # E-Mail soll nur gesendet werden, wenn das Startdatum erreicht ist
+            subscription = frappe.get_doc("Subscription", doc.subscription)
+            start_date_reached = subscription.start_date and frappe.utils.getdate(subscription.start_date) <= frappe.utils.getdate()
+            
+            if not start_date_reached:
+                frappe.log_error(f"SUBSCRIPTION HOOK: Startdatum {subscription.start_date} ist noch nicht erreicht für Invoice {doc.name} - überspringe Payment Request Erstellung", "DEBUG: subscription_payment_request")
+                return  # Keine Payment Request erstellen, wenn Startdatum noch nicht erreicht ist
+            
             # Prüfe ob bereits eine Payment Request existiert
             # WICHTIG: Commit vor der Prüfung, um sicherzustellen, dass alle vorherigen Änderungen gespeichert sind
             frappe.db.commit()
@@ -434,6 +489,8 @@ def create_payment_request_for_subscription_invoice(doc, method):
                 #                 "doc": doc,
                 #                 "payment_url": stripe_url
                 #             })
+                #     # Setze spezifisches Email Account für Abo-Mails
+                #     payment_request.flags.email_account = "Abo Mails"
                 #     payment_request.send_email()
                 #     payment_request.make_communication_entry()
                 # except Exception as e:

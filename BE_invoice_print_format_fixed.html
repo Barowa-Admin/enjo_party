@@ -111,6 +111,25 @@
                     <span style="color: #555;"> {{ doc.customer or "-" }}</span>
                 </div>
                 
+                {% if doc.custom_party_reference %}
+                    {% set party_ref = doc.custom_party_reference %}
+                    {% set is_party = frappe.db.exists("Party", party_ref) %}
+                    {% set is_sammelbestellung = frappe.db.exists("Sammelbestellung", party_ref) %}
+                    {% if is_party %}
+                        {% set party_doc = frappe.get_doc("Party", party_ref) %}
+                        <div style="margin-bottom: 3px; font-size: 11px;">
+                            <span style="font-weight: bold; color: #666;">Präsentation:</span>
+                            <span style="color: #555;"> {{ party_doc.party_name or party_ref }}</span>
+                        </div>
+                    {% elif is_sammelbestellung %}
+                        {% set sammel_doc = frappe.get_doc("Sammelbestellung", party_ref) %}
+                        <div style="margin-bottom: 3px; font-size: 11px;">
+                            <span style="font-weight: bold; color: #666;">Sammelbestellung:</span>
+                            <span style="color: #555;"> {{ sammel_doc.sammelbestellung_name or party_ref }}</span>
+                        </div>
+                    {% endif %}
+                {% endif %}
+                
                 {% if doc.contact_email %}
                 <div style="margin-bottom: 3px; font-size: 11px;">
                     <span style="font-weight: bold; color: #666;">E-Mail:</span>

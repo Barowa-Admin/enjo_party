@@ -5,6 +5,46 @@ import frappe
 from frappe.utils import flt
 import types
 
+def ensure_inclusive_taxes(doc):
+    """
+    Setzt automatisch Steuern auf "inklusive" für Subscription-Rechnungen
+    Entspricht der Logik aus dem Client-Script
+    Wird speziell für automatisch erstellte Subscription-Rechnungen verwendet
+    """
+    if not doc or doc.doctype != "Sales Invoice":
+        return
+    
+    # Nur im Entwurfsmodus (docstatus == 0)
+    # Diese Funktion wird nur aufgerufen, wenn die Rechnung bereits auf Draft gesetzt wurde
+    if doc.docstatus != 0:
+        frappe.log_error(f"ensure_inclusive_taxes: Rechnung {doc.name} ist nicht im Draft-Modus (docstatus={doc.docstatus})", "WARNING: ensure_inclusive_taxes")
+        return
+    
+    # Setze Steuer-Template wenn nicht gesetzt
+    if not doc.taxes_and_charges:
+        tax_template = frappe.db.get_value("Sales Taxes and Charges Template", 
+            {"company": doc.company, "is_default": 1}, "name")
+        if tax_template:
+            doc.taxes_and_charges = tax_template
+            doc.taxes = []  # Leere bestehende Steuern
+            doc.run_method("set_taxes")  # Setze Steuern neu
+            frappe.log_error(f"ensure_inclusive_taxes: Steuer-Template {tax_template} gesetzt für Rechnung {doc.name}", "DEBUG: ensure_inclusive_taxes")
+    
+    # Setze alle Steuern auf "inklusive"
+    if doc.taxes:
+        changed = False
+        for tax in doc.taxes:
+            if tax.included_in_print_rate != 1:
+                tax.included_in_print_rate = 1
+                changed = True
+                frappe.log_error(f"ensure_inclusive_taxes: Steuer {tax.account_head} auf inklusiv gesetzt für Rechnung {doc.name}", "DEBUG: ensure_inclusive_taxes")
+        
+        # Neuberechnung mit inklusiven Steuern nur wenn sich etwas geändert hat
+        if changed:
+            doc.calculate_taxes_and_totals()
+            frappe.log_error(f"ensure_inclusive_taxes: Steuern neu berechnet für Rechnung {doc.name}", "DEBUG: ensure_inclusive_taxes")
+
+
 def before_validate_sales_invoice(doc, method):
     """
     Hook für Sales Invoice before_validate
@@ -32,7 +72,7 @@ def before_validate_sales_invoice(doc, method):
         doc.flags.ignore_pricing_rule = True
         doc.flags.ignore_item_price = True
         
-        # Setze Steuer-Template wenn nicht gesetzt
+        # Setze Steuer-Template wenn nicht gesetzt (falls ensure_inclusive_taxes es nicht schon gemacht hat)
         if not doc.taxes_and_charges:
             tax_template = frappe.db.get_value("Sales Taxes and Charges Template", 
                 {"company": doc.company, "is_default": 1}, "name")

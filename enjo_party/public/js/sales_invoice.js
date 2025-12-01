@@ -1,17 +1,8 @@
 frappe.ui.form.on('Sales Invoice', {
     refresh: function(frm) {
         // Adress-Synchronisation läuft jetzt automatisch über Server-Side Hooks
-    }
+    },
     
-    /* ====================================================================
-       AUSKOMMENTIERT: Aktionsartikel-Abfrage bei Sales Invoice
-       ====================================================================
-       Die Aktionsartikel-Abfrage soll nur beim Sales Order erfolgen,
-       nicht bei der Sales Invoice. Die Aktionsartikel werden automatisch
-       vom Sales Order zur Sales Invoice übertragen.
-       ==================================================================== */
-    
-    /*
     before_save: function(frm) {
         console.log("Before Save wird ausgeführt");
         console.log("Dokument Status:", frm.doc.docstatus);
@@ -20,6 +11,24 @@ frappe.ui.form.on('Sales Invoice', {
         if (frm.doc.__from_dialog) {
             frappe.validated = true;
             return;
+        }
+        
+        // WICHTIG: Überspringe Aktionsartikel-Abfrage wenn Invoice aus Sales Order stammt
+        // Die Aktionsartikel wurden bereits im Sales Order ausgewählt und werden automatisch übertragen
+        if (frm.doc.items && frm.doc.items.length > 0) {
+            let hasSalesOrderReference = false;
+            for (let item of frm.doc.items) {
+                if (item.sales_order) {
+                    hasSalesOrderReference = true;
+                    break;
+                }
+            }
+            
+            if (hasSalesOrderReference) {
+                console.log("Invoice stammt aus Sales Order - überspringe Aktionsartikel-Abfrage");
+                frappe.validated = true;
+                return;
+            }
         }
         
         if (frm.doc.docstatus === 0) {
@@ -460,7 +469,6 @@ frappe.ui.form.on('Sales Invoice', {
             recalculateActionItems(frm);
         }, 100);
     }
-    */
 });
 
 // Event Handler für Items Tabelle
@@ -530,10 +538,6 @@ frappe.ui.form.on('Sales Invoice Item', {
     }
 });
 
-/* ====================================================================
-   AUSKOMMENTIERT: recalculateActionItems Funktion
-   ==================================================================== */
-/*
 function recalculateActionItems(frm) {
     // Lade Aktionseinstellungen
     frappe.call({
@@ -586,7 +590,6 @@ function recalculateActionItems(frm) {
         }
     });
 }
-*/
 
 // ===== EINFACHE ADRESS-SYNCHRONISATION =====
 // Nur ein Button, der die Adressen manuell aktualisiert 
