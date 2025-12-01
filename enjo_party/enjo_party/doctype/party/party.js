@@ -2695,7 +2695,21 @@ frappe.ui.form.on('Sales Order Item', {
 	}
 });
 
-
+// Event-Handler speziell für Gastgeber-Geschenke Tabelle
+frappe.ui.form.on('Party', {
+	gastgeber_geschenke_add: function(frm) {
+		// Aktualisiere die Summe wenn eine Zeile hinzugefügt wird
+		setTimeout(() => {
+			updateGastgeberGeschenkeSumme(frm);
+		}, 300);
+	},
+	gastgeber_geschenke_remove: function(frm) {
+		// Aktualisiere die Summe wenn eine Zeile entfernt wird
+		setTimeout(() => {
+			updateGastgeberGeschenkeSumme(frm);
+		}, 300);
+	}
+});
 
 // Funktion, um alle Tabellen mit Preisen zu aktualisieren
 function refresh_item_prices(frm) {
@@ -2959,20 +2973,105 @@ function addPermanentColumnHideCSS() {
 // Funktion zum Berechnen und Anzeigen der Summe für eine Tabelle
 function updateSummeForTable(frm, tableName, sumFieldName) {
 	let sum = 0;
+	let aktionsfaehigeItems = [];
 	
 	if (frm.doc[tableName] && frm.doc[tableName].length > 0) {
 		frm.doc[tableName].forEach(function(item) {
 			if (item.qty && item.rate) {
 				sum += flt(item.qty) * flt(item.rate);
+				// Sammle Items für Aktionsfähigkeits-Prüfung
+				aktionsfaehigeItems.push(item);
 			}
 		});
 	}
 	
-	// Zeige die Summe im HTML-Feld an
-	if (frm.fields_dict[sumFieldName]) {
-		let htmlContent = `<div style="text-align: right; font-weight: bold; color: black; margin-top: 5px; margin-bottom: 10px;">Summe: ${format_currency(sum)}</div>`;
-		frm.fields_dict[sumFieldName].$wrapper.html(htmlContent);
+	// Prüfe Aktionsfähigkeit und zeige Summe an
+	if (aktionsfaehigeItems.length > 0) {
+		checkAktionsfaehigkeitForSumme(aktionsfaehigeItems, sum, frm, sumFieldName);
+	} else {
+		if (frm.fields_dict[sumFieldName]) {
+			let htmlContent = `<div style="text-align: right; font-weight: bold; color: black; margin-top: 5px; margin-bottom: 10px;">Summe: ${format_currency(sum)}</div>`;
+			frm.fields_dict[sumFieldName].$wrapper.html(htmlContent);
+		}
 	}
+}
+
+function checkAktionsfaehigkeitForSumme(items, gesamtsumme, frm, sumFieldName) {
+	// Lade Aktionseinstellungen
+	frappe.call({
+		method: "enjo_party.enjo_party.doctype.enjo_aktionseinstellungen.enjo_aktionseinstellungen.get_aktionseinstellungen",
+		async: true,
+		callback: function(r) {
+			let aktionsCodes = [];
+			if (r.message) {
+				let settings = r.message;
+				const standardVariants = (settings.variants && settings.variants.standard) ? settings.variants.standard : [];
+				const premiumVariants = (settings.variants && settings.variants.premium) ? settings.variants.premium : [];
+				aktionsCodes = [...standardVariants, ...premiumVariants].map(v => v.code).filter(Boolean);
+			}
+			
+			// Berechne Summe der aktionsfähigen Produkte
+			let aktionsfaehigeSumme = 0;
+			let checkedCount = 0;
+			
+			items.forEach(function(item, index) {
+				if (!item.item_code) {
+					checkedCount++;
+					if (checkedCount === items.length) {
+						displaySummeWithAktionsfaehig();
+					}
+					return;
+				}
+				
+				// Prüfe zuerst ob es ein Aktionsartikel-Code ist
+				let istAktionsartikelCode = aktionsCodes.includes(item.item_code);
+				
+				if (istAktionsartikelCode) {
+					aktionsfaehigeSumme += flt(item.qty) * flt(item.rate);
+					checkedCount++;
+					if (checkedCount === items.length) {
+						displaySummeWithAktionsfaehig();
+					}
+					return;
+				}
+				
+				// Prüfe auch custom_considered_for_action Feld
+				frappe.call({
+					method: "frappe.client.get_value",
+					args: {
+						doctype: "Item",
+						filters: {
+							item_code: item.item_code
+						},
+						fieldname: "custom_considered_for_action"
+					},
+					async: true,
+					callback: function(result) {
+						if (result.message && result.message.custom_considered_for_action) {
+							aktionsfaehigeSumme += flt(item.qty) * flt(item.rate);
+						}
+						
+						checkedCount++;
+						if (checkedCount === items.length) {
+							displaySummeWithAktionsfaehig();
+						}
+					}
+				});
+			});
+			
+			function displaySummeWithAktionsfaehig() {
+				if (frm.fields_dict[sumFieldName]) {
+					let htmlContent = `
+						<div style="text-align: right; margin-top: 5px; margin-bottom: 10px;">
+							<div style="font-weight: bold; color: black;">Summe: ${format_currency(gesamtsumme)}</div>
+							${aktionsfaehigeSumme > 0 ? `<div style="font-size: 0.9em; color: #666; margin-top: 3px;">Davon aktionsfähig: ${format_currency(aktionsfaehigeSumme)}</div>` : ''}
+						</div>
+					`;
+					frm.fields_dict[sumFieldName].$wrapper.html(htmlContent);
+				}
+			}
+		}
+	});
 }
 
 // Funktion zum Berechnen und Anzeigen der Gastgeber-Geschenke Summe mit Gutschein-Verbrauch
@@ -3046,7 +3145,7 @@ function updateAllSummenAnzeigen(frm) {
 	}
 	
 	// Gastgeber-Geschenke Summe (nur wenn im richtigen Status)
-	if (frm.doc.status === "Gastgeber Geschenke") {
+	if (frm.doc.status === "Geschenke") {
 		updateGastgeberGeschenkeSumme(frm);
 	}
 }
