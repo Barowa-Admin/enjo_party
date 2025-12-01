@@ -2249,13 +2249,14 @@ frappe.ui.form.on('Party', {
 				$(frm.wrapper).find('[data-fieldname="gastgeber_geschenke"] .grid-heading-row .col[data-fieldname="warehouse"]').hide();
 			}, 500);
 			
-			// Setze Filter für Item-Auswahl (nur Sales Items, nicht disabled)
+			// Setze Filter für Item-Auswahl (nur aktionsfähige Sales Items mit custom_considered_for_action = 1)
 			if (frm.fields_dict["gastgeber_geschenke"].grid.get_field('item_code')) {
 				frm.fields_dict["gastgeber_geschenke"].grid.get_field('item_code').get_query = function() {
 					return {
 						filters: {
 							'is_sales_item': 1,
-							'disabled': 0
+							'disabled': 0,
+							'custom_considered_for_action': 1
 						}
 					};
 				};
