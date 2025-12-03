@@ -776,11 +776,32 @@ def calculate_shipping_costs_for_party(party_doc):
                     frappe.log_error(f"  -> Gastgeberin Produkt hinzugefügt, neue Summe: {total_gastgeberin}", "DEBUG: host_added")
         
         # Produkte aus gastgeber_geschenke hinzufügen (WICHTIG: Zusammen mit produktauswahl_für_gastgeberin!)
+        # WICHTIG: Gutschein wurde bereits im Frontend angewendet - Preise sind bereits reduziert!
         if hasattr(party_doc, 'gastgeber_geschenke') and party_doc.gastgeber_geschenke:
             for idx_prod, produkt in enumerate(party_doc.gastgeber_geschenke):
                 frappe.log_error(f"  Gastgeberin (Geschenke) Zeile {idx_prod}: item_code={produkt.item_code}, qty={produkt.qty}, rate={produkt.rate}", "DEBUG: host_gift_item")
                 if produkt.item_code and produkt.qty and produkt.qty > 0:
                     frappe.log_error(f"  -> Gastgeberin Geschenk akzeptiert: {produkt.item_code}", "DEBUG: host_gift_accepted")
+                    
+                    # Hole Originalpreis aus Item Price (für Anzeige in Description)
+                    original_rate = produkt.rate or 0
+                    try:
+                        price_list_rate = frappe.db.get_value("Item Price", 
+                            {"item_code": produkt.item_code, "price_list": frappe.defaults.get_global_default("selling_price_list")}, 
+                            "price_list_rate")
+                        if price_list_rate:
+                            original_rate = price_list_rate
+                    except:
+                        pass
+                    
+                    # Berechne Rabattbetrag (Originalpreis - aktueller Preis nach Gutschein-Anwendung)
+                    current_rate = produkt.rate or 0
+                    current_amount = produkt.amount or (flt(produkt.qty) * flt(current_rate))
+                    original_amount = flt(produkt.qty) * flt(original_rate)
+                    rabatt_betrag = max(0, original_amount - current_amount)
+                    
+                    frappe.log_error(f"GG-PREIS: Item {produkt.item_code}, Original: {original_rate}, Aktuell: {current_rate}, Rabatt: {rabatt_betrag}", "DEBUG: gg_price_calc")
+                    
                     # WICHTIG: Übertrage ALLE Produktdaten, nicht nur die Basics!
                     product_dict = {
                         "item_code": produkt.item_code,
@@ -797,8 +818,14 @@ def calculate_shipping_costs_for_party(party_doc):
                         "warehouse": getattr(produkt, 'warehouse', get_default_warehouse()),
                         "delivery_date": frappe.utils.getdate(getattr(produkt, 'delivery_date', frappe.utils.add_days(frappe.utils.today(), 7))),
                         # WICHTIG: Flag für Gutschein-reduzierte 0€-Artikel
-                        "_force_zero_rate": float(produkt.rate or 0) == 0.0
+                        "_force_zero_rate": float(produkt.rate or 0) == 0.0,
+                        # NEU: Rabatt-Info für Gastgeber-Geschenke
+                        "_is_gastgeber_geschenk": True,
+                        "_original_rate": original_rate,
+                        "_rabatt_betrag": rabatt_betrag
                     }
+                    
+                    frappe.log_error(f"GG-FLAG gesetzt für {produkt.item_code}: _is_gastgeber_geschenk=True, _original_rate={original_rate}, _rabatt_betrag={rabatt_betrag}", "DEBUG: gg_flag_set")
                     
                     produkte_gastgeberin.append(product_dict)
                     total_gastgeberin += flt(produkt.qty) * flt(produkt.rate or 0)
@@ -1379,6 +1406,33 @@ def create_invoices(party, from_submit=False, from_button=False):
                     force_zero = original_product.get('_force_zero_rate', False)
                     frappe.log_error(f"DEBUG: Item {item.item_code}, Rate: {original_product.get('rate', 'N/A')}, Force Zero: {force_zero}", "DEBUG: flag_check")
                     
+                    # NEU: Prüfe ob es ein Gastgeber-Geschenk ist und setze description
+                    is_gastgeber_geschenk = original_product.get('_is_gastgeber_geschenk', False)
+                    frappe.log_error(f"DEBUG GG: Item {item.item_code}, is_gastgeber_geschenk={is_gastgeber_geschenk}", "DEBUG: gg_check")
+                    
+                    if is_gastgeber_geschenk:
+                        original_rate = original_product.get('_original_rate', 0)
+                        rabatt_betrag = original_product.get('_rabatt_betrag', 0)
+                        
+                        frappe.log_error(f"DEBUG GG: Item {item.item_code}, original_rate={original_rate}, rabatt_betrag={rabatt_betrag}", "DEBUG: gg_values")
+                        
+                        # IMMER GG-Info setzen, auch wenn Rabatt = 0 (für Markierung)
+                        if rabatt_betrag > 0.01:
+                            # Formatiere Preise für Anzeige
+                            original_formatted = frappe.format_value(original_rate, {"fieldtype": "Currency"}, currency=currency)
+                            rabatt_formatted = frappe.format_value(rabatt_betrag, {"fieldtype": "Currency"}, currency=currency)
+                            
+                            # Speichere Rabatt-Info in description
+                            gg_info = f"GG - Original: {original_formatted}, Rabatt: -{rabatt_formatted}"
+                        else:
+                            # Auch ohne Rabatt markieren als GG
+                            original_formatted = frappe.format_value(original_rate, {"fieldtype": "Currency"}, currency=currency)
+                            gg_info = f"GG - Original: {original_formatted}"
+                        
+                        # Überschreibe description komplett (nicht anhängen) - WICHTIG: Nach set_missing_values
+                        item.description = gg_info
+                        frappe.log_error(f"GG-Info in description gespeichert für {item.item_code}: {gg_info}", "INFO: gg_rabatt_info")
+                    
                     # NEUE LOGIK: Prüfe das _force_zero_rate Flag für Gutschein-reduzierte 0€-Artikel
                     if force_zero:
                         frappe.log_error(f"Setze Gutschein-Preis für {item.item_code}: 0€ (Force Zero Flag)", "INFO: gutschein_price")
@@ -1400,17 +1454,49 @@ def create_invoices(party, from_submit=False, from_button=False):
                             item.amount = flt(item.qty) * flt(original_product.rate) 
                             item.base_amount = item.amount
                 
-                # DEBUG: Zeige finale Order-Daten vor dem Insert
-                frappe.log_error(f"DEBUG FINAL ORDER: Customer={order.customer}, Items={len(order.items)}", "DEBUG: final_order_data")
-                for i, item in enumerate(order.items):
-                    frappe.log_error(f"  Item {i}: {item.item_code}, Qty: {item.qty}, Rate: {item.rate}, Amount: {item.amount}", "DEBUG: final_item_data")
-                
                 # Setze alle Steuern auf "inklusive"
                 if order.taxes:
                     for tax in order.taxes:
                         tax.included_in_print_rate = 1
                     # Neuberechnung mit inklusiven Steuern
                     order.calculate_taxes_and_totals()
+                
+                # WICHTIG: Setze description NACH allen Frappe-Methoden, die description überschreiben könnten
+                for i, item in enumerate(order.items):
+                    original_product = products[i]
+                    is_gastgeber_geschenk = original_product.get('_is_gastgeber_geschenk', False)
+                    
+                    if is_gastgeber_geschenk:
+                        # GG-Item: Setze GG-Info in description
+                        original_rate = original_product.get('_original_rate', 0)
+                        rabatt_betrag = original_product.get('_rabatt_betrag', 0)
+                        
+                        # IMMER GG-Info setzen, auch wenn Rabatt = 0 (für Markierung)
+                        if rabatt_betrag > 0.01:
+                            # Formatiere Preise für Anzeige
+                            original_formatted = frappe.format_value(original_rate, {"fieldtype": "Currency"}, currency=currency)
+                            rabatt_formatted = frappe.format_value(rabatt_betrag, {"fieldtype": "Currency"}, currency=currency)
+                            
+                            # Speichere Rabatt-Info in description
+                            gg_info = f"GG - Original: {original_formatted}, Rabatt: -{rabatt_formatted}"
+                        else:
+                            # Auch ohne Rabatt markieren als GG
+                            original_formatted = frappe.format_value(original_rate, {"fieldtype": "Currency"}, currency=currency)
+                            gg_info = f"GG - Original: {original_formatted}"
+                        
+                        # Überschreibe description komplett (nicht anhängen)
+                        item.description = gg_info
+                        frappe.log_error(f"GG-Info FINAL in description gespeichert für {item.item_code}: {gg_info}", "INFO: gg_rabatt_final")
+                    else:
+                        # Normale Items: description explizit auf leer setzen
+                        # (verhindert, dass Frappe automatisch item_name in description kopiert)
+                        item.description = ""
+                        frappe.log_error(f"Description für normales Item {item.item_code} auf leer gesetzt", "DEBUG: empty_description")
+                
+                # DEBUG: Zeige finale Order-Daten vor dem Insert
+                frappe.log_error(f"DEBUG FINAL ORDER: Customer={order.customer}, Items={len(order.items)}", "DEBUG: final_order_data")
+                for i, item in enumerate(order.items):
+                    frappe.log_error(f"  Item {i}: {item.item_code}, Qty: {item.qty}, Rate: {item.rate}, Amount: {item.amount}, Description: {item.description[:50] if item.description else 'None'}", "DEBUG: final_item_data")
                 
                 # SAUBERE LÖSUNG: Nur spezifische Adress-Validierungen umgehen, 
                 # aber Sales Partner Provisionsberechnung NICHT beeinträchtigen

@@ -162,10 +162,42 @@
         <tbody>
             {% for item in doc.items %}
                 {% if not (item.item_code and "shipping" in item.item_code.lower()) %}
+                {% set is_gg = False %}
+                {% set original_text = "" %}
+                {% set rabatt_text = "" %}
+                
+                {# Prüfe ob description GG-Info enthält #}
+                {% if item.description and item.description|string %}
+                    {% set desc_str = item.description|string %}
+                    {% if "GG - Original:" in desc_str %}
+                        {% set is_gg = True %}
+                        {# Extrahiere Original und Rabatt aus description #}
+                        {% set desc_parts = desc_str.split("Original:") %}
+                        {% if desc_parts|length > 1 %}
+                            {% set after_original = desc_parts[1] %}
+                            {% if "," in after_original %}
+                                {% set original_text = after_original.split(",")[0].strip() %}
+                                {% if "Rabatt:" in after_original %}
+                                    {% set rabatt_text = after_original.split("Rabatt:")[1].strip() %}
+                                {% endif %}
+                            {% else %}
+                                {% set original_text = after_original.strip() %}
+                            {% endif %}
+                        {% endif %}
+                    {% endif %}
+                {% endif %}
             <tr>
                 <td style="padding: 6px; text-align: center; font-size: 12px;">{{ item.idx }}</td>
                 <td style="padding: 6px; font-size: 12px;">{{ item.item_code }}</td>
-                <td style="padding: 6px; font-size: 12px;">{{ item.item_name or item.description }}</td>
+                <td style="padding: 6px; font-size: 12px; vertical-align: top;">
+                    <div style="line-height: 1.4;">{{ item.item_name or '' }}</div>
+                    {% if is_gg and original_text %}
+                    <div style="font-size: 9px; color: #666; margin-top: 4px; font-style: italic; line-height: 1.3;">
+                        <span style="text-decoration: line-through;">Original: {{ original_text }}</span>
+                        {% if rabatt_text %}<span style="margin-left: 10px; color: #dc2626;">{{ rabatt_text }}</span>{% endif %}
+                    </div>
+                    {% endif %}
+                </td>
                 <td style="padding: 6px; text-align: center; font-size: 12px;">{{ item.qty|int if item.qty|int == item.qty else item.qty }}</td>
                 <td style="padding: 6px; text-align: right; font-size: 12px;">{{ item.get_formatted("rate", doc) }}</td>
                 <td style="padding: 6px; text-align: right; font-size: 12px;">{{ item.get_formatted("amount", doc) }}</td>
@@ -235,28 +267,34 @@
         </tr>
     </table>
     
-    <!-- Stripe Payment Link für Abos -->
+    <!-- Überweisungshinweis / Abo-Hinweis -->
     {% if doc.subscription %}
-    {% set payment_requests = frappe.get_all("Payment Request", 
-        filters={"reference_name": doc.name, "docstatus": 1}, 
-        fields=["payment_url"], 
-        order_by="creation desc", 
-        limit=1) %}
-    {% if payment_requests and payment_requests[0].payment_url %}
-    <div style="margin: 10px 0; padding: 10px; border: 2px solid #007bff; border-radius: 5px; background-color: #f8f9ff; text-align: center;">
-        <p style="margin: 0 0 8px 0; font-size: 13px; color: #007bff; font-weight: bold;">Online-Zahlung für Ihr Abonnement</p>
-        <p style="margin: 0 0 8px 0; font-size: 11px; color: #333;">Bezahlen Sie bequem online mit Kreditkarte, SEPA-Lastschrift oder anderen Zahlungsmethoden:</p>
-        <a href="{{ payment_requests[0].payment_url }}" style="display: inline-block; background-color: #007bff; color: white; padding: 8px 20px; text-decoration: none; border-radius: 4px; font-size: 12px; font-weight: bold;">
-            Jetzt online bezahlen
-        </a>
-    </div>
+        <!-- Abo: Spezieller Text für Dauerauftrag -->
+        <div style="text-align: center; margin: 10px 0; padding: 8px; background-color: #f8f9fa; border: 1px solid #dee2e6; border-radius: 4px;">
+            <p style="margin: 0; font-size: 12px; color: #333; font-weight: bold;">Richten Sie bitte einen Dauerauftrag entsprechend ihrer Lieferintervalls bei Ihrer Bank ein oder nutzen Sie den folgenden Bezahllink:</p>
+        </div>
+        
+        <!-- Stripe Payment Link für Abos (nach dem Abo-Hinweis) -->
+        {% set payment_requests = frappe.get_all("Payment Request", 
+            filters={"reference_name": doc.name, "docstatus": 1}, 
+            fields=["payment_url"], 
+            order_by="creation desc", 
+            limit=1) %}
+        {% if payment_requests and payment_requests[0].payment_url %}
+        <div style="margin: 10px 0; padding: 10px; border: 2px solid #007bff; border-radius: 5px; background-color: #f8f9ff; text-align: center;">
+            <p style="margin: 0 0 8px 0; font-size: 13px; color: #007bff; font-weight: bold;">Online-Zahlung für Ihr Abonnement</p>
+            <p style="margin: 0 0 8px 0; font-size: 11px; color: #333;">Bezahlen Sie bequem online mit Kreditkarte, SEPA-Lastschrift oder anderen Zahlungsmethoden:</p>
+            <a href="{{ payment_requests[0].payment_url }}" style="display: inline-block; background-color: #007bff; color: white; padding: 8px 20px; text-decoration: none; border-radius: 4px; font-size: 12px; font-weight: bold;">
+                Jetzt online bezahlen
+            </a>
+        </div>
+        {% endif %}
+    {% else %}
+        <!-- Normale Rechnung: Standard Überweisungshinweis -->
+        <div style="text-align: center; margin: 10px 0; padding: 8px; background-color: #f8f9fa; border: 1px solid #dee2e6; border-radius: 4px;">
+            <p style="margin: 0; font-size: 12px; color: #333; font-weight: bold;">Geben Sie bei der Überweisung bitte die Rechnungsnummer {{ doc.name }} an. Danke</p>
+        </div>
     {% endif %}
-    {% endif %}
-    
-    <!-- Überweisungshinweis -->
-    <div style="text-align: center; margin: 10px 0; padding: 8px; background-color: #f8f9fa; border: 1px solid #dee2e6; border-radius: 4px;">
-        <p style="margin: 0; font-size: 12px; color: #333; font-weight: bold;">Geben Sie bei der Überweisung bitte die Rechnungsnummer {{ doc.name }} an. Danke</p>
-    </div>
     
     <!-- ENJO Spruch und Instagram -->
     <div style="text-align: center; margin: 10px 0; padding: 8px;">

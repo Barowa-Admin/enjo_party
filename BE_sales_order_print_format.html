@@ -143,9 +143,44 @@
         </thead>
         <tbody>
             {% for item in doc.items %}
+                {% set is_gg = False %}
+                {% set original_text = "" %}
+                {% set rabatt_text = "" %}
+                
+                {# DEBUG: Zeige description für alle Items #}
+                {# {{ item.item_code }}: description = "{{ item.description }}" #}
+                
+                {# Prüfe ob description GG-Info enthält #}
+                {% if item.description and item.description|string %}
+                    {% set desc_str = item.description|string %}
+                    {% if "GG - Original:" in desc_str %}
+                        {% set is_gg = True %}
+                        {# Extrahiere Original und Rabatt aus description #}
+                        {% set desc_parts = desc_str.split("Original:") %}
+                        {% if desc_parts|length > 1 %}
+                            {% set after_original = desc_parts[1] %}
+                            {% if "," in after_original %}
+                                {% set original_text = after_original.split(",")[0].strip() %}
+                                {% if "Rabatt:" in after_original %}
+                                    {% set rabatt_text = after_original.split("Rabatt:")[1].strip() %}
+                                {% endif %}
+                            {% else %}
+                                {% set original_text = after_original.strip() %}
+                            {% endif %}
+                        {% endif %}
+                    {% endif %}
+                {% endif %}
             <tr>
                 <td style="padding: 8px; font-size: 12px; color: #555; border: 1px solid #ddd;">{{ item.item_code }}</td>
-                <td style="padding: 8px; font-size: 12px; color: #555; border: 1px solid #ddd;">{{ item.item_name or item.description }}</td>
+                <td style="padding: 8px; font-size: 12px; color: #555; border: 1px solid #ddd; vertical-align: top;">
+                    <div style="line-height: 1.4;">{{ item.item_name or '' }}</div>
+                    {% if is_gg and original_text %}
+                    <div style="font-size: 9px; color: #666; margin-top: 4px; font-style: italic; line-height: 1.3;">
+                        <span style="text-decoration: line-through;">Original: {{ original_text }}</span>
+                        {% if rabatt_text %}<span style="margin-left: 10px; color: #dc2626;">{{ rabatt_text }}</span>{% endif %}
+                    </div>
+                    {% endif %}
+                </td>
                 <td style="padding: 8px; text-align: right; font-size: 12px; color: #555; border: 1px solid #ddd;">{{ item.qty|int if item.qty|int == item.qty else item.qty }}</td>
                 <td style="padding: 8px; text-align: right; font-size: 12px; color: #555; border: 1px solid #ddd;">{{ frappe.format(item.rate, {"fieldtype": "Currency"}) }}</td>
                 <td style="padding: 8px; text-align: right; font-size: 12px; color: #555; border: 1px solid #ddd;">{{ frappe.format(item.amount, {"fieldtype": "Currency"}) }}</td>
