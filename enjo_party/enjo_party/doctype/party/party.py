@@ -2188,6 +2188,8 @@ def create_picklists_for_party(party_doc, all_orders_with_shipping, created_orde
 				invoice_data = []  # Ändere zu Liste mit Customer-Info
 				order_numbers = []
 				previous_customer = None  # Zum Erkennen von Kunden-Wechseln
+				# Mapping für Trenn-Items: Speichere Kundennamen für spätere Aktualisierung
+				separator_customer_mapping = []
 				
 				# Prüfe, ob es mehrere verschiedene Kunden gibt (Gruppenversand)
 				unique_customers = set(o["customer"] for o in orders_for_target)
@@ -2223,10 +2225,12 @@ def create_picklists_for_party(party_doc, all_orders_with_shipping, created_orde
 							# Prüfe, ob das Trenn-Item existiert
 							trenner_item = frappe.get_doc("Item", "---")
 							
+							# Konsistentes Format wie bei Sammelbestellung (ohne Trennlinien)
+							separator_item_name = f"📦 Bestellung für: {customer_display_name}"
 							separator_item = {
 								"doctype": "Pick List Item",
 								"item_code": "---",
-								"item_name": f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n📦 Bestellung für: {customer_display_name}\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━",
+								"item_name": separator_item_name,
 								"qty": 0.001,  # Sehr kleine Menge, damit es angezeigt wird aber nicht gepackt wird
 								"stock_qty": 0.001,
 								"picked_qty": 0.0,
@@ -2246,6 +2250,11 @@ def create_picklists_for_party(party_doc, all_orders_with_shipping, created_orde
 								"material_request_item": None
 							}
 							all_picklist_items.append(separator_item)
+							# Speichere Mapping für spätere Aktualisierung
+							separator_customer_mapping.append({
+								"customer_name": customer_display_name,
+								"item_name": separator_item_name
+							})
 							frappe.log_error(f"📋 Trenn-Item hinzugefügt für Kunde: {customer_display_name}", "INFO: separator_item_added")
 						except Exception as e:
 							# Falls das Trenn-Item nicht existiert, logge Warnung aber mache weiter
@@ -2392,6 +2401,20 @@ def create_picklists_for_party(party_doc, all_orders_with_shipping, created_orde
 				# Frappe könnte den item_name beim Erstellen überschreiben, daher aktualisieren wir ihn
 				if is_group_shipping:
 					picklist.reload()  # Lade die Pickliste neu
+					
+					# 1. Aktualisiere Trenn-Items mit Kundennamen
+					if separator_customer_mapping:
+						separator_index = 0
+						for picklist_item in picklist.locations:
+							if picklist_item.item_code == '---':
+								# Verwende das Mapping um den richtigen Kundennamen zu finden
+								if separator_index < len(separator_customer_mapping):
+									mapping = separator_customer_mapping[separator_index]
+									picklist_item.item_name = mapping["item_name"]
+									frappe.log_error(f"📋 Trenn-Item #{separator_index} item_name aktualisiert: {picklist_item.item_name} (Kunde: {mapping['customer_name']})", "DEBUG: separator_item_name_updated")
+									separator_index += 1
+					
+					# 2. Aktualisiere normale Items mit Präfix aus Sales Order
 					for picklist_item in picklist.locations:
 						# Finde das entsprechende SO Item für diesen Picklist Item
 						if picklist_item.sales_order_item:
@@ -2403,8 +2426,9 @@ def create_picklists_for_party(party_doc, all_orders_with_shipping, created_orde
 									frappe.log_error(f"📦 Picklist Item {picklist_item.item_code} item_name aktualisiert: {so_item.item_name}", "DEBUG: picklist_item_name_updated")
 							except Exception as e:
 								frappe.log_error(f"⚠️ Fehler beim Aktualisieren von item_name für Picklist Item: {str(e)}", "WARNING: item_name_update_failed")
+					
 					picklist.save()  # Speichere die Änderungen
-					frappe.log_error(f"✅ Picklist {picklist.name} item_name aktualisiert", "INFO: picklist_item_names_updated")
+					frappe.log_error(f"✅ Picklist {picklist.name} item_name aktualisiert (inkl. Trenn-Items)", "INFO: picklist_item_names_updated")
 				
 				# Reiche die Picklist ein
 				try:

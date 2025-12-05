@@ -1308,6 +1308,8 @@ def create_picklists_for_sammelbestellung(sammelbestellung_doc, all_orders_with_
                 all_picklist_items = []
                 invoice_data = []
                 order_numbers = []
+                # Mapping für Trenn-Items: Speichere Kundennamen für spätere Aktualisierung
+                separator_customer_mapping = []
                 
                 # Prüfe ob Gruppenversand (mehrere Kunden an dasselbe Versandziel)
                 is_group_shipping = len(orders_for_target) > 1
@@ -1340,10 +1342,11 @@ def create_picklists_for_sammelbestellung(sammelbestellung_doc, all_orders_with_
                             # Prüfe, ob das Trenn-Item existiert
                             trenner_item = frappe.get_doc("Item", "---")
                             
+                            separator_item_name = f"📦 Bestellung für: {customer_display_name}"
                             separator_item = {
                                 "doctype": "Pick List Item",
                                 "item_code": "---",
-                                "item_name": f"📦 Bestellung für: {customer_display_name}",
+                                "item_name": separator_item_name,
                                 "qty": 0.001,  # Sehr kleine Menge, damit es angezeigt wird aber nicht gepackt wird
                                 "stock_qty": 0.001,
                                 "picked_qty": 0.0,
@@ -1363,6 +1366,11 @@ def create_picklists_for_sammelbestellung(sammelbestellung_doc, all_orders_with_
                                 "material_request_item": None
                             }
                             all_picklist_items.append(separator_item)
+                            # Speichere Mapping für spätere Aktualisierung
+                            separator_customer_mapping.append({
+                                "customer_name": customer_display_name,
+                                "item_name": separator_item_name
+                            })
                             frappe.log_error(f"📋 Trenn-Item hinzugefügt für Kunde: {customer_display_name} (Index: {idx}) - item_code: {separator_item.get('item_code')}, item_name: {separator_item.get('item_name')}", "INFO: separator_item_added")
                         except Exception as e:
                             # Falls das Trenn-Item nicht existiert, logge Warnung aber mache weiter
@@ -1474,6 +1482,23 @@ def create_picklists_for_sammelbestellung(sammelbestellung_doc, all_orders_with_
                 # Debug: Prüfe ob Trenner-Items nach insert noch vorhanden sind
                 trenner_after_insert = sum(1 for item in picklist.locations if item.item_code == '---')
                 frappe.log_error(f"🔍 Trenner-Items nach insert: {trenner_after_insert} von {len(picklist.locations)} Items", "DEBUG: separator_items_after_insert")
+                
+                # WICHTIG: Stelle sicher, dass item_name für Trenn-Items erhalten bleibt
+                # Frappe könnte den item_name beim Erstellen überschreiben, daher aktualisieren wir ihn
+                if is_group_shipping and separator_customer_mapping:
+                    picklist.reload()  # Lade die Pickliste neu
+                    # Finde alle Trenn-Items in der Picklist und aktualisiere sie
+                    separator_index = 0
+                    for picklist_item in picklist.locations:
+                        if picklist_item.item_code == '---':
+                            # Verwende das Mapping um den richtigen Kundennamen zu finden
+                            if separator_index < len(separator_customer_mapping):
+                                mapping = separator_customer_mapping[separator_index]
+                                picklist_item.item_name = mapping["item_name"]
+                                frappe.log_error(f"📋 Trenn-Item #{separator_index} item_name aktualisiert: {picklist_item.item_name} (Kunde: {mapping['customer_name']})", "DEBUG: separator_item_name_updated")
+                                separator_index += 1
+                    picklist.save()  # Speichere die Änderungen
+                    frappe.log_error(f"✅ Picklist {picklist.name} Trenn-Item Namen aktualisiert ({separator_index} Trenn-Items)", "INFO: separator_item_names_updated")
                 
                 frappe.log_error(f"✅ Picklist erstellt: {picklist.name}", "SUCCESS: picklist_created")
                 

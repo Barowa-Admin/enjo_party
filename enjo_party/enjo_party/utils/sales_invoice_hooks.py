@@ -803,6 +803,28 @@ def auto_create_picklist_from_invoice(doc, method):
         # Stelle sicher, dass die Picklist als Entwurf erstellt wird
         picklist.insert()
         
+        # WICHTIG: Stelle sicher, dass item_name für Trenn-Items erhalten bleibt
+        # Frappe könnte den item_name beim Erstellen überschreiben, daher aktualisieren wir ihn
+        picklist.reload()  # Lade die Pickliste neu
+        separator_updated = False
+        for picklist_item in picklist.locations:
+            if picklist_item.item_code == '---':
+                # Finde das entsprechende Sales Order Item
+                if picklist_item.sales_order_item:
+                    try:
+                        so_item = frappe.get_doc("Sales Order Item", picklist_item.sales_order_item)
+                        if so_item.item_name and "Bestellung für:" in so_item.item_name:
+                            # item_name aus Sales Order hat Kundennamen - übernehme ihn
+                            picklist_item.item_name = so_item.item_name
+                            separator_updated = True
+                            frappe.log_error(f"📋 Trenn-Item item_name aktualisiert in Pick List (aus Invoice): {picklist_item.item_name}", "DEBUG: separator_item_name_updated_picklist_invoice")
+                    except Exception as e:
+                        frappe.log_error(f"⚠️ Fehler beim Aktualisieren von item_name für Trenn-Item: {str(e)}", "WARNING: separator_item_name_update_failed_invoice")
+        
+        if separator_updated:
+            picklist.save()  # Speichere die Änderungen
+            frappe.log_error(f"✅ Pick List {picklist.name} Trenn-Item Namen aktualisiert (aus Invoice)", "INFO: separator_item_names_updated_picklist_invoice")
+        
         # NICHT automatisch einreichen - da Artikel möglicherweise nicht lagernd sind
         # Die Picklist kann manuell eingereicht werden, wenn alle Artikel verfügbar sind
         

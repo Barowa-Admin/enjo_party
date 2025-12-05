@@ -1,7 +1,7 @@
 import frappe
 from frappe import _
 import types
-from frappe.utils import today
+from frappe.utils import today, flt
 
 # === AUTO SALES INVOICE TEMPORÄR DEAKTIVIERT ===
 # Schalter für automatische Rechnungserstellung über Hooks (True = aktiv, False = deaktiviert)
@@ -839,6 +839,53 @@ def create_picklist_for_sales_order(sales_order_doc):
         
         # Erstelle Pick List
         picklist.insert()
+        
+        # WICHTIG: Stelle sicher, dass item_name für Trenn-Items erhalten bleibt
+        # Frappe könnte den item_name beim Erstellen überschreiben, daher aktualisieren wir ihn
+        picklist.reload()  # Lade die Pickliste neu
+        separator_updated = False
+        for picklist_item in picklist.locations:
+            if picklist_item.item_code == '---':
+                # Finde das entsprechende Sales Order Item
+                if picklist_item.sales_order_item:
+                    try:
+                        so_item = frappe.get_doc("Sales Order Item", picklist_item.sales_order_item)
+                        if so_item.item_name and "Bestellung für:" in so_item.item_name:
+                            # item_name aus Sales Order hat Kundennamen - übernehme ihn
+                            picklist_item.item_name = so_item.item_name
+                            separator_updated = True
+                            frappe.log_error(f"📋 Trenn-Item item_name aktualisiert in Pick List (mit SO Item): {picklist_item.item_name}", "DEBUG: separator_item_name_updated_picklist")
+                    except Exception as e:
+                        frappe.log_error(f"⚠️ Fehler beim Aktualisieren von item_name für Trenn-Item: {str(e)}", "WARNING: separator_item_name_update_failed")
+                else:
+                    # Trenn-Item hat kein sales_order_item - verwende Position-basierte Suche
+                    try:
+                        so_doc = frappe.get_doc("Sales Order", picklist_item.sales_order)
+                        # Zähle Trenn-Items in Pick List bis zu diesem Item
+                        separator_index = 0
+                        for idx, pi in enumerate(picklist.locations):
+                            if pi.item_code == '---':
+                                if pi == picklist_item:
+                                    break
+                                separator_index += 1
+                        # Finde das entsprechende Trenn-Item in der Sales Order
+                        separator_index_in_so = 0
+                        for so_item in so_doc.items:
+                            if so_item.item_code == '---' and abs(flt(so_item.qty) - flt(picklist_item.qty)) < 0.0001:
+                                if separator_index_in_so == separator_index:
+                                    if so_item.item_name and "Bestellung für:" in so_item.item_name:
+                                        picklist_item.item_name = so_item.item_name
+                                        separator_updated = True
+                                        frappe.log_error(f"📋 Trenn-Item #{separator_index} item_name aktualisiert in Pick List (ohne SO Item): {picklist_item.item_name}", "DEBUG: separator_item_name_updated_picklist_no_so_item")
+                                        break
+                                separator_index_in_so += 1
+                    except Exception as e:
+                        frappe.log_error(f"⚠️ Fehler beim Aktualisieren von item_name für Trenn-Item (ohne SO Item): {str(e)}", "WARNING: separator_item_name_update_failed")
+        
+        if separator_updated:
+            picklist.save()  # Speichere die Änderungen
+            frappe.log_error(f"✅ Pick List {picklist.name} Trenn-Item Namen aktualisiert", "INFO: separator_item_names_updated_picklist")
+        
         return picklist
         
     except Exception as e:

@@ -3,11 +3,13 @@
 
 import frappe
 import types
+from frappe.utils import flt
 
 def before_validate_pick_list(doc, method):
     """
     Hook für Pick List before_validate
     Deaktiviert Lager-Validierung für alle Pick Lists
+    WICHTIG: Setzt auch item_name für Trenn-Items BEVOR Frappe es überschreibt
     
     WICHTIG: Diese Funktion macht Packlisten IMMER buchbar, auch wenn:
     - Der Lagerbestand nicht ausreicht
@@ -20,6 +22,32 @@ def before_validate_pick_list(doc, method):
     """
     if doc.doctype != "Pick List":
         return
+    
+    # WICHTIG: Stelle sicher, dass item_name für Trenn-Items BEVOR der Validierung gesetzt wird
+    # Frappe könnte das item_name in set_missing_values() überschreiben
+    # WICHTIG: Verwende Position in der Pick List, um das richtige Trenn-Item aus der Sales Order zu finden
+    separator_index_in_picklist = 0
+    for picklist_item_idx, picklist_item in enumerate(doc.locations):
+        if picklist_item.item_code == "---":
+            # Trenn-Item: Suche in Sales Order nach dem Trenn-Item an der entsprechenden Position
+            if picklist_item.sales_order:
+                try:
+                    so_doc = frappe.get_doc("Sales Order", picklist_item.sales_order)
+                    # Zähle Trenn-Items in der Sales Order und finde das an der Position separator_index_in_picklist
+                    separator_index_in_so = 0
+                    for so_item in so_doc.items:
+                        if so_item.item_code == "---" and abs(flt(so_item.qty) - flt(picklist_item.qty)) < 0.0001:
+                            # Prüfe ob dies das richtige Trenn-Item ist (basierend auf Position)
+                            if separator_index_in_so == separator_index_in_picklist:
+                                # Gefunden! Übernehme item_name aus Sales Order Item
+                                if so_item.item_name and "Bestellung für:" in so_item.item_name:
+                                    picklist_item.item_name = so_item.item_name
+                                    frappe.log_error(f"📋 Trenn-Item #{separator_index_in_picklist} (Position {picklist_item_idx}) item_name in before_validate gesetzt: {so_item.item_name}", "DEBUG: separator_item_name_before_validate")
+                                    separator_index_in_picklist += 1
+                                    break
+                            separator_index_in_so += 1
+                except Exception as e:
+                    frappe.log_error(f"⚠️ Fehler beim Setzen von item_name für Trenn-Item in before_validate: {str(e)}", "WARNING: separator_item_name_error_validate")
     
     # ===================================================================================
     # ABSCHNITT 1: DEAKTIVIERUNG VON VALIDIERUNGEN FÜR PACKLISTEN
@@ -78,23 +106,41 @@ def before_save_pick_list(doc, method):
     """
     Hook für Pick List before_save
     Stellt sicher, dass item_name aus Sales Order Item übernommen wird (für Gruppenversand mit Präfix)
-    WICHTIG: Überschreibt NICHT Trenner-Items (item_code == "---")
+    WICHTIG: Setzt auch item_name für Trenner-Items (item_code == "---") aus Sales Order Item
     """
     if doc.doctype != "Pick List":
         return
     
     # Stelle sicher, dass item_name aus Sales Order Item übernommen wird
-    # ABER: Überschreibe NICHT Trenner-Items (item_code == "---")
-    for picklist_item in doc.locations:
-        # Überspringe Trenner-Items - diese haben bereits das korrekte item_name
+    # WICHTIG: Verwende Position in der Pick List, um das richtige Trenn-Item aus der Sales Order zu finden
+    separator_index_in_picklist = 0
+    for picklist_item_idx, picklist_item in enumerate(doc.locations):
+        # WICHTIG: Trenn-Items haben KEIN sales_order_item, daher müssen wir sie anders behandeln
         if picklist_item.item_code == "---":
-            continue
-            
-        if picklist_item.sales_order_item:
+            # Trenn-Item: Suche in Sales Order nach dem Trenn-Item an der entsprechenden Position
+            if picklist_item.sales_order:
+                try:
+                    so_doc = frappe.get_doc("Sales Order", picklist_item.sales_order)
+                    # Zähle Trenn-Items in der Sales Order und finde das an der Position separator_index_in_picklist
+                    separator_index_in_so = 0
+                    for so_item in so_doc.items:
+                        if so_item.item_code == "---" and abs(flt(so_item.qty) - flt(picklist_item.qty)) < 0.0001:
+                            # Prüfe ob dies das richtige Trenn-Item ist (basierend auf Position)
+                            if separator_index_in_so == separator_index_in_picklist:
+                                # Gefunden! Übernehme item_name aus Sales Order Item
+                                if so_item.item_name and "Bestellung für:" in so_item.item_name:
+                                    picklist_item.item_name = so_item.item_name
+                                    frappe.log_error(f"📋 Trenn-Item #{separator_index_in_picklist} (Position {picklist_item_idx}) item_name aus SO übernommen in before_save: {so_item.item_name}", "DEBUG: separator_item_name_from_so_before_save")
+                                    separator_index_in_picklist += 1
+                                    break
+                            separator_index_in_so += 1
+                except Exception as e:
+                    frappe.log_error(f"⚠️ Fehler beim Übernehmen von item_name für Trenn-Item: {str(e)}", "WARNING: separator_item_name_error")
+        elif picklist_item.sales_order_item:
+            # Normale Items: Übernehme item_name aus Sales Order Item
             try:
                 so_item = frappe.get_doc("Sales Order Item", picklist_item.sales_order_item)
                 if so_item.item_name:
-                    # Übernehme item_name aus Sales Order Item (enthält bereits Präfix bei Gruppenversand)
                     picklist_item.item_name = so_item.item_name
                     frappe.log_error(f"📦 Picklist Item {picklist_item.item_code} item_name aus SO übernommen: {so_item.item_name}", "DEBUG: picklist_item_name_from_so")
             except Exception as e:
