@@ -96,6 +96,14 @@ def before_validate_delivery_note(doc, method):
                 item.allow_zero_valuation_rate = 1
             elif hasattr(item, 'allow_zero_valuation'):
                 item.allow_zero_valuation = 1
+            
+            # WICHTIG: Stelle sicher, dass Trenner-Items immer 0.001 haben (für ERPNext-Validierung)
+            # ERPNext erlaubt keine Menge von 0, daher müssen Trenner-Items mindestens 0.001 haben
+            if item.item_code == "---":
+                if not item.qty or item.qty == 0:
+                    item.qty = 0.001
+                if not item.stock_qty or item.stock_qty == 0:
+                    item.stock_qty = 0.001
     
     # WICHTIG: Stelle sicher, dass Trenner-Items nach Validierungen wieder vorhanden sind
     if separator_items_backup:
@@ -235,6 +243,14 @@ def before_validate_delivery_note(doc, method):
                 item.allow_zero_valuation_rate = 1
             elif hasattr(item, 'allow_zero_valuation'):
                 item.allow_zero_valuation = 1
+            
+            # WICHTIG: Stelle sicher, dass Trenner-Items immer 0.001 haben (für ERPNext-Validierung)
+            # ERPNext erlaubt keine Menge von 0, daher müssen Trenner-Items mindestens 0.001 haben
+            if item.item_code == "---":
+                if not item.qty or item.qty == 0:
+                    item.qty = 0.001
+                if not item.stock_qty or item.stock_qty == 0:
+                    item.stock_qty = 0.001
 
 
 def before_insert_delivery_note(doc, method):
@@ -512,6 +528,23 @@ def before_submit_delivery_note(doc, method):
                 item.allow_zero_valuation_rate = 1
             elif hasattr(item, 'allow_zero_valuation'):
                 item.allow_zero_valuation = 1
+            
+            # WICHTIG: Überspringe Qty-Validierung für Trenner-Items
+            # ERPNext prüft standardmäßig, ob qty > 0 ist, aber Trenner-Items haben 0.001
+            if item.item_code == "---":
+                # Überschreibe die validate_qty Methode für dieses Item
+                def safe_validate_qty(self, *args, **kwargs):
+                    """Überspringt Qty-Validierung für Trenner-Items"""
+                    pass
+                
+                # Versuche die Methode zu überschreiben, falls sie existiert
+                if hasattr(item, 'validate_qty'):
+                    item.validate_qty = types.MethodType(safe_validate_qty, item)
+                
+                # Stelle sicher, dass die Menge mindestens 0.001 ist (für ERPNext-Validierung)
+                if not item.qty or item.qty == 0:
+                    item.qty = 0.001
+                    item.stock_qty = 0.001
     
     # ===================================================================================
     # ABSCHNITT 3: ÜBERSCHREIBUNG VON VALIDIERUNGSMETHODEN
@@ -533,6 +566,16 @@ def before_submit_delivery_note(doc, method):
         doc.validate_valuation_rate = types.MethodType(safe_validate_valuation_rate, doc)
     if hasattr(doc, 'validate_item_valuation_rate'):
         doc.validate_item_valuation_rate = types.MethodType(safe_validate_valuation_rate, doc)
+    
+    # WICHTIG: Stelle sicher, dass Trenner-Items immer 0.001 haben (für ERPNext-Validierung)
+    # ERPNext erlaubt keine Menge von 0, daher müssen Trenner-Items mindestens 0.001 haben
+    if hasattr(doc, 'items') and doc.items:
+        for item in doc.items:
+            if item.item_code == "---":
+                if not item.qty or item.qty == 0:
+                    item.qty = 0.001
+                if not item.stock_qty or item.stock_qty == 0:
+                    item.stock_qty = 0.001
     
     # ===================================================================================
     # ABSCHNITT 4: KORREKTUR DER DATEN FÜR GRUPPENVERSAND-LIEFERSCHEINE
