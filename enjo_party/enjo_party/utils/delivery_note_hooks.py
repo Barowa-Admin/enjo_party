@@ -136,6 +136,34 @@ def before_validate_delivery_note(doc, method):
     is_foreign_shipping = False
     is_gruppenversand = doc.customer == "Gruppenversand"
     
+    # WICHTIG: Stelle sicher, dass der Customer "Gruppenversand" existiert
+    # Frappe's Webhook-System könnte den Webhook überspringen, wenn der Customer nicht existiert
+    if is_gruppenversand:
+        if not frappe.db.exists("Customer", "Gruppenversand"):
+            frappe.log_error(
+                "⚠️ Customer 'Gruppenversand' existiert nicht - erstelle ihn",
+                "WARNING: gruppenversand_customer_missing"
+            )
+            try:
+                # Erstelle den Customer "Gruppenversand" falls er nicht existiert
+                gruppenversand_customer = frappe.get_doc({
+                    "doctype": "Customer",
+                    "customer_name": "Gruppenversand",
+                    "customer_type": "Company",
+                    "customer_group": frappe.defaults.get_global_default("customer_group") or "All Customer Groups",
+                    "territory": frappe.defaults.get_global_default("territory") or "All Territories"
+                })
+                gruppenversand_customer.insert(ignore_permissions=True)
+                frappe.log_error(
+                    "✅ Customer 'Gruppenversand' erstellt",
+                    "SUCCESS: gruppenversand_customer_created"
+                )
+            except Exception as e:
+                frappe.log_error(
+                    f"Fehler beim Erstellen des Customers 'Gruppenversand': {str(e)}",
+                    "ERROR: gruppenversand_customer_creation_failed"
+                )
+    
     if doc.shipping_address_name and doc.customer:
         # Prüfe, ob die Versandadresse zu einem anderen Kunden gehört
         try:
@@ -162,8 +190,9 @@ def before_validate_delivery_note(doc, method):
         else:
             frappe.log_error(f"✅ Fremde Lieferadresse erkannt für Delivery Note {doc.name} - Validierung deaktiviert", "INFO: foreign_shipping_detected")
         
-        # Deaktiviere ERPNext-Validierungen
-        doc.flags.ignore_validate = True
+        # WICHTIG: ignore_validate NICHT setzen, da dies die Webhook-Auslösung verhindern könnte!
+        # Nur spezifische Validierungen deaktivieren, nicht die gesamte Validierung
+        # doc.flags.ignore_validate = True  # DEAKTIVIERT - verhindert Webhook-Auslösung!
         doc.flags.ignore_mandatory = True
         doc.flags.ignore_links = True
         doc.flags.ignore_permissions = True
@@ -272,8 +301,9 @@ def before_insert_delivery_note(doc, method):
     doc.flags.ignore_valuation_rate = True        # Ignoriere Bewertungsrate-Validierung
     
     # Für Gruppenversand: Deaktiviere auch Adress-Validierungen
+    # WICHTIG: ignore_validate NICHT setzen, da dies die Webhook-Auslösung verhindern könnte!
     if is_gruppenversand:
-        doc.flags.ignore_validate = True
+        # doc.flags.ignore_validate = True  # DEAKTIVIERT - verhindert Webhook-Auslösung!
         doc.flags.ignore_mandatory = True
         doc.flags.ignore_links = True
         doc.flags.ignore_permissions = True
@@ -393,15 +423,37 @@ def before_submit_delivery_note(doc, method):
             if not hasattr(frappe.local, '_webhook_triggered'):
                 frappe.local._webhook_triggered = set()
             
-            def patched_enqueue_webhook(doc=None, webhook=None, method="POST", **kwargs):
+            def patched_enqueue_webhook(doc=None, webhook=None, **kwargs):
                 """Verhindert mehrfache Webhook-Auslösung für dasselbe Dokument"""
+                # DEBUG: Logge ALLE Aufrufe, um zu sehen was passiert
+                if doc and doc.doctype == "Delivery Note":
+                    webhook_info = "unknown"
+                    if isinstance(webhook, dict):
+                        webhook_info = webhook.get("name", "dict")
+                    elif hasattr(webhook, "name"):
+                        webhook_info = webhook.name
+                    elif isinstance(webhook, str):
+                        webhook_info = webhook
+                    
+                    frappe.log_error(
+                        f"🔍 PATCH: enqueue_webhook aufgerufen für {doc.name} (Customer: {doc.customer}, Webhook: {webhook_info})",
+                        "DEBUG: webhook_patch_called"
+                    )
+                
                 if doc and webhook and doc.doctype == "Delivery Note":
-                    doc_key = f"{doc.doctype}:{doc.name}:{webhook}"
+                    # Extrahiere Webhook-Name für Tracking
+                    webhook_name = webhook
+                    if isinstance(webhook, dict):
+                        webhook_name = webhook.get("name", "unknown")
+                    elif hasattr(webhook, "name"):
+                        webhook_name = webhook.name
+                    
+                    doc_key = f"{doc.doctype}:{doc.name}:{webhook_name}"
                     
                     # Wenn dieser Webhook bereits für dieses Dokument getriggert wurde, überspringe
                     if doc_key in frappe.local._webhook_triggered:
                         frappe.log_error(
-                            f"⏭️ Webhook {webhook} für {doc.name} wurde bereits getriggert - überspringe mehrfache Auslösung",
+                            f"⏭️ Webhook {webhook_name} für {doc.name} wurde bereits getriggert - überspringe mehrfache Auslösung",
                             "INFO: webhook_already_triggered"
                         )
                         return
@@ -410,12 +462,12 @@ def before_submit_delivery_note(doc, method):
                     frappe.local._webhook_triggered.add(doc_key)
                     
                     frappe.log_error(
-                        f"✅ Webhook {webhook} für {doc.name} wird getriggert (Customer: {doc.customer})",
+                        f"✅ Webhook {webhook_name} für {doc.name} wird getriggert (Customer: {doc.customer})",
                         "INFO: webhook_triggered_once"
                     )
                 
-                # Rufe die originale Funktion auf
-                return original_enqueue_webhook(doc=doc, webhook=webhook, method=method, **kwargs)
+                # Rufe die originale Funktion auf (ohne method Parameter)
+                return original_enqueue_webhook(doc=doc, webhook=webhook, **kwargs)
             
             # PATCH: Überschreibe die Funktion
             import frappe.integrations.doctype.webhook.webhook as webhook_module
@@ -481,16 +533,297 @@ def before_submit_delivery_note(doc, method):
         doc.validate_valuation_rate = types.MethodType(safe_validate_valuation_rate, doc)
     if hasattr(doc, 'validate_item_valuation_rate'):
         doc.validate_item_valuation_rate = types.MethodType(safe_validate_valuation_rate, doc)
-
+    
+    # ===================================================================================
+    # ABSCHNITT 4: KORREKTUR DER DATEN FÜR GRUPPENVERSAND-LIEFERSCHEINE
+    # ===================================================================================
+    # Korrigiert total_net_weight und shipping_address_name für Gruppenversand-Lieferscheine
+    # WICHTIG: Muss VOR dem Submit passieren, damit der Webhook die korrekten Daten bekommt
+    # ===================================================================================
+    is_gruppenversand = doc.customer == "Gruppenversand"
+    
+    if is_gruppenversand:
+        try:
+            frappe.log_error(
+                f"⚙️ Korrigiere Daten für Gruppenversand-Lieferschein {doc.name} vor Webhook-Trigger",
+                "INFO: gruppenversand_data_correction"
+            )
+            
+            # 1. total_net_weight berechnen (Summe aller Items, außer Trenner)
+            # WICHTIG: Hole das Gewicht aus dem Sales Order, da es beim submit() verloren gehen kann
+            total_weight = 0.0
+            
+            # Finde zuerst den Sales Order
+            sales_order_name = None
+            for item in doc.items:
+                if hasattr(item, 'against_sales_order') and item.against_sales_order:
+                    sales_order_name = item.against_sales_order
+                    break
+                elif hasattr(item, 'sales_order') and item.sales_order:
+                    sales_order_name = item.sales_order
+                    break
+            
+            sales_order = None
+            if sales_order_name:
+                try:
+                    sales_order = frappe.get_cached_doc("Sales Order", sales_order_name)
+                except:
+                    pass
+            
+            for item in doc.items:
+                if item.item_code == "---":
+                    continue
+                
+                item_weight = 0.0
+                qty = frappe.utils.flt(item.qty)
+                
+                # Versuche 1: Gewicht aus Delivery Note Item
+                if hasattr(item, 'net_weight') and item.net_weight is not None:
+                    item_weight = frappe.utils.flt(item.net_weight) * qty
+                    frappe.log_error(
+                        f"  Item {item.item_code}: Gewicht aus DN Item: {item.net_weight}g * {qty} = {item_weight}g",
+                        "DEBUG: weight_from_dn_item"
+                    )
+                # Versuche 2: Gewicht aus Sales Order Item
+                elif sales_order:
+                    # Finde das entsprechende Sales Order Item
+                    so_item = None
+                    if hasattr(item, 'sales_order_item') and item.sales_order_item:
+                        # Versuche über sales_order_item Referenz
+                        for so_item_candidate in sales_order.items:
+                            if so_item_candidate.name == item.sales_order_item:
+                                so_item = so_item_candidate
+                                break
+                    else:
+                        # Fallback: Suche nach item_code und qty
+                        for so_item_candidate in sales_order.items:
+                            if so_item_candidate.item_code == item.item_code:
+                                so_item = so_item_candidate
+                                break
+                    
+                    if so_item and hasattr(so_item, 'net_weight') and so_item.net_weight:
+                        item_weight = frappe.utils.flt(so_item.net_weight) * qty
+                        frappe.log_error(
+                            f"  Item {item.item_code}: Gewicht aus SO Item: {so_item.net_weight}g * {qty} = {item_weight}g",
+                            "DEBUG: weight_from_so_item"
+                        )
+                    elif sales_order and hasattr(sales_order, 'total_net_weight') and sales_order.total_net_weight:
+                        # Fallback: Verwende total_net_weight vom Sales Order (proportional)
+                        total_so_qty = sum(frappe.utils.flt(so_item.qty) for so_item in sales_order.items if so_item.item_code != "---")
+                        if total_so_qty > 0:
+                            item_weight = (frappe.utils.flt(sales_order.total_net_weight) / total_so_qty) * qty
+                            frappe.log_error(
+                                f"  Item {item.item_code}: Gewicht proportional aus SO total: {item_weight}g",
+                                "DEBUG: weight_proportional_from_so"
+                            )
+                # Versuche 3: Gewicht direkt aus Item-Dokument
+                if item_weight == 0.0:
+                    try:
+                        item_doc = frappe.get_cached_doc("Item", item.item_code)
+                        if hasattr(item_doc, 'weight_per_unit') and item_doc.weight_per_unit:
+                            weight_per_unit = frappe.utils.flt(item_doc.weight_per_unit)
+                            item_weight = weight_per_unit * qty
+                            
+                            # Umrechnung auf Gramm, falls nötig
+                            if hasattr(item_doc, 'weight_uom') and item_doc.weight_uom:
+                                if item_doc.weight_uom.lower() in ['kg', 'kilogram']:
+                                    item_weight = item_weight * 1000  # kg zu g
+                            
+                            frappe.log_error(
+                                f"  Item {item.item_code}: Gewicht aus Item-Dokument: {weight_per_unit} {getattr(item_doc, 'weight_uom', 'g')} * {qty} = {item_weight}g",
+                                "DEBUG: weight_from_item_doc"
+                            )
+                    except Exception as e:
+                        frappe.log_error(
+                            f"⚠️ Konnte Gewicht für Item {item.item_code} nicht berechnen: {str(e)}",
+                            "WARNING: weight_calc_failed"
+                        )
+                
+                total_weight += item_weight
+            
+            doc.total_net_weight = total_weight
+            
+            # WICHTIG: Speichere das Gewicht direkt in der DB, damit es beim submit() nicht verloren geht
+            try:
+                frappe.db.set_value("Delivery Note", doc.name, "total_net_weight", total_weight, update_modified=False)
+                frappe.log_error(
+                    f"✅ total_net_weight in DB gespeichert: {total_weight}g",
+                    "INFO: weight_saved_to_db"
+                )
+            except Exception as e:
+                frappe.log_error(
+                    f"⚠️ Konnte Gewicht nicht in DB speichern: {str(e)}",
+                    "WARNING: weight_db_save_failed"
+                )
+            
+            frappe.log_error(
+                f"✅ total_net_weight korrigiert zu: {doc.total_net_weight}g",
+                "INFO: weight_corrected"
+            )
+            
+            # 2. shipping_address_name und shipping_address korrigieren
+            # sales_order_name wurde bereits oben ermittelt
+            if sales_order_name and sales_order:
+                sales_order = frappe.get_doc("Sales Order", sales_order_name)
+                if sales_order.customer == "Gruppenversand":
+                    # Dies ist der "Master"-Sales Order für den Gruppenversand
+                    # Die shipping_address_name sollte die des tatsächlichen Empfängers sein
+                    doc.shipping_address_name = sales_order.shipping_address_name
+                    # Lade die formatierte Adresse
+                    if doc.shipping_address_name:
+                        try:
+                            address_doc = frappe.get_doc("Address", doc.shipping_address_name)
+                            doc.shipping_address = address_doc.get_display()
+                        except Exception as e:
+                            # Fallback: Verwende die Adresse vom Sales Order
+                            doc.shipping_address = sales_order.shipping_address or ""
+                            frappe.log_error(
+                                f"⚠️ Konnte Adresse nicht formatieren: {str(e)}",
+                                "WARNING: address_format_failed"
+                            )
+                    doc.customer_name = sales_order.customer_name  # Kundenname des Empfängers
+                    frappe.log_error(
+                        f"✅ Versandadresse korrigiert zu: {doc.shipping_address_name} (Customer: {doc.customer_name})",
+                        "INFO: address_corrected"
+                    )
+            
+            # WICHTIG: Speichere die Änderungen am Doc, damit sie für den Webhook verfügbar sind
+            # Die Änderungen sind im Speicher und werden beim Submit gespeichert
+            
+        except Exception as e:
+            frappe.log_error(
+                f"❌ Fehler bei der Datenkorrektur für Gruppenversand-Lieferschein {doc.name}: {str(e)}\n{frappe.get_traceback()}",
+                "ERROR: gruppenversand_data_correction_error"
+            )
 
 def on_submit_delivery_note(doc, method):
     """
     Hook für Delivery Note on_submit
-    DEAKTIVIERT: Webhook-Triggern wird komplett von Frappe's Standard-System übernommen.
-    Das Patchen des Webhook-Systems erfolgt beim Import des Moduls.
+    Triggert Webhooks explizit für Gruppenversand-Lieferscheine, da Frappe's Standard-System
+    diese manchmal nicht automatisch auslöst.
     """
-    # Der Patch wird beim Import des Moduls angewendet
-    # Diese Funktion macht nichts mehr
-    return
+    if doc.doctype != "Delivery Note":
+        return
+    
+    # Prüfe ob es ein Gruppenversand-Lieferschein ist
+    is_gruppenversand = doc.customer == "Gruppenversand"
+    
+    if is_gruppenversand:
+        try:
+            frappe.log_error(
+                f"🔔 Gruppenversand-Lieferschein {doc.name} gebucht - prüfe Webhook-Status",
+                "INFO: gruppenversand_webhook_check"
+            )
+            
+            # WICHTIG: Prüfe und korrigiere das Gewicht NACH dem Submit
+            # Reload das Dokument, um sicherzustellen, dass wir die neuesten Daten haben
+            doc.reload()
+            
+            if not doc.total_net_weight or doc.total_net_weight == 0.0:
+                frappe.log_error(
+                    f"⚠️ Gewicht fehlt nach submit() - korrigiere jetzt",
+                    "WARNING: weight_missing_after_submit"
+                )
+                
+                # Hole das Gewicht aus dem Sales Order
+                sales_order_name = None
+                for item in doc.items:
+                    if hasattr(item, 'against_sales_order') and item.against_sales_order:
+                        sales_order_name = item.against_sales_order
+                        break
+                    elif hasattr(item, 'sales_order') and item.sales_order:
+                        sales_order_name = item.sales_order
+                        break
+                
+                if sales_order_name:
+                    try:
+                        sales_order = frappe.get_cached_doc("Sales Order", sales_order_name)
+                        if sales_order.total_net_weight:
+                            doc.total_net_weight = sales_order.total_net_weight
+                            frappe.db.set_value("Delivery Note", doc.name, "total_net_weight", sales_order.total_net_weight, update_modified=False)
+                            frappe.log_error(
+                                f"✅ Gewicht nach submit() korrigiert: {doc.total_net_weight}g (aus Sales Order)",
+                                "INFO: weight_corrected_after_submit"
+                            )
+                    except Exception as e:
+                        frappe.log_error(
+                            f"⚠️ Konnte Gewicht nach submit() nicht korrigieren: {str(e)}",
+                            "WARNING: weight_correction_failed_after_submit"
+                        )
+            
+            # Warte kurz, damit Frappe's Standard-Webhook-System Zeit hat zu triggern
+            import time
+            time.sleep(0.5)
+            
+            # Prüfe, ob Webhooks bereits getriggert wurden
+            # Wenn nicht, triggere sie explizit
+            from frappe.integrations.doctype.webhook.webhook import enqueue_webhook
+            
+            # Hole alle aktiven Webhooks für Delivery Note on_submit
+            webhooks = frappe.get_all(
+                "Webhook",
+                filters={
+                    "webhook_doctype": "Delivery Note",
+                    "webhook_docevent": "on_submit",
+                    "enabled": 1
+                },
+                fields=["name", "condition", "request_url"]
+            )
+            
+            if not webhooks:
+                frappe.log_error(
+                    f"⚠️ Keine Webhooks gefunden für Delivery Note on_submit",
+                    "WARNING: no_webhooks_found"
+                )
+                return
+            
+            frappe.log_error(
+                f"✅ {len(webhooks)} Webhook(s) gefunden - triggere jetzt explizit",
+                "INFO: webhooks_found_explicit_trigger"
+            )
+            
+            # Triggere jeden Webhook explizit
+            for webhook_data in webhooks:
+                webhook_name = webhook_data.name
+                condition = webhook_data.get("condition", "")
+                
+                # Prüfe Bedingung, falls vorhanden
+                should_trigger = True
+                if condition:
+                    try:
+                        should_trigger = frappe.safe_eval(condition, {"doc": doc, "frappe": frappe})
+                    except Exception as e:
+                        frappe.log_error(
+                            f"⚠️ Fehler beim Auswerten der Webhook-Bedingung für {webhook_name}: {str(e)}",
+                            "WARNING: webhook_condition_error"
+                        )
+                        should_trigger = True  # Bei Fehler trotzdem triggern
+                
+                if should_trigger:
+                    try:
+                        # Triggere den Webhook explizit
+                        enqueue_webhook(doc=doc, webhook={"name": webhook_name})
+                        
+                        frappe.log_error(
+                            f"✅ Webhook {webhook_name} explizit getriggert für Gruppenversand-Lieferschein {doc.name}",
+                            "SUCCESS: webhook_triggered_explicit"
+                        )
+                    except Exception as e:
+                        frappe.log_error(
+                            f"❌ Fehler beim Triggern des Webhooks {webhook_name} für {doc.name}: {str(e)}\n{frappe.get_traceback()}",
+                            "ERROR: webhook_trigger_failed"
+                        )
+                else:
+                    frappe.log_error(
+                        f"⏭️ Webhook {webhook_name} nicht getriggert - Bedingung nicht erfüllt: {condition}",
+                        "DEBUG: webhook_condition_not_met"
+                    )
+        
+        except Exception as e:
+            frappe.log_error(
+                f"💥 Allgemeiner Fehler im on_submit_delivery_note Hook: {str(e)}\n{frappe.get_traceback()}",
+                "ERROR: on_submit_hook_general_error"
+            )
+
 
 

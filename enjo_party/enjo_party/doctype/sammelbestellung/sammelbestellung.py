@@ -1607,6 +1607,7 @@ def create_shipping_orders_for_customers(sammelbestellung_doc, all_orders_with_s
                                 "base_rate": 0,
                                 "warehouse": get_default_warehouse(),
                                 "delivery_date": today(),
+                                "net_weight": 0.0,  # Trenner haben kein Gewicht
                             }
                             products_by_customer.append(separator_item_data)
                             frappe.log_error(f"📋 Trenn-Item (Überschrift) im Gruppenversand-Auftrag hinzugefügt für Kunde: {customer_display_name} (Index: {idx})", "INFO: separator_item_in_order")
@@ -1631,21 +1632,52 @@ def create_shipping_orders_for_customers(sammelbestellung_doc, all_orders_with_s
                                     if len(all_customers_for_target) > 1:
                                         item_name_display = f"[{customer_display_name}] {item_name_display}"
                                     
+                                    # Hole Gewicht vom Item-Dokument
+                                    item_weight = 0.0
+                                    item_code = product.get('item_code')
+                                    qty = product.get('qty', 1)
+                                    try:
+                                        item_doc = frappe.get_cached_doc("Item", item_code)
+                                        if hasattr(item_doc, 'weight_per_unit') and item_doc.weight_per_unit:
+                                            weight_per_unit = flt(item_doc.weight_per_unit)
+                                            item_weight = weight_per_unit * qty
+                                            
+                                            # Umrechnung auf Gramm, falls nötig
+                                            if hasattr(item_doc, 'weight_uom') and item_doc.weight_uom:
+                                                if item_doc.weight_uom.lower() in ['kg', 'kilogram']:
+                                                    item_weight = item_weight * 1000  # kg zu g
+                                            
+                                            frappe.log_error(
+                                                f"  Sales Order Item {item_code}: Gewicht {weight_per_unit} {getattr(item_doc, 'weight_uom', 'g')} * qty {qty} = {item_weight}g",
+                                                "DEBUG: weight_calc_so_creation"
+                                            )
+                                        else:
+                                            frappe.log_error(
+                                                f"  Sales Order Item {item_code}: Kein weight_per_unit im Item-Dokument",
+                                                "WARNING: weight_missing_so_creation"
+                                            )
+                                    except Exception as e:
+                                        frappe.log_error(
+                                            f"⚠️ Konnte Gewicht für Sales Order Item {item_code} nicht berechnen: {str(e)}",
+                                            "WARNING: weight_calc_error_so_creation"
+                                        )
+                                    
                                     products_by_customer.append({
                                         "doctype": "Sales Order Item",
-                                        "item_code": product.get('item_code'),
+                                        "item_code": item_code,
                                         "item_name": item_name_display,
-                                        "qty": product.get('qty', 1),
+                                        "qty": qty,
                                         "rate": 0,  # WICHTIG: Keine Rechnung = 0€ Rate
                                         "amount": 0,  # WICHTIG: Keine Rechnung = 0€ Amount
                                         "uom": product.get('uom', 'Stk'),
                                         "stock_uom": product.get('stock_uom', 'Stk'),
                                         "conversion_factor": product.get('conversion_factor', 1.0),
-                                        "stock_qty": product.get('stock_qty', product.get('qty', 1)),
+                                        "stock_qty": product.get('stock_qty', qty),
                                         "base_amount": 0,  # WICHTIG: Keine Rechnung = 0€ Base Amount
                                         "base_rate": 0,  # WICHTIG: Keine Rechnung = 0€ Base Rate
                                         "warehouse": product.get('warehouse', get_default_warehouse()),
                                         "delivery_date": product.get('delivery_date', today()),
+                                        "net_weight": item_weight,  # Setze Gewicht für jedes Item
                                     })
                 
                 frappe.log_error(f"Versandauftrag für {shipping_target}: {len(products_by_customer)} Items (inkl. Trenn-Items) von {len(all_customers_for_target)} Kunden", "INFO: shipping_order_products")
@@ -1686,9 +1718,30 @@ def create_shipping_orders_for_customers(sammelbestellung_doc, all_orders_with_s
                 shipping_order.flags.ignore_billing_validation = True
                 
                 shipping_order.insert()
+                
+                # WICHTIG: Berechne total_net_weight aus den Items und setze es
+                try:
+                    total_weight = 0.0
+                    for item in shipping_order.items:
+                        if item.item_code != "---" and hasattr(item, 'net_weight') and item.net_weight:
+                            total_weight += flt(item.net_weight) * flt(item.qty)
+                    
+                    shipping_order.total_net_weight = total_weight
+                    shipping_order.db_update()  # Speichere direkt in der DB
+                    
+                    frappe.log_error(
+                        f"✅ total_net_weight für Sales Order {shipping_order.name} gesetzt: {total_weight}g",
+                        "INFO: total_weight_set_so"
+                    )
+                except Exception as e:
+                    frappe.log_error(
+                        f"⚠️ Fehler beim Setzen des Gewichts für Sales Order: {str(e)}",
+                        "WARNING: weight_set_error_so"
+                    )
+                
                 shipping_order.submit()
                 
-                frappe.log_error(f"Versandauftrag erfolgreich erstellt: {shipping_order.name}", "SUCCESS: shipping_order_created")
+                frappe.log_error(f"Versandauftrag erfolgreich erstellt: {shipping_order.name} (total_net_weight: {shipping_order.total_net_weight}g)", "SUCCESS: shipping_order_created")
                 created_shipping_orders.append(shipping_order.name)
                 
             except Exception as e:
@@ -1771,30 +1824,55 @@ def create_single_partner_order_for_sammelbestellung(sammelbestellung_doc, all_o
         
         frappe.log_error(f"DEBUG: partner_address = {partner_address}", "DEBUG: partner_address_debug")
         
+        # Berechne Gewichte für Partner-Produkte
+        partner_items_with_weight = []
+        for product in partner_products:
+            item_code = product.get('item_code')
+            qty = product.get('qty', 1)
+            
+            # Hole Gewicht vom Item-Dokument
+            item_weight = 0.0
+            try:
+                item_doc = frappe.get_cached_doc("Item", item_code)
+                if hasattr(item_doc, 'weight_per_unit') and item_doc.weight_per_unit:
+                    weight_per_unit = flt(item_doc.weight_per_unit)
+                    item_weight = weight_per_unit * qty
+                    
+                    # Umrechnung auf Gramm, falls nötig
+                    if hasattr(item_doc, 'weight_uom') and item_doc.weight_uom:
+                        if item_doc.weight_uom.lower() in ['kg', 'kilogram']:
+                            item_weight = item_weight * 1000  # kg zu g
+            except Exception as e:
+                frappe.log_error(
+                    f"⚠️ Konnte Gewicht für Partner-Item {item_code} nicht berechnen: {str(e)}",
+                    "WARNING: weight_calc_error_partner"
+                )
+            
+            partner_items_with_weight.append({
+                "doctype": "Sales Order Item",
+                "item_code": item_code,
+                "item_name": product.get('item_name', item_code),
+                "qty": qty,
+                "rate": product.get('rate', 0),
+                "amount": product.get('amount', 0),
+                "uom": product.get('uom', 'Stk'),
+                "stock_uom": product.get('stock_uom', 'Stk'),
+                "conversion_factor": product.get('conversion_factor', 1.0),
+                "stock_qty": product.get('stock_qty', qty),
+                "base_amount": product.get('base_amount', product.get('amount', 0)),
+                "base_rate": product.get('base_rate', product.get('rate', 0)),
+                "warehouse": product.get('warehouse', get_default_warehouse()),
+                "delivery_date": product.get('delivery_date', today()),
+                "net_weight": item_weight,  # Setze Gewicht für jedes Item
+            })
+        
         # Erstelle Sales Order für die Partnerin mit echten Produkten
         partner_order_data = {
             "doctype": "Sales Order",
             "customer": "Gruppenversand",  # Immer Gruppenversand als Customer
             "transaction_date": today(),
             "delivery_date": today(),
-            "items": [
-                {
-                    "doctype": "Sales Order Item",
-                    "item_code": product.get('item_code'),
-                    "item_name": product.get('item_name', product.get('item_code')),
-                    "qty": product.get('qty', 1),
-                    "rate": product.get('rate', 0),
-                    "amount": product.get('amount', 0),
-                    "uom": product.get('uom', 'Stk'),
-                    "stock_uom": product.get('stock_uom', 'Stk'),
-                    "conversion_factor": product.get('conversion_factor', 1.0),
-                    "stock_qty": product.get('stock_qty', product.get('qty', 1)),
-                    "base_amount": product.get('base_amount', product.get('amount', 0)),
-                    "base_rate": product.get('base_rate', product.get('rate', 0)),
-                    "warehouse": product.get('warehouse', get_default_warehouse()),
-                    "delivery_date": product.get('delivery_date', today()),
-                } for product in partner_products
-            ],
+            "items": partner_items_with_weight,
             "customer_address": None,  # Gruppenversand hat keine eigene Adresse
             "shipping_address_name": partner_address,  # Korrekte Versandadresse der Partnerin
             "remarks": f"Partner-Versandauftrag aus Sammelbestellung: {sammelbestellung_doc.name} | Partnerin: {sammelbestellung_doc.partnerin} | {len(partner_products)} Produkte",
@@ -1823,9 +1901,30 @@ def create_single_partner_order_for_sammelbestellung(sammelbestellung_doc, all_o
         partner_order.flags.ignore_billing_validation = True
         
         partner_order.insert()
+        
+        # WICHTIG: Berechne total_net_weight aus den Items und setze es
+        try:
+            total_weight = 0.0
+            for item in partner_order.items:
+                if hasattr(item, 'net_weight') and item.net_weight:
+                    total_weight += flt(item.net_weight) * flt(item.qty)
+            
+            partner_order.total_net_weight = total_weight
+            partner_order.db_update()  # Speichere direkt in der DB
+            
+            frappe.log_error(
+                f"✅ total_net_weight für Partner-Auftrag {partner_order.name} gesetzt: {total_weight}g",
+                "INFO: total_weight_set_partner"
+            )
+        except Exception as e:
+            frappe.log_error(
+                f"⚠️ Fehler beim Setzen des Gewichts für Partner-Auftrag: {str(e)}",
+                "WARNING: weight_set_error_partner"
+            )
+        
         partner_order.submit()
         
-        frappe.log_error(f"Partner-Auftrag erfolgreich erstellt und gebucht: {partner_order.name}", "SUCCESS: partner_order_created")
+        frappe.log_error(f"Partner-Auftrag erfolgreich erstellt und gebucht: {partner_order.name} (total_net_weight: {partner_order.total_net_weight}g)", "SUCCESS: partner_order_created")
         return partner_order.name
         
     except Exception as e:
@@ -1969,34 +2068,100 @@ def create_delivery_notes_for_receiving_customers(sammelbestellung_doc, all_orde
                     frappe.log_error(f"Kein Sales Order für Versandziel {shipping_target} gefunden", "WARNING: no_target_sales_order")
                     continue
                 
+                # Berechne Gesamtgewicht VOR der Erstellung der Delivery Note
+                total_net_weight = 0.0
+                delivery_note_items = []
+                
+                for item in all_products:
+                    item_code = item['product'].get('item_code')
+                    qty = flt(item['product'].get('qty', 1))
+                    
+                    # Überspringe Trenner-Items
+                    if item_code == "---":
+                        delivery_note_items.append({
+                            "doctype": "Delivery Note Item",
+                            "item_code": item_code,
+                            "item_name": item['product'].get('item_name', item_code),
+                            "qty": item['product'].get('qty', 0.001),
+                            "rate": 0,
+                            "amount": 0,
+                            "uom": item['product'].get('uom', 'Stk'),
+                            "stock_uom": item['product'].get('stock_uom', 'Stk'),
+                            "conversion_factor": 1.0,
+                            "stock_qty": item['product'].get('stock_qty', 0.001),
+                            "base_amount": 0,
+                            "base_rate": 0,
+                            "warehouse": item['product'].get('warehouse', get_default_warehouse()),
+                            "delivery_date": item['product'].get('delivery_date', today()),
+                            "sales_order": item['sales_order'],
+                            "sales_order_item": None,
+                            "allow_zero_valuation_rate": 1,
+                            "net_weight": 0.0,  # Trenner haben kein Gewicht
+                        })
+                        continue
+                    
+                    # Hole Gewicht vom Item-Dokument
+                    item_weight = 0.0
+                    try:
+                        item_doc = frappe.get_cached_doc("Item", item_code)
+                        if hasattr(item_doc, 'weight_per_unit') and item_doc.weight_per_unit:
+                            weight_per_unit = flt(item_doc.weight_per_unit)
+                            item_weight = weight_per_unit * qty
+                            
+                            # Umrechnung auf Gramm, falls nötig
+                            if hasattr(item_doc, 'weight_uom') and item_doc.weight_uom:
+                                if item_doc.weight_uom.lower() in ['kg', 'kilogram']:
+                                    item_weight = item_weight * 1000  # kg zu g
+                            
+                            total_net_weight += item_weight
+                            frappe.log_error(
+                                f"  Item {item_code}: Gewicht {weight_per_unit} {getattr(item_doc, 'weight_uom', 'g')} * qty {qty} = {item_weight}g",
+                                "DEBUG: weight_calc_dn_creation"
+                            )
+                        else:
+                            frappe.log_error(
+                                f"  Item {item_code}: Kein weight_per_unit im Item-Dokument",
+                                "WARNING: weight_missing_dn_creation"
+                            )
+                    except Exception as e:
+                        frappe.log_error(
+                            f"⚠️ Konnte Gewicht für Item {item_code} nicht berechnen: {str(e)}",
+                            "WARNING: weight_calc_error_dn_creation"
+                        )
+                    
+                    delivery_note_items.append({
+                        "doctype": "Delivery Note Item",
+                        "item_code": item_code,
+                        "item_name": item['product'].get('item_name', item_code),
+                        "qty": qty,
+                        "rate": item['product'].get('rate', 0),
+                        "amount": item['product'].get('amount', 0),
+                        "uom": item['product'].get('uom', 'Stk'),
+                        "stock_uom": item['product'].get('stock_uom', 'Stk'),
+                        "conversion_factor": item['product'].get('conversion_factor', 1.0),
+                        "stock_qty": item['product'].get('stock_qty', qty),
+                        "base_amount": item['product'].get('base_amount', item['product'].get('amount', 0)),
+                        "base_rate": item['product'].get('base_rate', item['product'].get('rate', 0)),
+                        "warehouse": item['product'].get('warehouse', get_default_warehouse()),
+                        "delivery_date": item['product'].get('delivery_date', today()),
+                        "sales_order": item['sales_order'],
+                        "sales_order_item": None,
+                        "allow_zero_valuation_rate": 1,
+                        "net_weight": item_weight,  # Setze Gewicht für jedes Item
+                    })
+                
+                frappe.log_error(
+                    f"✅ Gesamtgewicht berechnet: {total_net_weight}g für Delivery Note",
+                    "INFO: total_weight_calculated_dn"
+                )
+                
                 # Erstelle Delivery Note
                 delivery_note_data = {
                     "doctype": "Delivery Note",
                     "customer": shipping_target,
                     "posting_date": today(),
                     "posting_time": frappe.utils.nowtime(),
-                    "items": [
-                        {
-                            "doctype": "Delivery Note Item",
-                            "item_code": item['product'].get('item_code'),
-                            "item_name": item['product'].get('item_name', item['product'].get('item_code')),
-                            "qty": item['product'].get('qty', 1),
-                            "rate": item['product'].get('rate', 0),
-                            "amount": item['product'].get('amount', 0),
-                            "uom": item['product'].get('uom', 'Stk'),
-                            "stock_uom": item['product'].get('stock_uom', 'Stk'),
-                            "conversion_factor": item['product'].get('conversion_factor', 1.0),
-                            "stock_qty": item['product'].get('stock_qty', item['product'].get('qty', 1)),
-                            "base_amount": item['product'].get('base_amount', item['product'].get('amount', 0)),
-                            "base_rate": item['product'].get('base_rate', item['product'].get('rate', 0)),
-                            "warehouse": item['product'].get('warehouse', get_default_warehouse()),
-                            "delivery_date": item['product'].get('delivery_date', today()),
-                            "sales_order": item['sales_order'],
-                            "sales_order_item": None,
-                            # WICHTIG: Erlaube Nullbewertung, damit keine Bewertungsrate benötigt wird
-                            "allow_zero_valuation_rate": 1,
-                        } for item in all_products
-                    ],
+                    "items": delivery_note_items,
                     "customer_address": target_sales_order.customer_address,
                     "shipping_address_name": target_sales_order.shipping_address_name,
                     "remarks": f"Delivery Note aus Sammelbestellung: {sammelbestellung_doc.name} | Versandziel: {shipping_target} | {len(all_products)} Produkte von {len(orders_for_target)} Kunden",
@@ -2007,6 +2172,7 @@ def create_delivery_notes_for_receiving_customers(sammelbestellung_doc, all_orde
                     "custom_party_reference": target_sales_order.custom_party_reference,
                     "taxes_and_charges": None,
                     "selling_price_list": target_sales_order.selling_price_list,
+                    "total_net_weight": total_net_weight,  # Setze Gesamtgewicht
                 }
                 
                 # Debug: Prüfe ob Trenner-Items vorhanden sind
@@ -2036,6 +2202,29 @@ def create_delivery_notes_for_receiving_customers(sammelbestellung_doc, all_orde
                 
                 delivery_note.insert()
                 
+                # WICHTIG: Setze total_net_weight direkt NACH dem insert und speichere
+                # DeliveryNote hat keine calculate_total() Methode, daher setzen wir es direkt
+                try:
+                    # Berechne total_net_weight aus den Items
+                    calculated_weight = 0.0
+                    for item in delivery_note.items:
+                        if item.item_code != "---" and hasattr(item, 'net_weight') and item.net_weight:
+                            calculated_weight += flt(item.net_weight) * flt(item.qty)
+                    
+                    # Setze das Gewicht direkt
+                    delivery_note.total_net_weight = calculated_weight
+                    delivery_note.db_update()  # Speichere direkt in der DB
+                    
+                    frappe.log_error(
+                        f"✅ total_net_weight nach insert gesetzt: {delivery_note.total_net_weight}g",
+                        "INFO: total_weight_set_after_insert"
+                    )
+                except Exception as e:
+                    frappe.log_error(
+                        f"⚠️ Fehler beim Setzen des Gewichts: {str(e)}",
+                        "WARNING: weight_set_error"
+                    )
+                
                 # Debug: Prüfe ob Trenner-Items nach insert noch vorhanden sind
                 trenner_after_insert = sum(1 for item in delivery_note.items if item.item_code == '---')
                 frappe.log_error(f"🔍 Trenner-Items nach insert: {trenner_after_insert} von {len(delivery_note.items)} Items", "DEBUG: separator_items_after_insert_dn")
@@ -2045,7 +2234,10 @@ def create_delivery_notes_for_receiving_customers(sammelbestellung_doc, all_orde
                     if item.item_code == '---':
                         frappe.log_error(f"🔍 Trenner-Item #{idx}: item_code='{item.item_code}', item_name='{item.item_name}', qty={item.qty}", "DEBUG: separator_item_details")
                 
-                frappe.log_error(f"✅ Delivery Note erstellt: {delivery_note.name} für {shipping_target}", "SUCCESS: delivery_note_created")
+                frappe.log_error(
+                    f"✅ Delivery Note erstellt: {delivery_note.name} für {shipping_target} (total_net_weight: {delivery_note.total_net_weight}g)",
+                    "SUCCESS: delivery_note_created"
+                )
                 
                 # Delivery Note NICHT einreichen - nur als Entwurf speichern
                 # Das Buchen kommt später von woanders

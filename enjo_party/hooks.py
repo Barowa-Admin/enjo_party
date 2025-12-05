@@ -192,9 +192,10 @@ doc_events = {
 		"before_validate": "enjo_party.enjo_party.utils.delivery_note_hooks.before_validate_delivery_note",
 		"before_submit": "enjo_party.enjo_party.utils.delivery_note_hooks.before_submit_delivery_note",
 		# Sammelbestellungs-Status: Update wenn Gruppenversand-Lieferschein gebucht wird
-		# Webhook-Trigger: DEAKTIVIERT - Webhooks werden jetzt komplett von Frappe's Standard-System übernommen
+		# Webhook-Trigger: Explizit für Gruppenversand-Lieferscheine, da Frappe's Standard-System diese nicht triggert
 		"on_submit": [
-			"enjo_party.enjo_party.utils.sammelbestellung_status.update_sammelbestellung_status_on_delivery"
+			"enjo_party.enjo_party.utils.sammelbestellung_status.update_sammelbestellung_status_on_delivery",
+			"enjo_party.enjo_party.utils.delivery_note_hooks.on_submit_delivery_note"
 		]
 	},
 	"Pick List": {
