@@ -70,15 +70,19 @@
                 
                 {# Prüfe ob es ein Trenn-Item ist (item_code == "---") #}
                 {% if item.item_code == "---" %}
-                {# Extrahiere Kundenname aus Trenn-Item Text #}
+                {# Extrahiere Kundenname aus Trenn-Item Text - nur der Name, ohne Emoji und "Bestellung für:" #}
                 {% set separator_text = item.item_name or "" %}
                 {% set customer_name_from_separator = "" %}
                 {% if "Bestellung für:" in separator_text %}
-                    {% set customer_name_from_separator = separator_text.split("Bestellung für:")[1].strip() if separator_text.split("Bestellung für:")|length > 1 else "" %}
+                    {% set temp_name = separator_text.split("Bestellung für:")[1].strip() if separator_text.split("Bestellung für:")|length > 1 else "" %}
+                    {# Entferne bekannte Emojis und Sonderzeichen #}
+                    {% set customer_name_from_separator = temp_name.replace("📦", "").replace("📋", "").replace("📦", "").replace("📄", "").replace("📝", "").strip() %}
                 {% endif %}
+                {# Bestimme Anzahl der Spalten: 3 (Artikel, Artikelname, Menge) oder 4 (mit Empfänger) #}
+                {% set num_columns = 4 if has_group_shipping else 3 %}
                 <tr style="background-color: #f0f0f0;">
-                    <td style="padding: 8px; font-size: 12px; color: #999; border: 1px solid #ddd; text-align: center;" colspan="{% if has_group_shipping %}4{% else %}3{% endif %}">
-                        {{ customer_name_from_separator if customer_name_from_separator else (item.item_name or "N/A") }}
+                    <td style="padding: 8px; font-size: 12px; color: #333; border: 1px solid #ddd; text-align: center; font-weight: bold;" colspan="{{ num_columns }}">
+                        {{ customer_name_from_separator if customer_name_from_separator else "N/A" }}
                     </td>
                 </tr>
                 {% else %}

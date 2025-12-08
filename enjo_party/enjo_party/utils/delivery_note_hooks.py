@@ -457,6 +457,10 @@ def before_submit_delivery_note(doc, method):
                     )
                 
                 if doc and webhook and doc.doctype == "Delivery Note":
+                    # Stelle sicher, dass _webhook_triggered existiert
+                    if not hasattr(frappe.local, '_webhook_triggered'):
+                        frappe.local._webhook_triggered = set()
+                    
                     # Extrahiere Webhook-Name für Tracking
                     webhook_name = webhook
                     if isinstance(webhook, dict):
