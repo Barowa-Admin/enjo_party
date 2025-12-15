@@ -86,9 +86,21 @@ def create_stripe_checkout_session(payment_request):
         )
 
         # Speichere die Stripe Checkout URL direkt in der Payment Request
+        if not session.url:
+            frappe.log_error(f"FEHLER: Stripe Session hat keine URL für Payment Request {payment_request.name}", "ERROR: stripe_checkout")
+            return None
+        
         payment_request.payment_url = session.url
         payment_request.flags.ignore_permissions = True
         payment_request.save(ignore_permissions=True)
+        
+        # WICHTIG: Commit und prüfe ob payment_url gespeichert wurde
+        frappe.db.commit()
+        payment_request.reload()
+        if payment_request.payment_url != session.url:
+            # Versuche erneut zu speichern
+            payment_request.db_set('payment_url', session.url, update_modified=False)
+            frappe.db.commit()
         
         # WICHTIG: Wenn es eine Subscription ist, speichere die Stripe Subscription ID in der Payment Request
         # (wird nach erfolgreichem Payment verfügbar sein)

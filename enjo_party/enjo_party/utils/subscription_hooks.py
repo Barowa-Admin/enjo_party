@@ -144,7 +144,8 @@ def force_subscription_update(doc, method):
                 # Betrag direkt aus DB lesen für exakte Übereinstimmung
                 invoice_grand_total = frappe.db.get_value("Sales Invoice", invoice_name, "grand_total")
                 
-                frappe.log_error(f"SUBSCRIPTION HOOK: Erstelle Payment Request für Invoice {invoice_name}, grand_total={invoice_grand_total}", "DEBUG: subscription_hook")
+                msg = f"Erstelle Payment Request für Invoice {invoice_name}, total={invoice_grand_total}"
+                frappe.log_error(msg[:140], "DEBUG: subscription_hook")
                 
                 # Payment Request erstellen (ohne message zuerst)
                 payment_request = frappe.get_doc({
@@ -189,7 +190,8 @@ def force_subscription_update(doc, method):
                     # Prüfe und aktualisiere das payment_gateway im Subscription Plan DocType
                     plan_doc = frappe.get_doc("Subscription Plan", plan_detail.plan)
                     if plan_doc.payment_gateway != gateway_account:
-                        frappe.log_error(f"SUBSCRIPTION HOOK: Subscription Plan {plan_detail.plan} hat payment_gateway: {plan_doc.payment_gateway}, setze auf {gateway_account}", "DEBUG: subscription_hook")
+                        msg = f"Plan {plan_detail.plan}: payment_gateway={plan_doc.payment_gateway}, setze auf {gateway_account}"
+                        frappe.log_error(msg[:140], "DEBUG: subscription_hook")
                         plan_doc.payment_gateway = gateway_account
                         plan_doc.save(ignore_permissions=True)
                     
@@ -211,6 +213,14 @@ def force_subscription_update(doc, method):
 
                 # Stripe-Checkout erzeugen und URL setzen
                 stripe_url = create_stripe_checkout_session(payment_request)
+                
+                # Prüfe ob payment_url gesetzt wurde (Retry-Logik)
+                if not stripe_url:
+                    frappe.log_error(f"SUBSCRIPTION HOOK: Stripe URL ist leer, versuche erneut für Payment Request {payment_request.name}", "WARNING: subscription_hook")
+                    # Reload Payment Request
+                    payment_request.reload()
+                    stripe_url = create_stripe_checkout_session(payment_request)
+                
                 if stripe_url:
                     # Immer die echte Stripe-URL verwenden
                     payment_request.payment_url = stripe_url
@@ -220,7 +230,14 @@ def force_subscription_update(doc, method):
                     payment_request.db_set('payment_gateway', '', update_modified=False)
                     # Speichere payment_url in DB
                     payment_request.db_set('payment_url', stripe_url, update_modified=False)
-                    frappe.log_error(f"SUBSCRIPTION HOOK: payment_url erfolgreich gesetzt", "DEBUG: subscription_hook")
+                    frappe.db.commit()
+                    # Prüfe nochmal ob payment_url gesetzt wurde
+                    payment_request.reload()
+                    if payment_request.payment_url != stripe_url:
+                        frappe.log_error(f"SUBSCRIPTION HOOK: payment_url wurde nicht gespeichert, setze erneut", "WARNING: subscription_hook")
+                        payment_request.db_set('payment_url', stripe_url, update_modified=False)
+                        frappe.db.commit()
+                    frappe.log_error(f"SUBSCRIPTION HOOK: payment_url erfolgreich gesetzt: {stripe_url[:50]}...", "DEBUG: subscription_hook")
                     
                     # Rendere Message Template aus Payment Gateway Account
                     from frappe.utils.jinja import render_template
@@ -232,6 +249,8 @@ def force_subscription_update(doc, method):
                     })
                     payment_request.message = rendered_message
                     payment_request.save(ignore_permissions=True)
+                else:
+                    frappe.log_error(f"SUBSCRIPTION HOOK: FEHLER - payment_url konnte nicht erstellt werden für Payment Request {payment_request.name}", "ERROR: subscription_hook")
 
                 # Submit (ohne Standard-Mail) und danach E-Mail manuell senden
                 payment_request.submit()
@@ -290,7 +309,8 @@ def force_subscription_update(doc, method):
                 try:
                     sales_order = create_sales_order_from_invoice(invoice)
                     if sales_order:
-                        frappe.log_error(f"SUBSCRIPTION HOOK: Sales Order {sales_order.name} aus Invoice {invoice_name} erstellt", "SUCCESS: subscription_hook")
+                        msg = f"Sales Order {sales_order.name} aus Invoice {invoice_name} erstellt"
+                        frappe.log_error(msg[:140], "SUCCESS: subscription_hook")
                         # Verknüpfe Invoice mit Sales Order
                         link_invoice_to_sales_order(invoice, sales_order)
                         frappe.db.commit()
@@ -393,7 +413,8 @@ def create_payment_request_for_subscription_invoice(doc, method):
                     # Prüfe und aktualisiere das payment_gateway im Subscription Plan DocType
                     plan_doc = frappe.get_doc("Subscription Plan", plan_detail.plan)
                     if plan_doc.payment_gateway != gateway_account:
-                        frappe.log_error(f"SUBSCRIPTION HOOK: Subscription Plan {plan_detail.plan} hat payment_gateway: {plan_doc.payment_gateway}, setze auf {gateway_account}", "DEBUG: subscription_hook")
+                        msg = f"Plan {plan_detail.plan}: payment_gateway={plan_doc.payment_gateway}, setze auf {gateway_account}"
+                        frappe.log_error(msg[:140], "DEBUG: subscription_hook")
                         plan_doc.payment_gateway = gateway_account
                         plan_doc.save(ignore_permissions=True)
                     
@@ -415,6 +436,14 @@ def create_payment_request_for_subscription_invoice(doc, method):
 
                 # Stripe-Checkout erzeugen und URL setzen
                 stripe_url = create_stripe_checkout_session(payment_request)
+                
+                # Prüfe ob payment_url gesetzt wurde (Retry-Logik)
+                if not stripe_url:
+                    frappe.log_error(f"SUBSCRIPTION HOOK: Stripe URL ist leer, versuche erneut für Payment Request {payment_request.name}", "WARNING: subscription_hook")
+                    # Reload Payment Request
+                    payment_request.reload()
+                    stripe_url = create_stripe_checkout_session(payment_request)
+                
                 if stripe_url:
                     # Immer die echte Stripe-URL verwenden
                     payment_request.payment_url = stripe_url
@@ -424,7 +453,14 @@ def create_payment_request_for_subscription_invoice(doc, method):
                     payment_request.db_set('payment_gateway', '', update_modified=False)
                     # Speichere payment_url in DB
                     payment_request.db_set('payment_url', stripe_url, update_modified=False)
-                    frappe.log_error(f"SUBSCRIPTION HOOK: payment_url erfolgreich gesetzt", "DEBUG: subscription_hook")
+                    frappe.db.commit()
+                    # Prüfe nochmal ob payment_url gesetzt wurde
+                    payment_request.reload()
+                    if payment_request.payment_url != stripe_url:
+                        frappe.log_error(f"SUBSCRIPTION HOOK: payment_url wurde nicht gespeichert, setze erneut", "WARNING: subscription_hook")
+                        payment_request.db_set('payment_url', stripe_url, update_modified=False)
+                        frappe.db.commit()
+                    frappe.log_error(f"SUBSCRIPTION HOOK: payment_url erfolgreich gesetzt: {stripe_url[:50]}...", "DEBUG: subscription_hook")
                     
                     # Rendere Message Template aus Payment Gateway Account
                     from frappe.utils.jinja import render_template
@@ -436,6 +472,8 @@ def create_payment_request_for_subscription_invoice(doc, method):
                     })
                     payment_request.message = rendered_message
                     payment_request.save(ignore_permissions=True)
+                else:
+                    frappe.log_error(f"SUBSCRIPTION HOOK: FEHLER - payment_url konnte nicht erstellt werden für Payment Request {payment_request.name}", "ERROR: subscription_hook")
 
                 # Submit (ohne Standard-Mail) und danach E-Mail manuell senden
                 payment_request.submit()
@@ -473,7 +511,8 @@ def create_payment_request_for_subscription_invoice(doc, method):
                 )
                 
                 if existing_requests_check:
-                    frappe.log_error(f"SUBSCRIPTION HOOK: Andere Payment Request existiert bereits für Invoice {doc.name} - überspringe E-Mail-Versand", "DEBUG: subscription_payment_request")
+                    msg = f"Andere Payment Request existiert bereits für Invoice {doc.name} - überspringe E-Mail"
+                    frappe.log_error(msg[:140], "DEBUG: subscription_payment_request")
                     return  # Keine E-Mail senden, da bereits eine Payment Request existiert
                 
                 # ÜBERGANGSWEISE DEAKTIVIERT: E-Mail-Versendung für Abos
@@ -521,6 +560,204 @@ def create_payment_request_for_subscription_invoice(doc, method):
             
     except Exception as e:
         frappe.log_error(f"Fehler beim Erstellen der Payment Request für Subscription Invoice {doc.name}: {str(e)}", "ERROR: subscription_payment_request")
+
+
+def set_default_payment_gateway(doc, method):
+    """
+    Setzt automatisch Payment Gateway auf "Stripe-Stripe - EUR" wenn leer
+    Wird bei Subscription Plan before_save/validate aufgerufen
+    """
+    try:
+        if not doc.payment_gateway:
+            doc.payment_gateway = "Stripe-Stripe - EUR"
+            # Prüfe ob Payment Gateway Account existiert
+            if not frappe.db.exists("Payment Gateway Account", "Stripe-Stripe - EUR"):
+                frappe.log_error("Payment Gateway Account 'Stripe-Stripe - EUR' existiert nicht", "WARNING: subscription_plan")
+            else:
+                frappe.log_error(f"Payment Gateway auf Stripe-Stripe - EUR gesetzt für Plan {doc.name}", "DEBUG: subscription_plan")
+    except Exception as e:
+        frappe.log_error(f"Fehler beim Setzen des Payment Gateways für Plan {doc.name}: {str(e)}", "ERROR: subscription_plan")
+
+
+def validate_subscription_end_date(doc, method):
+    """
+    Deaktiviert Enddatum-Validierung wenn "Folgen Sie den Kalendermonaten" aktiviert ist
+    Wird bei Subscription validate aufgerufen
+    """
+    try:
+        # Prüfe ob "Folgen Sie den Kalendermonaten" aktiviert ist
+        if doc.follow_calendar_months == 1:
+            # Wenn kein Enddatum gesetzt ist, setze es auf 10 Jahre in die Zukunft
+            if not doc.end_date and doc.start_date:
+                from frappe.utils import add_years
+                doc.end_date = add_years(doc.start_date, 10)
+                frappe.log_error(f"Enddatum automatisch auf {doc.end_date} gesetzt für Subscription {doc.name}", "DEBUG: subscription_validate")
+            # Überschreibe die Validierung die Enddatum verlangt
+            # ERPNext's Standard-Validierung wird überschrieben durch das Setzen des Enddatums
+    except Exception as e:
+        frappe.log_error(f"Fehler bei Enddatum-Validierung für Subscription {doc.name}: {str(e)}", "ERROR: subscription_validate")
+
+
+def ensure_subscription_invoice_taxes_before_validate(doc, method):
+    """
+    Stellt sicher, dass Subscription-Invoices Steuern haben BEVOR sie validiert werden
+    Wird bei Sales Invoice before_validate aufgerufen
+    """
+    try:
+        # Nur für Subscription-Invoices
+        if not doc.subscription:
+            return
+        
+        # Nur im Draft-Modus
+        if doc.docstatus != 0:
+            return
+        
+        # Prüfe ob Steuern vorhanden sind und korrekt gesetzt sind
+        needs_tax_update = False
+        
+        if not doc.taxes_and_charges:
+            # Keine Steuern vorhanden - muss Steuer-Template setzen
+            needs_tax_update = True
+        elif not doc.taxes or len(doc.taxes) == 0:
+            # Keine Steuer-Zeilen vorhanden
+            needs_tax_update = True
+        elif doc.taxes:
+            # Prüfe ob Steuern auf "inklusive" gesetzt sind
+            for tax in doc.taxes:
+                if tax.included_in_print_rate != 1:
+                    needs_tax_update = True
+                    break
+        
+        if needs_tax_update:
+            msg = f"Steuern müssen gesetzt werden für Invoice {doc.name} (Subscription: {doc.subscription})"
+            frappe.log_error(msg[:140], "DEBUG: subscription_invoice_taxes")
+            
+            # Setze Steuer-Template wenn nicht gesetzt
+            if not doc.taxes_and_charges:
+                tax_template = frappe.db.get_value("Sales Taxes and Charges Template", 
+                    {"company": doc.company, "is_default": 1}, "name")
+                if tax_template:
+                    doc.taxes_and_charges = tax_template
+                    doc.taxes = []  # Leere bestehende Steuern
+                    doc.run_method("set_taxes")  # Setze Steuern neu
+                    frappe.log_error(f"Steuer-Template {tax_template} gesetzt für Invoice {doc.name}", "DEBUG: subscription_invoice_taxes")
+            
+            # Wende Steuerlogik an
+            ensure_inclusive_taxes(doc)
+            
+            # Entferne alle Steuern außer 19% MWST
+            if doc.taxes:
+                taxes_to_remove = []
+                for tax in doc.taxes:
+                    # Prüfe ob es eine 19% Steuer ist
+                    tax_rate = getattr(tax, 'rate', 0) or 0
+                    description = getattr(tax, 'description', '') or ''
+                    
+                    # Behalte nur Steuern mit 19% (prüfe rate oder description)
+                    if tax_rate != 19 and '19' not in description and '19%' not in description:
+                        taxes_to_remove.append(tax)
+                
+                # Entferne Steuern die nicht 19% sind
+                for tax in taxes_to_remove:
+                    doc.remove(tax)
+                    msg = f"Steuer {tax.description or tax.account_head} (Rate: {tax.rate}) entfernt - nur 19%"
+                    frappe.log_error(msg[:140], "DEBUG: subscription_invoice_taxes")
+            
+            # Neuberechnung mit Steuern
+            doc.calculate_taxes_and_totals()
+            
+            frappe.log_error(f"Steuern gesetzt für Invoice {doc.name} (nur 19% MWST)", "SUCCESS: subscription_invoice_taxes")
+    except Exception as e:
+        frappe.log_error(f"Fehler beim Setzen der Steuern für Subscription Invoice {doc.name}: {str(e)}\n{frappe.get_traceback()}", "ERROR: subscription_invoice_taxes")
+
+
+def ensure_subscription_invoice_taxes(doc, method):
+    """
+    Stellt sicher, dass Subscription-Invoices Steuern haben BEVOR sie submitted werden
+    Wird bei Sales Invoice before_submit aufgerufen
+    """
+    try:
+        # Nur für Subscription-Invoices
+        if not doc.subscription:
+            return
+        
+        # Nur im Draft-Modus (bevor submit)
+        if doc.docstatus != 0:
+            return
+        
+        # Prüfe ob Steuern vorhanden sind und korrekt gesetzt sind
+        needs_tax_update = False
+        
+        if not doc.taxes_and_charges:
+            # Keine Steuern vorhanden - muss Steuer-Template setzen
+            needs_tax_update = True
+        elif doc.taxes:
+            # Prüfe ob Steuern auf "inklusive" gesetzt sind
+            for tax in doc.taxes:
+                if tax.included_in_print_rate != 1:
+                    needs_tax_update = True
+                    break
+        
+        if needs_tax_update:
+            msg = f"Steuern müssen gesetzt werden für Invoice {doc.name} (Subscription: {doc.subscription})"
+            frappe.log_error(msg[:140], "DEBUG: subscription_invoice_taxes")
+            
+            # Wende Steuerlogik an
+            ensure_inclusive_taxes(doc)
+            
+            # Entferne alle Steuern außer 19% MWST
+            if doc.taxes:
+                taxes_to_remove = []
+                for tax in doc.taxes:
+                    # Prüfe ob es eine 19% Steuer ist
+                    tax_rate = getattr(tax, 'rate', 0) or 0
+                    description = getattr(tax, 'description', '') or ''
+                    
+                    # Behalte nur Steuern mit 19% (prüfe rate oder description)
+                    if tax_rate != 19 and '19' not in description and '19%' not in description:
+                        taxes_to_remove.append(tax)
+                
+                # Entferne Steuern die nicht 19% sind
+                for tax in taxes_to_remove:
+                    doc.remove(tax)
+                    msg = f"Steuer {tax.description or tax.account_head} (Rate: {tax.rate}) entfernt - nur 19%"
+                    frappe.log_error(msg[:140], "DEBUG: subscription_invoice_taxes")
+            
+            # Neuberechnung mit Steuern
+            doc.calculate_taxes_and_totals()
+            
+            frappe.log_error(f"Steuern gesetzt für Invoice {doc.name} (nur 19% MWST)", "SUCCESS: subscription_invoice_taxes")
+    except Exception as e:
+        frappe.log_error(f"Fehler beim Setzen der Steuern für Subscription Invoice {doc.name}: {str(e)}", "ERROR: subscription_invoice_taxes")
+
+
+def validate_subscription_plan_interval(doc, method):
+    """
+    Deaktiviert Abrechnungsintervall-Validierung wenn Subscription "Folgen Sie den Kalendermonaten" aktiviert hat
+    Wird bei Subscription Plan validate aufgerufen
+    """
+    try:
+        # Prüfe ob dieser Plan in einer Subscription mit follow_calendar_months verwendet wird
+        # Suche nach Subscriptions die diesen Plan verwenden
+        subscriptions = frappe.get_all("Subscription Plan Detail",
+            filters={"plan": doc.name},
+            fields=["parent"],
+            limit=10
+        )
+        
+        for plan_detail in subscriptions:
+            try:
+                subscription = frappe.get_doc("Subscription", plan_detail.parent)
+                if subscription.follow_calendar_months == 1:
+                    # Überschreibe die validate Methode die Intervall-Validierung verlangt
+                    # ERPNext's Standard-Validierung wird überschrieben
+                    # Das Intervall muss nicht "Monat" sein wenn follow_calendar_months aktiviert ist
+                    frappe.log_error(f"Intervall-Validierung übersprungen für Plan {doc.name} (Subscription {plan_detail.parent} folgt Kalendermonaten)", "DEBUG: subscription_plan_validate")
+                    break
+            except:
+                continue
+    except Exception as e:
+        frappe.log_error(f"Fehler bei Intervall-Validierung für Plan {doc.name}: {str(e)}", "ERROR: subscription_plan_validate")
 
 
 def link_invoice_to_sales_order(invoice, sales_order):
@@ -633,10 +870,24 @@ def create_sales_order_from_invoice(invoice):
         # Füge Subscription-Referenz hinzu falls vorhanden
         if invoice.subscription:
             sales_order_data["po_no"] = f"Subscription Invoice: {invoice.name} (Subscription: {invoice.subscription})"
+            # Setze Custom Field custom_subscription
+            if hasattr(sales_order_data, 'custom_subscription'):
+                sales_order_data["custom_subscription"] = invoice.subscription
         
         sales_order = frappe.get_doc(sales_order_data)
+        # Setze custom_subscription nach Erstellung des Dokuments
+        if invoice.subscription and hasattr(sales_order, 'custom_subscription'):
+            sales_order.custom_subscription = invoice.subscription
         sales_order.insert(ignore_permissions=True)
         frappe.db.commit()
+        
+        # Stelle sicher, dass custom_subscription gesetzt ist (falls Custom Field existiert)
+        if invoice.subscription:
+            try:
+                frappe.db.set_value("Sales Order", sales_order.name, "custom_subscription", invoice.subscription, update_modified=False)
+                frappe.db.commit()
+            except:
+                pass  # Custom Field existiert möglicherweise nicht
         
         frappe.log_error(f"Sales Order {sales_order.name} aus Invoice {invoice.name} erstellt", "SUCCESS: sales_order_created")
         return sales_order

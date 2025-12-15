@@ -26,6 +26,23 @@ def before_validate_delivery_note(doc, method):
     if doc.doctype != "Delivery Note":
         return
     
+    # Setze custom_subscription von Sales Order falls vorhanden
+    if doc.items:
+        for item in doc.items:
+            if item.sales_order:
+                try:
+                    subscription = frappe.db.get_value("Sales Order", item.sales_order, "custom_subscription")
+                    if subscription and hasattr(doc, 'custom_subscription'):
+                        doc.custom_subscription = subscription
+                        # Setze auch direkt in DB falls Custom Field existiert
+                        try:
+                            frappe.db.set_value("Delivery Note", doc.name, "custom_subscription", subscription, update_modified=False)
+                        except:
+                            pass  # Custom Field existiert möglicherweise nicht
+                        break  # Ein Sales Order reicht
+                except:
+                    continue
+    
     # WICHTIG: Stelle sicher, dass Trenner-Items (item_code == "---") NICHT entfernt werden
     # Speichere Trenner-Items vor Validierungen
     separator_items_backup = []

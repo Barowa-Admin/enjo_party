@@ -153,8 +153,12 @@ doc_events = {
 	},
 	"Sales Invoice": {
 		"onload": "enjo_party.enjo_party.utils.sales_invoice_hooks.onload_sales_invoice",
-		"before_validate": "enjo_party.enjo_party.utils.sales_invoice_hooks.before_validate_sales_invoice",
+		"before_validate": [
+			"enjo_party.enjo_party.utils.sales_invoice_hooks.before_validate_sales_invoice",
+			"enjo_party.enjo_party.utils.subscription_hooks.ensure_subscription_invoice_taxes_before_validate"
+		],
 		"before_save": "enjo_party.enjo_party.utils.sales_invoice_hooks.add_shipping_to_sales_invoice",
+		"before_submit": "enjo_party.enjo_party.utils.subscription_hooks.ensure_subscription_invoice_taxes",
 		"after_save": "enjo_party.enjo_party.utils.sales_invoice_hooks.after_save_sales_invoice",
 		"on_submit": [
 			"enjo_party.enjo_party.server_scripts.enjo_punkte_vergabe.award_points_on_invoice_submit",
@@ -204,9 +208,20 @@ doc_events = {
 		"before_submit": "enjo_party.enjo_party.utils.pick_list_hooks.before_submit_pick_list"
 	},
 	"Subscription": {
+		"validate": "enjo_party.enjo_party.utils.subscription_hooks.validate_subscription_end_date",
 		"after_insert": "enjo_party.enjo_party.utils.subscription_hooks.force_subscription_update",
 		"after_save": "enjo_party.enjo_party.utils.subscription_hooks.force_subscription_update",
 		"on_cancel": "enjo_party.enjo_party.utils.subscription_hooks.handle_subscription_cancel"
+	},
+	"Subscription Plan": {
+		"before_save": [
+			"enjo_party.enjo_party.utils.subscription_hooks.set_default_payment_gateway",
+			"enjo_party.enjo_party.utils.subscription_hooks.validate_subscription_plan_interval"
+		],
+		"validate": [
+			"enjo_party.enjo_party.utils.subscription_hooks.set_default_payment_gateway",
+			"enjo_party.enjo_party.utils.subscription_hooks.validate_subscription_plan_interval"
+		]
 	},
 	"Payment Request": {
 		"on_update": "enjo_party.enjo_party.utils.payment_request_hooks.create_payment_entry_on_paid"
