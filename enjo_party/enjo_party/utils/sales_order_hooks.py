@@ -717,13 +717,32 @@ def create_delivery_note_for_sales_order(sales_order_doc):
         dn.flags.ignore_gl_entries = True
         dn.flags.ignore_valuation_rate = True
         
-        # Setze "Allow Zero Valuation" für alle Items
+        # Setze "Allow Zero Valuation" für alle Items und stelle sicher, dass sales_order gesetzt ist
         if hasattr(dn, 'items') and dn.items:
             for item in dn.items:
                 if hasattr(item, 'allow_zero_valuation_rate'):
                     item.allow_zero_valuation_rate = 1
                 elif hasattr(item, 'allow_zero_valuation'):
                     item.allow_zero_valuation = 1
+                
+                # WICHTIG: Stelle sicher, dass sales_order Feld gesetzt ist
+                # Setze es direkt, auch wenn das Attribut noch nicht existiert
+                try:
+                    item.sales_order = sales_order_doc.name
+                except AttributeError:
+                    # Falls das Attribut nicht existiert, setze es über setattr
+                    setattr(item, 'sales_order', sales_order_doc.name)
+                
+                # Stelle auch sicher, dass so_detail gesetzt ist (Sales Order Item Referenz)
+                if not hasattr(item, 'so_detail') or not getattr(item, 'so_detail', None):
+                    # Finde das entsprechende Sales Order Item
+                    for so_item in sales_order_doc.items:
+                        if so_item.item_code == item.item_code and so_item.qty == item.qty:
+                            try:
+                                item.so_detail = so_item.name
+                            except AttributeError:
+                                setattr(item, 'so_detail', so_item.name)
+                            break
         
         # Spezielle Behandlung für "Gruppenversand" Aufträge
         if sales_order_doc.customer == "Gruppenversand":
