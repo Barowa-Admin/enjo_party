@@ -1,5 +1,49 @@
 import frappe
 from frappe import _
+import types
+
+def validate_payment_request_subscription(doc, method):
+    """
+    Deaktiviert Payment Schedule Amount Validierung für Subscription Payment Requests
+    Wird bei Payment Request before_validate aufgerufen
+    """
+    try:
+        # Prüfe ob es eine Subscription Payment Request ist
+        if doc.is_a_subscription == 1:
+            # Die Warnung kommt aus ERPNext's validate() Methode
+            # Wir überschreiben die validate Methode für diese Instanz
+            # Hole die ungebundene Methode aus der Klasse
+            original_validate = doc.__class__.validate
+            
+            def patched_validate(self):
+                # Rufe die Original-Validierung auf, aber fange Payment Schedule Warnungen ab
+                try:
+                    original_validate(self)
+                except frappe.ValidationError as e:
+                    # Wenn es eine Payment Schedule Validierung ist, ignorieren wir sie
+                    error_msg = str(e)
+                    if "Zahlungspläne" in error_msg or "payment schedule" in error_msg.lower() or "payment plan" in error_msg.lower() or "unterscheidet sich" in error_msg.lower():
+                        msg = f"Payment Schedule Validierung übersprungen für Payment Request {self.name}"
+                        frappe.log_error(msg[:140], "DEBUG: payment_request_validate")
+                        return  # Überspringe die Validierung
+                    else:
+                        raise  # Andere Fehler weiterwerfen
+                except Exception as e:
+                    # Für andere Exceptions prüfen wir auch die Fehlermeldung
+                    error_msg = str(e)
+                    if "Zahlungspläne" in error_msg or "payment schedule" in error_msg.lower() or "payment plan" in error_msg.lower() or "unterscheidet sich" in error_msg.lower():
+                        msg = f"Payment Schedule Validierung übersprungen für Payment Request {self.name}"
+                        frappe.log_error(msg[:140], "DEBUG: payment_request_validate")
+                        return  # Überspringe die Validierung
+                    else:
+                        raise  # Andere Fehler weiterwerfen
+            
+            # Setze die überschriebene validate Methode für diese Instanz
+            doc.validate = types.MethodType(patched_validate, doc)
+            frappe.log_error(f"Payment Schedule Amount Validierung deaktiviert für Payment Request {doc.name} (Subscription)", "DEBUG: payment_request_validate")
+    except Exception as e:
+        frappe.log_error(f"Fehler bei Payment Request Validierung für {doc.name}: {str(e)}\n{frappe.get_traceback()}", "ERROR: payment_request_validate")
+
 
 def create_payment_entry_on_paid(doc, method):
     """

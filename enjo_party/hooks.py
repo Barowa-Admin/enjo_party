@@ -208,7 +208,7 @@ doc_events = {
 		"before_submit": "enjo_party.enjo_party.utils.pick_list_hooks.before_submit_pick_list"
 	},
 	"Subscription": {
-		"validate": "enjo_party.enjo_party.utils.subscription_hooks.validate_subscription_end_date",
+		"before_validate": "enjo_party.enjo_party.utils.subscription_hooks.validate_subscription_end_date",
 		"after_insert": "enjo_party.enjo_party.utils.subscription_hooks.force_subscription_update",
 		"after_save": "enjo_party.enjo_party.utils.subscription_hooks.force_subscription_update",
 		"on_cancel": "enjo_party.enjo_party.utils.subscription_hooks.handle_subscription_cancel"
@@ -224,6 +224,7 @@ doc_events = {
 		]
 	},
 	"Payment Request": {
+		"before_validate": "enjo_party.enjo_party.utils.payment_request_hooks.validate_payment_request_subscription",
 		"on_update": "enjo_party.enjo_party.utils.payment_request_hooks.create_payment_entry_on_paid"
 	}
 }

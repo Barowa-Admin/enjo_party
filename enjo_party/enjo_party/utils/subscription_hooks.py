@@ -582,18 +582,24 @@ def set_default_payment_gateway(doc, method):
 def validate_subscription_end_date(doc, method):
     """
     Deaktiviert Enddatum-Validierung wenn "Folgen Sie den Kalendermonaten" aktiviert ist
-    Wird bei Subscription validate aufgerufen
+    Wird bei Subscription before_validate aufgerufen
+    Überschreibt ERPNext's validate_to_follow_calendar_months Methode
     """
     try:
         # Prüfe ob "Folgen Sie den Kalendermonaten" aktiviert ist
         if doc.follow_calendar_months == 1:
-            # Wenn kein Enddatum gesetzt ist, setze es auf 10 Jahre in die Zukunft
-            if not doc.end_date and doc.start_date:
-                from frappe.utils import add_years
-                doc.end_date = add_years(doc.start_date, 10)
-                frappe.log_error(f"Enddatum automatisch auf {doc.end_date} gesetzt für Subscription {doc.name}", "DEBUG: subscription_validate")
-            # Überschreibe die Validierung die Enddatum verlangt
-            # ERPNext's Standard-Validierung wird überschrieben durch das Setzen des Enddatums
+            # Überschreibe die validate_to_follow_calendar_months Methode
+            # um die Enddatum-Validierung zu deaktivieren
+            def patched_validate_to_follow_calendar_months(self):
+                # Überschreibe die Original-Methode - mache einfach nichts
+                # Das deaktiviert die Validierung komplett
+                pass
+            
+            # Setze die überschriebene Methode
+            import types
+            doc.validate_to_follow_calendar_months = types.MethodType(patched_validate_to_follow_calendar_months, doc)
+            
+            frappe.log_error(f"Enddatum-Validierung deaktiviert für Subscription {doc.name} (follow_calendar_months aktiviert)", "DEBUG: subscription_validate")
     except Exception as e:
         frappe.log_error(f"Fehler bei Enddatum-Validierung für Subscription {doc.name}: {str(e)}", "ERROR: subscription_validate")
 
