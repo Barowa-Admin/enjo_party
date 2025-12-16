@@ -29,9 +29,16 @@ def before_validate_delivery_note(doc, method):
     # Setze custom_subscription von Sales Order falls vorhanden
     if doc.items:
         for item in doc.items:
-            if item.sales_order:
+            # Prüfe sowohl against_sales_order als auch sales_order
+            sales_order_name = None
+            if hasattr(item, 'against_sales_order') and item.against_sales_order:
+                sales_order_name = item.against_sales_order
+            elif hasattr(item, 'sales_order') and item.sales_order:
+                sales_order_name = item.sales_order
+            
+            if sales_order_name:
                 try:
-                    subscription = frappe.db.get_value("Sales Order", item.sales_order, "custom_subscription")
+                    subscription = frappe.db.get_value("Sales Order", sales_order_name, "custom_subscription")
                     if subscription and hasattr(doc, 'custom_subscription'):
                         doc.custom_subscription = subscription
                         # Setze auch direkt in DB falls Custom Field existiert
