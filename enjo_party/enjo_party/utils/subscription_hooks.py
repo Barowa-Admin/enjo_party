@@ -5,6 +5,72 @@ from enjo_party.enjo_party.utils.stripe_checkout import create_stripe_checkout_s
 from enjo_party.enjo_party.utils.stripe_subscription import cancel_stripe_subscription_at_period_end
 from enjo_party.enjo_party.utils.sales_invoice_hooks import ensure_inclusive_taxes
 
+
+def has_stripe_subscription(erpnext_subscription_name):
+    """
+    Prüft ob bereits eine Stripe Subscription für diese ERPNext Subscription existiert
+    Gibt True zurück wenn Stripe Subscription ID gefunden wurde
+    """
+    try:
+        # Methode 1: Prüfe Custom Field
+        if frappe.db.has_column("Subscription", "custom_stripe_subscription_id"):
+            stripe_subscription_id = frappe.db.get_value("Subscription", erpnext_subscription_name, "custom_stripe_subscription_id")
+            if stripe_subscription_id:
+                frappe.log_error(f"Stripe Subscription ID gefunden in Custom Field: {stripe_subscription_id} für {erpnext_subscription_name}", "DEBUG: stripe_subscription_check")
+                return True
+        
+        # Methode 2: Prüfe über Payment Entries (Fallback)
+        # Suche nach Payment Entries die zu dieser Subscription gehören
+        invoices = frappe.get_all("Sales Invoice",
+            filters={"subscription": erpnext_subscription_name, "docstatus": 1},
+            fields=["name"],
+            limit=5
+        )
+        
+        for invoice in invoices:
+            payment_requests = frappe.get_all("Payment Request",
+                filters={
+                    "reference_doctype": "Sales Invoice",
+                    "reference_name": invoice.name,
+                    "docstatus": ["!=", 2]
+                },
+                fields=["name"],
+                limit=1
+            )
+            
+            if payment_requests:
+                payment_entries = frappe.get_all("Payment Entry",
+                    filters={
+                        "reference_doctype": "Payment Request",
+                        "reference_name": payment_requests[0].name,
+                        "docstatus": 1
+                    },
+                    fields=["reference_no"],
+                    limit=1
+                )
+                
+                if payment_entries and payment_entries[0].reference_no:
+                    # Prüfe ob es eine Stripe Checkout Session ID ist (beginnt mit cs_)
+                    session_id = payment_entries[0].reference_no
+                    if session_id.startswith("cs_"):
+                        try:
+                            import stripe
+                            stripe_settings = frappe.get_doc("Stripe Settings", "Stripe")
+                            api_key = frappe.utils.password.get_decrypted_password("Stripe Settings", "Stripe", "secret_key")
+                            if api_key:
+                                stripe.api_key = api_key
+                                session = stripe.checkout.Session.retrieve(session_id)
+                                if session.get('subscription'):
+                                    frappe.log_error(f"Stripe Subscription ID gefunden über Payment Entry: {session.get('subscription')} für {erpnext_subscription_name}", "DEBUG: stripe_subscription_check")
+                                    return True
+                        except:
+                            pass
+        
+        return False
+    except Exception as e:
+        frappe.log_error(f"Fehler beim Prüfen der Stripe Subscription für {erpnext_subscription_name}: {str(e)}", "ERROR: stripe_subscription_check")
+        return False
+
 def handle_subscription_cancel(doc, method):
     """
     Wird aufgerufen, wenn ein Abonnement storniert wird (on_cancel)
@@ -78,6 +144,12 @@ def force_subscription_update(doc, method):
             
             if invoices:
                 invoice_name = invoices[0].name
+                
+                # WICHTIG: Prüfe ob bereits eine Stripe Subscription existiert
+                # Wenn ja, wird Stripe automatisch abbuchen - keine Payment Request nötig
+                if has_stripe_subscription(doc.name):
+                    frappe.log_error(f"SUBSCRIPTION HOOK: Stripe Subscription existiert bereits für {doc.name} - überspringe Payment Request Erstellung (Stripe bucht automatisch ab)", "DEBUG: subscription_hook")
+                    return
                 
                 # WICHTIG: Commit vor Prüfung, damit create_payment_request_for_subscription_invoice die Payment Request findet
                 frappe.db.commit()
@@ -280,25 +352,30 @@ def force_subscription_update(doc, method):
                     else:
                         frappe.log_error("SUBSCRIPTION HOOK: Message Template ist leer!", "WARNING: subscription_hook")
                 
-                # ÜBERGANGSWEISE DEAKTIVIERT: E-Mail-Versendung für Abos
-                # try:
-                #     payment_request.flags.mute_email = 0
-                #     # Stelle sicher, dass die Message im payment_request Objekt ist
-                #     if not payment_request.message and stripe_url:
-                #         from frappe.utils.jinja import render_template
-                #         gateway_account = frappe.get_doc("Payment Gateway Account", "Stripe-Stripe - EUR")
-                #         message_template = gateway_account.message or ""
-                #         if message_template:
-                #             payment_request.message = render_template(message_template, {
-                #                 "doc": invoice,
-                #                 "payment_url": stripe_url
-                #             })
-                #     # Setze spezifisches Email Account für Abo-Mails
-                #     payment_request.flags.email_account = "Abo Mails"
-                #     payment_request.send_email()
-                #     payment_request.make_communication_entry()
-                # except Exception as e:
-                #     frappe.log_error(f"Fehler beim Senden der E-Mail: {str(e)}", "ERROR: subscription_hook")
+                # E-Mail-Versendung nur beim ersten Mal (wenn noch keine Stripe Subscription existiert)
+                # Bei automatischen Abbuchungen sendet Stripe keine E-Mail, daher auch wir nicht
+                if not has_stripe_subscription(doc.name):
+                    try:
+                        payment_request.flags.mute_email = 0
+                        # Stelle sicher, dass die Message im payment_request Objekt ist
+                        if not payment_request.message and stripe_url:
+                            from frappe.utils.jinja import render_template
+                            gateway_account = frappe.get_doc("Payment Gateway Account", "Stripe-Stripe - EUR")
+                            message_template = gateway_account.message or ""
+                            if message_template:
+                                payment_request.message = render_template(message_template, {
+                                    "doc": invoice,
+                                    "payment_url": stripe_url
+                                })
+                        # Setze spezifisches Email Account für Abo-Mails
+                        payment_request.flags.email_account = "Abo Mails"
+                        payment_request.send_email()
+                        payment_request.make_communication_entry()
+                        frappe.log_error(f"SUBSCRIPTION HOOK: E-Mail gesendet für erste Payment Request {payment_request.name} (noch keine Stripe Subscription)", "SUCCESS: subscription_hook")
+                    except Exception as e:
+                        frappe.log_error(f"Fehler beim Senden der E-Mail: {str(e)}", "ERROR: subscription_hook")
+                else:
+                    frappe.log_error(f"SUBSCRIPTION HOOK: Keine E-Mail gesendet - Stripe Subscription existiert bereits, Stripe bucht automatisch ab", "DEBUG: subscription_hook")
 
                 frappe.log_error(
                     f"SUBSCRIPTION HOOK: Payment Request {payment_request.name} erstellt",
@@ -342,6 +419,12 @@ def create_payment_request_for_subscription_invoice(doc, method):
     try:
         # Prüfe ob die Rechnung zu einem Abonnement gehört
         if doc.subscription and doc.docstatus == 1:
+            # WICHTIG: Prüfe ob bereits eine Stripe Subscription existiert
+            # Wenn ja, wird Stripe automatisch abbuchen - keine Payment Request nötig
+            if has_stripe_subscription(doc.subscription):
+                frappe.log_error(f"SUBSCRIPTION HOOK: Stripe Subscription existiert bereits für {doc.subscription} - überspringe Payment Request Erstellung (Stripe bucht automatisch ab)", "DEBUG: subscription_payment_request")
+                return  # Keine Payment Request erstellen, Stripe bucht automatisch ab
+            
             # WICHTIG: Prüfe ob das Startdatum des Abos erreicht ist
             # E-Mail soll nur gesendet werden, wenn das Startdatum erreicht ist
             subscription = frappe.get_doc("Subscription", doc.subscription)
@@ -515,25 +598,30 @@ def create_payment_request_for_subscription_invoice(doc, method):
                     frappe.log_error(msg[:140], "DEBUG: subscription_payment_request")
                     return  # Keine E-Mail senden, da bereits eine Payment Request existiert
                 
-                # ÜBERGANGSWEISE DEAKTIVIERT: E-Mail-Versendung für Abos
-                # try:
-                #     payment_request.flags.mute_email = 0
-                #     # Stelle sicher, dass die Message im payment_request Objekt ist
-                #     if not payment_request.message and stripe_url:
-                #         from frappe.utils.jinja import render_template
-                #         gateway_account = frappe.get_doc("Payment Gateway Account", "Stripe-Stripe - EUR")
-                #         message_template = gateway_account.message or ""
-                #         if message_template:
-                #             payment_request.message = render_template(message_template, {
-                #                 "doc": doc,
-                #                 "payment_url": stripe_url
-                #             })
-                #     # Setze spezifisches Email Account für Abo-Mails
-                #     payment_request.flags.email_account = "Abo Mails"
-                #     payment_request.send_email()
-                #     payment_request.make_communication_entry()
-                # except Exception as e:
-                #     frappe.log_error(f"Fehler beim Senden der E-Mail: {str(e)}", "ERROR: subscription_payment_request")
+                # E-Mail-Versendung nur beim ersten Mal (wenn noch keine Stripe Subscription existiert)
+                # Bei automatischen Abbuchungen sendet Stripe keine E-Mail, daher auch wir nicht
+                if not has_stripe_subscription(doc.subscription):
+                    try:
+                        payment_request.flags.mute_email = 0
+                        # Stelle sicher, dass die Message im payment_request Objekt ist
+                        if not payment_request.message and stripe_url:
+                            from frappe.utils.jinja import render_template
+                            gateway_account = frappe.get_doc("Payment Gateway Account", "Stripe-Stripe - EUR")
+                            message_template = gateway_account.message or ""
+                            if message_template:
+                                payment_request.message = render_template(message_template, {
+                                    "doc": doc,
+                                    "payment_url": stripe_url
+                                })
+                        # Setze spezifisches Email Account für Abo-Mails
+                        payment_request.flags.email_account = "Abo Mails"
+                        payment_request.send_email()
+                        payment_request.make_communication_entry()
+                        frappe.log_error(f"SUBSCRIPTION HOOK: E-Mail gesendet für erste Payment Request {payment_request.name} (noch keine Stripe Subscription)", "SUCCESS: subscription_payment_request")
+                    except Exception as e:
+                        frappe.log_error(f"Fehler beim Senden der E-Mail: {str(e)}", "ERROR: subscription_payment_request")
+                else:
+                    frappe.log_error(f"SUBSCRIPTION HOOK: Keine E-Mail gesendet - Stripe Subscription existiert bereits, Stripe bucht automatisch ab", "DEBUG: subscription_payment_request")
 
                 frappe.log_error(
                     f"Payment Request {payment_request.name} für Subscription Invoice {doc.name} erstellt",
