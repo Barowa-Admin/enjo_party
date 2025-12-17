@@ -31,10 +31,13 @@ def before_validate_delivery_note(doc, method):
         for item in doc.items:
             # Prüfe sowohl against_sales_order als auch sales_order
             sales_order_name = None
-            if hasattr(item, 'against_sales_order') and item.against_sales_order:
-                sales_order_name = item.against_sales_order
-            elif hasattr(item, 'sales_order') and item.sales_order:
-                sales_order_name = item.sales_order
+            against_sales_order = getattr(item, 'against_sales_order', None)
+            if against_sales_order:
+                sales_order_name = against_sales_order
+            else:
+                sales_order = getattr(item, 'sales_order', None)
+                if sales_order:
+                    sales_order_name = sales_order
             
             if sales_order_name:
                 try:
@@ -627,12 +630,15 @@ def before_submit_delivery_note(doc, method):
             # Finde zuerst den Sales Order
             sales_order_name = None
             for item in doc.items:
-                if hasattr(item, 'against_sales_order') and item.against_sales_order:
-                    sales_order_name = item.against_sales_order
+                against_sales_order = getattr(item, 'against_sales_order', None)
+                if against_sales_order:
+                    sales_order_name = against_sales_order
                     break
-                elif hasattr(item, 'sales_order') and item.sales_order:
-                    sales_order_name = item.sales_order
-                    break
+                else:
+                    sales_order = getattr(item, 'sales_order', None)
+                    if sales_order:
+                        sales_order_name = sales_order
+                        break
             
             sales_order = None
             if sales_order_name:
@@ -799,12 +805,15 @@ def on_submit_delivery_note(doc, method):
                 # Hole das Gewicht aus dem Sales Order
                 sales_order_name = None
                 for item in doc.items:
-                    if hasattr(item, 'against_sales_order') and item.against_sales_order:
-                        sales_order_name = item.against_sales_order
+                    against_sales_order = getattr(item, 'against_sales_order', None)
+                    if against_sales_order:
+                        sales_order_name = against_sales_order
                         break
-                    elif hasattr(item, 'sales_order') and item.sales_order:
-                        sales_order_name = item.sales_order
-                        break
+                    else:
+                        sales_order = getattr(item, 'sales_order', None)
+                        if sales_order:
+                            sales_order_name = sales_order
+                            break
                 
                 if sales_order_name:
                     try:

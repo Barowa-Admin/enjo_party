@@ -277,17 +277,35 @@
         <!-- Stripe Payment Link für Abos (nach dem Abo-Hinweis) -->
         {% set payment_requests = frappe.get_all("Payment Request", 
             filters={"reference_name": doc.name, "docstatus": 1}, 
-            fields=["payment_url"], 
+            fields=["name", "payment_url", "payment_gateway"], 
             order_by="creation desc", 
             limit=1) %}
-        {% if payment_requests and payment_requests[0].payment_url %}
-        <div style="margin: 10px 0; padding: 10px; border: 2px solid #007bff; border-radius: 5px; background-color: #f8f9ff; text-align: center;">
-            <p style="margin: 0 0 8px 0; font-size: 13px; color: #007bff; font-weight: bold;">Online-Zahlung für Ihr Abonnement</p>
-            <p style="margin: 0 0 8px 0; font-size: 11px; color: #333;">Bezahlen Sie bequem online mit Kreditkarte, SEPA-Lastschrift oder anderen Zahlungsmethoden:</p>
-            <a href="{{ payment_requests[0].payment_url }}" style="display: inline-block; background-color: #007bff; color: white; padding: 8px 20px; text-decoration: none; border-radius: 4px; font-size: 12px; font-weight: bold;">
-                Jetzt online bezahlen
-            </a>
-        </div>
+        {% if payment_requests %}
+            {% set pr = payment_requests[0] %}
+            {% set payment_url = None %}
+            {# WICHTIG: Verwende nur die gespeicherte payment_url, wenn sie eine Stripe Checkout URL ist #}
+            {# Prüfe ob payment_url mit checkout.stripe.com beginnt (nicht mit /stripe_checkout) #}
+            {% if pr.payment_url %}
+                {% set url_str = pr.payment_url|string %}
+                {% if "checkout.stripe.com" in url_str and "/stripe_checkout" not in url_str %}
+                    {# Das ist eine echte Stripe Checkout URL #}
+                    {% set payment_url = pr.payment_url %}
+                {% elif not pr.payment_gateway %}
+                    {# Wenn payment_gateway leer ist, verwende die gespeicherte payment_url direkt (nur wenn nicht /stripe_checkout) #}
+                    {% if "/stripe_checkout" not in url_str %}
+                        {% set payment_url = pr.payment_url %}
+                    {% endif %}
+                {% endif %}
+            {% endif %}
+            {% if payment_url %}
+            <div style="margin: 10px 0; padding: 10px; border: 2px solid #007bff; border-radius: 5px; background-color: #f8f9ff; text-align: center;">
+                <p style="margin: 0 0 8px 0; font-size: 13px; color: #007bff; font-weight: bold;">Online-Zahlung für Ihr Abonnement</p>
+                <p style="margin: 0 0 8px 0; font-size: 11px; color: #333;">Bezahlen Sie bequem online mit Kreditkarte, SEPA-Lastschrift oder anderen Zahlungsmethoden:</p>
+                <a href="{{ payment_url }}" style="display: inline-block; background-color: #007bff; color: white; padding: 8px 20px; text-decoration: none; border-radius: 4px; font-size: 12px; font-weight: bold;">
+                    Jetzt online bezahlen
+                </a>
+            </div>
+            {% endif %}
         {% endif %}
     {% else %}
         <!-- Normale Rechnung: Standard Überweisungshinweis -->
