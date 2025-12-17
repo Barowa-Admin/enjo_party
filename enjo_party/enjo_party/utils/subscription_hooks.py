@@ -87,6 +87,58 @@ def is_automatic_email_enabled():
         # Bei Fehler: Standard aktiviert
         return True
 
+def was_email_already_sent_for_invoice(invoice_name):
+    """
+    Prüft ob bereits eine E-Mail für diese Invoice gesendet wurde
+    Gibt True zurück wenn bereits eine E-Mail-Queue oder Communication existiert
+    """
+    try:
+        # Prüfe ob bereits eine E-Mail-Queue für diese Invoice existiert
+        email_queues = frappe.get_all("Email Queue",
+            filters={
+                "reference_doctype": "Sales Invoice",
+                "reference_name": invoice_name,
+                "status": ["in", ["Sent", "Sending", "Not Sent"]]
+            },
+            limit=1
+        )
+        
+        if email_queues:
+            frappe.log_error(f"E-Mail bereits gesendet für Invoice {invoice_name} (Email Queue gefunden: {email_queues[0].name})", "DEBUG: email_already_sent_check")
+            return True
+        
+        # Prüfe auch über Payment Request -> Communication
+        payment_requests = frappe.get_all("Payment Request",
+            filters={
+                "reference_doctype": "Sales Invoice",
+                "reference_name": invoice_name,
+                "docstatus": ["!=", 2]
+            },
+            fields=["name"],
+            limit=1
+        )
+        
+        if payment_requests:
+            # Prüfe ob für diese Payment Request bereits eine Communication existiert
+            communications = frappe.get_all("Communication",
+                filters={
+                    "reference_doctype": "Payment Request",
+                    "reference_name": payment_requests[0].name,
+                    "communication_type": "Communication"
+                },
+                limit=1
+            )
+            
+            if communications:
+                frappe.log_error(f"E-Mail bereits gesendet für Invoice {invoice_name} (Communication gefunden für Payment Request {payment_requests[0].name})", "DEBUG: email_already_sent_check")
+                return True
+        
+        return False
+    except Exception as e:
+        frappe.log_error(f"Fehler beim Prüfen ob E-Mail bereits gesendet wurde für Invoice {invoice_name}: {str(e)}", "ERROR: email_already_sent_check")
+        # Bei Fehler: Annahme dass keine E-Mail gesendet wurde (sicherer)
+        return False
+
 def handle_subscription_cancel(doc, method):
     """
     Wird aufgerufen, wenn ein Abonnement storniert wird (on_cancel)
@@ -378,7 +430,8 @@ def force_subscription_update(doc, method):
                 # E-Mail-Versendung nur beim ersten Mal (wenn noch keine Stripe Subscription existiert)
                 # Bei automatischen Abbuchungen sendet Stripe keine E-Mail, daher auch wir nicht
                 # Prüfe auch ob automatische E-Mails in Subscription Settings aktiviert sind
-                if not has_stripe_subscription(doc.name) and is_automatic_email_enabled():
+                # WICHTIG: Prüfe auch ob bereits eine E-Mail für diese Invoice gesendet wurde
+                if not has_stripe_subscription(doc.name) and is_automatic_email_enabled() and not was_email_already_sent_for_invoice(invoice_name):
                     try:
                         payment_request.flags.mute_email = 0
                         # Stelle sicher, dass die Message im payment_request Objekt ist
@@ -398,6 +451,8 @@ def force_subscription_update(doc, method):
                         frappe.log_error(f"SUBSCRIPTION HOOK: E-Mail gesendet für erste Payment Request {payment_request.name} (noch keine Stripe Subscription)", "SUCCESS: subscription_hook")
                     except Exception as e:
                         frappe.log_error(f"Fehler beim Senden der E-Mail: {str(e)}", "ERROR: subscription_hook")
+                elif was_email_already_sent_for_invoice(invoice_name):
+                    frappe.log_error(f"SUBSCRIPTION HOOK: Keine E-Mail gesendet - E-Mail wurde bereits für Invoice {invoice_name} gesendet", "DEBUG: subscription_hook")
                 else:
                     if has_stripe_subscription(doc.name):
                         frappe.log_error(f"SUBSCRIPTION HOOK: Keine E-Mail gesendet - Stripe Subscription existiert bereits, Stripe bucht automatisch ab", "DEBUG: subscription_hook")
@@ -639,7 +694,8 @@ def create_payment_request_for_subscription_invoice(doc, method):
                 # E-Mail-Versendung nur beim ersten Mal (wenn noch keine Stripe Subscription existiert)
                 # Bei automatischen Abbuchungen sendet Stripe keine E-Mail, daher auch wir nicht
                 # Prüfe auch ob automatische E-Mails in Subscription Settings aktiviert sind
-                if not has_stripe_subscription(doc.subscription) and is_automatic_email_enabled():
+                # WICHTIG: Prüfe auch ob bereits eine E-Mail für diese Invoice gesendet wurde
+                if not has_stripe_subscription(doc.subscription) and is_automatic_email_enabled() and not was_email_already_sent_for_invoice(doc.name):
                     try:
                         payment_request.flags.mute_email = 0
                         # Stelle sicher, dass die Message im payment_request Objekt ist
@@ -659,6 +715,8 @@ def create_payment_request_for_subscription_invoice(doc, method):
                         frappe.log_error(f"SUBSCRIPTION HOOK: E-Mail gesendet für erste Payment Request {payment_request.name} (noch keine Stripe Subscription)", "SUCCESS: subscription_payment_request")
                     except Exception as e:
                         frappe.log_error(f"Fehler beim Senden der E-Mail: {str(e)}", "ERROR: subscription_payment_request")
+                elif was_email_already_sent_for_invoice(doc.name):
+                    frappe.log_error(f"SUBSCRIPTION HOOK: Keine E-Mail gesendet - E-Mail wurde bereits für Invoice {doc.name} gesendet", "DEBUG: subscription_payment_request")
                 else:
                     if has_stripe_subscription(doc.subscription):
                         frappe.log_error(f"SUBSCRIPTION HOOK: Keine E-Mail gesendet - Stripe Subscription existiert bereits, Stripe bucht automatisch ab", "DEBUG: subscription_payment_request")
