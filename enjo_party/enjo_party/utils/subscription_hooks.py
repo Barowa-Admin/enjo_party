@@ -71,6 +71,22 @@ def has_stripe_subscription(erpnext_subscription_name):
         frappe.log_error(f"Fehler beim Prüfen der Stripe Subscription für {erpnext_subscription_name}: {str(e)}", "ERROR: stripe_subscription_check")
         return False
 
+def is_automatic_email_enabled():
+    """
+    Prüft ob automatische E-Mails in Subscription Settings aktiviert sind
+    Gibt True zurück wenn aktiviert, False wenn deaktiviert oder Feld nicht existiert
+    """
+    try:
+        subscription_settings = frappe.get_single("Subscription Settings")
+        if hasattr(subscription_settings, "custom_enable_automatic_emails"):
+            return bool(subscription_settings.custom_enable_automatic_emails)
+        # Wenn Feld nicht existiert, Standard: True (aktiviert)
+        return True
+    except Exception as e:
+        frappe.log_error(f"Fehler beim Prüfen der automatischen E-Mail-Einstellung: {str(e)}", "ERROR: subscription_email_check")
+        # Bei Fehler: Standard aktiviert
+        return True
+
 def handle_subscription_cancel(doc, method):
     """
     Wird aufgerufen, wenn ein Abonnement storniert wird (on_cancel)
@@ -324,6 +340,13 @@ def force_subscription_update(doc, method):
                 else:
                     frappe.log_error(f"SUBSCRIPTION HOOK: FEHLER - payment_url konnte nicht erstellt werden für Payment Request {payment_request.name}", "ERROR: subscription_hook")
 
+                # WICHTIG: Setze mute_email Flag BEVOR submit, damit keine automatische E-Mail beim Submit gesendet wird
+                # Nur wenn automatische E-Mails aktiviert sind, wird mute_email später auf 0 gesetzt
+                if not is_automatic_email_enabled():
+                    payment_request.flags.mute_email = 1
+                    # Stelle sicher, dass mute_email auch im Dokument gesetzt ist
+                    payment_request.mute_email = 1
+                
                 # Submit (ohne Standard-Mail) und danach E-Mail manuell senden
                 payment_request.submit()
                 
@@ -354,7 +377,8 @@ def force_subscription_update(doc, method):
                 
                 # E-Mail-Versendung nur beim ersten Mal (wenn noch keine Stripe Subscription existiert)
                 # Bei automatischen Abbuchungen sendet Stripe keine E-Mail, daher auch wir nicht
-                if not has_stripe_subscription(doc.name):
+                # Prüfe auch ob automatische E-Mails in Subscription Settings aktiviert sind
+                if not has_stripe_subscription(doc.name) and is_automatic_email_enabled():
                     try:
                         payment_request.flags.mute_email = 0
                         # Stelle sicher, dass die Message im payment_request Objekt ist
@@ -375,7 +399,14 @@ def force_subscription_update(doc, method):
                     except Exception as e:
                         frappe.log_error(f"Fehler beim Senden der E-Mail: {str(e)}", "ERROR: subscription_hook")
                 else:
-                    frappe.log_error(f"SUBSCRIPTION HOOK: Keine E-Mail gesendet - Stripe Subscription existiert bereits, Stripe bucht automatisch ab", "DEBUG: subscription_hook")
+                    if has_stripe_subscription(doc.name):
+                        frappe.log_error(f"SUBSCRIPTION HOOK: Keine E-Mail gesendet - Stripe Subscription existiert bereits, Stripe bucht automatisch ab", "DEBUG: subscription_hook")
+                    elif not is_automatic_email_enabled():
+                        # Stelle sicher, dass mute_email auf 1 bleibt, damit keine E-Mail gesendet wird
+                        payment_request.flags.mute_email = 1
+                        payment_request.db_set('mute_email', 1, update_modified=False)
+                        frappe.db.commit()
+                        frappe.log_error(f"SUBSCRIPTION HOOK: Keine E-Mail gesendet - Automatische E-Mails sind in Subscription Settings deaktiviert (mute_email=1 gesetzt)", "DEBUG: subscription_hook")
 
                 frappe.log_error(
                     f"SUBSCRIPTION HOOK: Payment Request {payment_request.name} erstellt",
@@ -558,6 +589,13 @@ def create_payment_request_for_subscription_invoice(doc, method):
                 else:
                     frappe.log_error(f"SUBSCRIPTION HOOK: FEHLER - payment_url konnte nicht erstellt werden für Payment Request {payment_request.name}", "ERROR: subscription_hook")
 
+                # WICHTIG: Setze mute_email Flag BEVOR submit, damit keine automatische E-Mail beim Submit gesendet wird
+                # Nur wenn automatische E-Mails aktiviert sind, wird mute_email später auf 0 gesetzt
+                if not is_automatic_email_enabled():
+                    payment_request.flags.mute_email = 1
+                    # Stelle sicher, dass mute_email auch im Dokument gesetzt ist
+                    payment_request.mute_email = 1
+                
                 # Submit (ohne Standard-Mail) und danach E-Mail manuell senden
                 payment_request.submit()
                 
@@ -600,7 +638,8 @@ def create_payment_request_for_subscription_invoice(doc, method):
                 
                 # E-Mail-Versendung nur beim ersten Mal (wenn noch keine Stripe Subscription existiert)
                 # Bei automatischen Abbuchungen sendet Stripe keine E-Mail, daher auch wir nicht
-                if not has_stripe_subscription(doc.subscription):
+                # Prüfe auch ob automatische E-Mails in Subscription Settings aktiviert sind
+                if not has_stripe_subscription(doc.subscription) and is_automatic_email_enabled():
                     try:
                         payment_request.flags.mute_email = 0
                         # Stelle sicher, dass die Message im payment_request Objekt ist
@@ -621,7 +660,14 @@ def create_payment_request_for_subscription_invoice(doc, method):
                     except Exception as e:
                         frappe.log_error(f"Fehler beim Senden der E-Mail: {str(e)}", "ERROR: subscription_payment_request")
                 else:
-                    frappe.log_error(f"SUBSCRIPTION HOOK: Keine E-Mail gesendet - Stripe Subscription existiert bereits, Stripe bucht automatisch ab", "DEBUG: subscription_payment_request")
+                    if has_stripe_subscription(doc.subscription):
+                        frappe.log_error(f"SUBSCRIPTION HOOK: Keine E-Mail gesendet - Stripe Subscription existiert bereits, Stripe bucht automatisch ab", "DEBUG: subscription_payment_request")
+                    elif not is_automatic_email_enabled():
+                        # Stelle sicher, dass mute_email auf 1 bleibt, damit keine E-Mail gesendet wird
+                        payment_request.flags.mute_email = 1
+                        payment_request.db_set('mute_email', 1, update_modified=False)
+                        frappe.db.commit()
+                        frappe.log_error(f"SUBSCRIPTION HOOK: Keine E-Mail gesendet - Automatische E-Mails sind in Subscription Settings deaktiviert (mute_email=1 gesetzt)", "DEBUG: subscription_payment_request")
 
                 frappe.log_error(
                     f"Payment Request {payment_request.name} für Subscription Invoice {doc.name} erstellt",
