@@ -225,6 +225,8 @@ doc_events = {
 	},
 	"Payment Request": {
 		"before_validate": "enjo_party.enjo_party.utils.payment_request_hooks.validate_payment_request_subscription",
+		"before_submit": "enjo_party.enjo_party.utils.payment_request_hooks.prevent_email_before_submit",
+		"on_submit": "enjo_party.enjo_party.utils.payment_request_hooks.prevent_email_on_submit",
 		"on_update": "enjo_party.enjo_party.utils.payment_request_hooks.create_payment_entry_on_paid"
 	}
 }

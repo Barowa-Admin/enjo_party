@@ -2,6 +2,68 @@ import frappe
 from frappe import _
 import types
 
+def prevent_email_before_submit(doc, method):
+    """
+    Verhindert E-Mail-Versendung beim Submit, wenn automatische E-Mails deaktiviert sind
+    Wird bei Payment Request before_submit aufgerufen
+    """
+    try:
+        # Prüfe ob es eine Subscription Payment Request ist
+        if doc.is_a_subscription == 1:
+            # Importiere die Prüffunktion
+            from enjo_party.enjo_party.utils.subscription_hooks import is_automatic_email_enabled
+            
+            # Prüfe ob automatische E-Mails deaktiviert sind
+            if not is_automatic_email_enabled():
+                # Stelle sicher, dass mute_email auf 1 gesetzt ist BEVOR submit
+                doc.flags.mute_email = 1
+                doc.mute_email = 1
+                
+                frappe.log_error(f"mute_email=1 gesetzt BEVOR submit für Payment Request {doc.name} - Automatische E-Mails deaktiviert", "DEBUG: payment_request_prevent_email")
+    except Exception as e:
+        frappe.log_error(f"Fehler in prevent_email_before_submit für Payment Request {doc.name}: {str(e)}\n{frappe.get_traceback()}", "ERROR: payment_request_prevent_email")
+
+def prevent_email_on_submit(doc, method):
+    """
+    Löscht E-Mail-Queue nach dem Submit, wenn automatische E-Mails deaktiviert sind
+    Wird bei Payment Request on_submit aufgerufen (Fallback, falls before_submit nicht greift)
+    """
+    try:
+        # Prüfe ob es eine Subscription Payment Request ist
+        if doc.is_a_subscription == 1:
+            # Importiere die Prüffunktion
+            from enjo_party.enjo_party.utils.subscription_hooks import is_automatic_email_enabled
+            
+            # Prüfe ob automatische E-Mails deaktiviert sind
+            if not is_automatic_email_enabled():
+                # Stelle sicher, dass mute_email auf 1 gesetzt ist
+                doc.flags.mute_email = 1
+                doc.mute_email = 1
+                
+                # Speichere mute_email in der DB
+                doc.db_set('mute_email', 1, update_modified=False)
+                
+                # Prüfe ob bereits eine E-Mail-Queue erstellt wurde und lösche sie
+                email_queues = frappe.get_all("Email Queue",
+                    filters={
+                        "reference_doctype": "Payment Request",
+                        "reference_name": doc.name,
+                        "status": ["!=", "Sent"]
+                    },
+                    fields=["name"]
+                )
+                
+                for email_queue in email_queues:
+                    try:
+                        frappe.delete_doc("Email Queue", email_queue.name, force=1, ignore_permissions=True)
+                        frappe.log_error(f"E-Mail-Queue {email_queue.name} gelöscht - Automatische E-Mails deaktiviert für Payment Request {doc.name}", "DEBUG: payment_request_prevent_email")
+                    except Exception as e:
+                        frappe.log_error(f"Fehler beim Löschen der E-Mail-Queue {email_queue.name}: {str(e)}", "ERROR: payment_request_prevent_email")
+                
+                frappe.log_error(f"E-Mail-Versendung verhindert für Payment Request {doc.name} - Automatische E-Mails deaktiviert", "DEBUG: payment_request_prevent_email")
+    except Exception as e:
+        frappe.log_error(f"Fehler in prevent_email_on_submit für Payment Request {doc.name}: {str(e)}\n{frappe.get_traceback()}", "ERROR: payment_request_prevent_email")
+
 def validate_payment_request_subscription(doc, method):
     """
     Deaktiviert Payment Schedule Amount Validierung für Subscription Payment Requests
