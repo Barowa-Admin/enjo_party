@@ -2074,6 +2074,7 @@ def create_shipping_orders_for_party_customers(party_doc, all_orders_with_shippi
                     "currency": frappe.defaults.get_global_default("currency"),
                     "status": "Draft",
                     "order_type": "Sales",
+                    "sales_partner": party_doc.partnerin if party_doc.partnerin else None,
                     "custom_party_reference": party_doc.name,
                     "custom_calculated_shipping_cost": 0.0,
                     "custom_shipping_order": 1,  # Markierung als Versandauftrag

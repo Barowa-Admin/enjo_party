@@ -1723,6 +1723,7 @@ def create_shipping_orders_for_customers(sammelbestellung_doc, all_orders_with_s
                     "currency": frappe.defaults.get_global_default("currency"),
                     "status": "Draft",
                     "order_type": "Sales",
+                    "sales_partner": sammelbestellung_doc.partnerin if sammelbestellung_doc.partnerin else None,
                     "custom_party_reference": sammelbestellung_doc.name,
                     "custom_calculated_shipping_cost": 0.0,
                     "custom_shipping_order": 1,  # Markierung als Versandauftrag
@@ -1906,6 +1907,7 @@ def create_single_partner_order_for_sammelbestellung(sammelbestellung_doc, all_o
             "currency": frappe.defaults.get_global_default("currency"),
             "status": "Draft",
             "order_type": "Sales",
+            "sales_partner": sammelbestellung_doc.partnerin if sammelbestellung_doc.partnerin else None,
             "custom_party_reference": sammelbestellung_doc.name,
             "custom_calculated_shipping_cost": 0.0,
             "custom_shipping_order": 1,  # Markierung als Versandauftrag
