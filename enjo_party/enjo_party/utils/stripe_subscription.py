@@ -29,37 +29,44 @@ def cancel_stripe_subscription_at_period_end(erpnext_subscription_name):
         
         stripe_subscription_id = None
         
-        # Methode 1: Suche direkt ALLE aktiven Stripe Subscriptions und finde die passende
-        try:
-            frappe.log_error(f"Starte Suche in Stripe Subscriptions...", "DEBUG: stripe_subscription_cancel")
-            subscriptions = stripe.Subscription.list(limit=100, status='active')
-            frappe.log_error(f"Gefundene Stripe Subscriptions: {len(subscriptions.data)}", "DEBUG: stripe_subscription_cancel")
-            
-            for sub in subscriptions.data:
-                # Prüfe Metadata - sollte die ERPNext Subscription ID enthalten
-                sub_metadata = sub.metadata or {}
-                if sub_metadata.get('subscription') == erpnext_subscription_name:
-                    stripe_subscription_id = sub.id
-                    frappe.log_error(f"Stripe Subscription ID über Metadata Match gefunden: {stripe_subscription_id} (Metadata: {sub_metadata})", "DEBUG: stripe_subscription_cancel")
-                    break
-                else:
-                    frappe.log_error(f"Prüfe Subscription {sub.id}, Metadata: {sub_metadata}, suche nach: {erpnext_subscription_name}", "DEBUG: stripe_subscription_cancel")
-            
-            # Falls nicht gefunden, suche über Checkout Sessions
-            if not stripe_subscription_id and customer_email:
-                frappe.log_error(f"Suche in Checkout Sessions für Email: {customer_email}", "DEBUG: stripe_subscription_cancel")
-                sessions = stripe.checkout.Session.list(limit=50)
-                for sess in sessions.data:
-                    sess_metadata = sess.metadata or {}
-                    if sess.get('customer_email') == customer_email and sess.get('subscription'):
-                        if sess_metadata.get('subscription') == erpnext_subscription_name:
-                            stripe_subscription_id = sess['subscription']
-                            frappe.log_error(f"Stripe Subscription ID über Checkout Session gefunden: {stripe_subscription_id}", "DEBUG: stripe_subscription_cancel")
-                            break
-        except Exception as e:
-            frappe.log_error(f"Fehler bei Stripe-Suche: {str(e)}\n{frappe.get_traceback()}", "ERROR: stripe_subscription_cancel")
+        # Methode 1: Prüfe Custom Field (zuverlässigste Methode - wird vom Webhook gespeichert)
+        if frappe.db.has_column("Subscription", "custom_stripe_subscription_id"):
+            stripe_subscription_id = frappe.db.get_value("Subscription", erpnext_subscription_name, "custom_stripe_subscription_id")
+            if stripe_subscription_id:
+                frappe.log_error(f"Stripe Subscription ID gefunden in Custom Field: {stripe_subscription_id} für {erpnext_subscription_name}", "DEBUG: stripe_subscription_cancel")
         
-        # Methode 2: Fallback - über Payment Entry → Session
+        # Methode 2: Suche direkt ALLE aktiven Stripe Subscriptions und finde die passende (nur wenn Custom Field leer ist)
+        if not stripe_subscription_id:
+            try:
+                frappe.log_error(f"Starte Suche in Stripe Subscriptions...", "DEBUG: stripe_subscription_cancel")
+                subscriptions = stripe.Subscription.list(limit=100, status='active')
+                frappe.log_error(f"Gefundene Stripe Subscriptions: {len(subscriptions.data)}", "DEBUG: stripe_subscription_cancel")
+                
+                for sub in subscriptions.data:
+                    # Prüfe Metadata - sollte die ERPNext Subscription ID enthalten
+                    sub_metadata = sub.metadata or {}
+                    if sub_metadata.get('subscription') == erpnext_subscription_name:
+                        stripe_subscription_id = sub.id
+                        frappe.log_error(f"Stripe Subscription ID über Metadata Match gefunden: {stripe_subscription_id} (Metadata: {sub_metadata})", "DEBUG: stripe_subscription_cancel")
+                        break
+                    else:
+                        frappe.log_error(f"Prüfe Subscription {sub.id}, Metadata: {sub_metadata}, suche nach: {erpnext_subscription_name}", "DEBUG: stripe_subscription_cancel")
+                
+                # Falls nicht gefunden, suche über Checkout Sessions
+                if not stripe_subscription_id and customer_email:
+                    frappe.log_error(f"Suche in Checkout Sessions für Email: {customer_email}", "DEBUG: stripe_subscription_cancel")
+                    sessions = stripe.checkout.Session.list(limit=50)
+                    for sess in sessions.data:
+                        sess_metadata = sess.metadata or {}
+                        if sess.get('customer_email') == customer_email and sess.get('subscription'):
+                            if sess_metadata.get('subscription') == erpnext_subscription_name:
+                                stripe_subscription_id = sess['subscription']
+                                frappe.log_error(f"Stripe Subscription ID über Checkout Session gefunden: {stripe_subscription_id}", "DEBUG: stripe_subscription_cancel")
+                                break
+            except Exception as e:
+                frappe.log_error(f"Fehler bei Stripe-Suche: {str(e)}\n{frappe.get_traceback()}", "ERROR: stripe_subscription_cancel")
+        
+        # Methode 3: Fallback - über Payment Entry → Session (nur wenn noch nicht gefunden)
         if not stripe_subscription_id:
             invoices = frappe.get_all("Sales Invoice",
                 filters={
@@ -103,6 +110,8 @@ def cancel_stripe_subscription_at_period_end(erpnext_subscription_name):
                                 break
                         except Exception as e:
                             frappe.log_error(f"Fehler beim Abrufen der Session {session_id}: {str(e)}", "DEBUG: stripe_subscription_cancel")
+            except Exception as e:
+                frappe.log_error(f"Fehler bei Stripe-Suche: {str(e)}\n{frappe.get_traceback()}", "ERROR: stripe_subscription_cancel")
         
         if not stripe_subscription_id:
             frappe.log_error(f"Keine Stripe Subscription ID gefunden für ERPNext Subscription {erpnext_subscription_name}", "WARNING: stripe_subscription_cancel")
