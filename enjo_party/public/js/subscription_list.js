@@ -188,115 +188,168 @@ frappe.listview_settings['Subscription'] = {
         
         // Partnerin/Vertrieblerin Spalte hinzufügen
         function addPartnerinColumn() {
-            // Prüfe ob Spalte bereits existiert
-            if ($('.list-row-head .list-row-col[data-fieldname="custom_partnerin"]').length > 0) {
-                return;
-            }
-            
             // Füge Header hinzu - nach der ersten Daten-Spalte (nicht Checkbox)
             const $headerRow = $('.list-row-head');
             if ($headerRow.length) {
-                const $firstHeader = $headerRow.find('.list-row-col:first-child');
-                const hasCheckbox = $firstHeader.find('input[type="checkbox"]').length > 0;
-                const $targetHeader = hasCheckbox ? $headerRow.find('.list-row-col:nth-child(2)') : $firstHeader;
+                let $existingHeader = $headerRow.find('.list-row-col[data-fieldname="custom_partnerin"]');
                 
-                if ($targetHeader.length) {
-                    const $newHeader = $('<div>')
-                        .addClass('list-row-col')
-                        .attr('data-fieldname', 'custom_partnerin')
-                        .css({
-                            'min-width': '180px',
-                            'max-width': '250px'
-                        })
-                        .text('Partnerin/Vertrieblerin');
+                if ($existingHeader.length === 0) {
+                    const $firstHeader = $headerRow.find('.list-row-col:first-child');
+                    const hasCheckbox = $firstHeader.find('input[type="checkbox"]').length > 0;
+                    const $targetHeader = hasCheckbox ? $headerRow.find('.list-row-col:nth-child(2)') : $firstHeader;
                     
-                    // Füge nach der Ziel-Spalte ein
-                    $targetHeader.after($newHeader);
+                    if ($targetHeader.length) {
+                        const $newHeader = $('<div>')
+                            .addClass('list-row-col')
+                            .attr('data-fieldname', 'custom_partnerin')
+                            .css({
+                                'min-width': '180px',
+                                'max-width': '250px'
+                            })
+                            .text('Partnerin/Vertrieblerin');
+                        
+                        // Füge nach der Ziel-Spalte ein
+                        $targetHeader.after($newHeader);
+                    }
                 }
             }
             
-            // Füge Datenzeilen hinzu
+            // Funktion zum Laden der Partnerin-Daten für eine Zeile
+            function loadPartnerinForRow($row, $cell) {
+                // Prüfe ob bereits geladen wurde (nicht nur ob Spalte existiert)
+                if ($cell.attr('data-partnerin-loaded') === 'true') {
+                    return;
+                }
+                
+                // Hole Subscription Name aus der Zeile
+                let subscriptionName = $row.attr('data-name');
+                if (!subscriptionName) {
+                    const $link = $row.find('a[data-doctype="Subscription"]');
+                    if ($link.length) {
+                        subscriptionName = $link.attr('data-name') || $link.attr('href')?.replace('/app/subscription/', '').split('/')[0];
+                    }
+                }
+                if (!subscriptionName) {
+                    const href = $row.find('a').attr('href');
+                    if (href && href.includes('/app/subscription/')) {
+                        subscriptionName = href.replace('/app/subscription/', '').split('/')[0];
+                    }
+                }
+                if (!subscriptionName) {
+                    const $targetCell = $row.find('.list-row-col.list-subject, .list-row-col:has(a[href*="/app/subscription/"])').first();
+                    if ($targetCell.length) {
+                        const href = $targetCell.find('a').attr('href');
+                        if (href && href.includes('/app/subscription/')) {
+                            subscriptionName = href.replace('/app/subscription/', '').split('/')[0];
+                        }
+                    }
+                }
+                if (!subscriptionName) {
+                    const text = $cell.text().trim();
+                    if (text && text.match(/^ACC-SUB-/)) {
+                        subscriptionName = text;
+                    }
+                }
+                
+                if (!subscriptionName) {
+                    $cell.text('-');
+                    $cell.attr('data-partnerin-loaded', 'true');
+                    return;
+                }
+                
+                // Setze Placeholder
+                if ($cell.text().trim() === '' || $cell.text().trim() === '...') {
+                    $cell.text('...');
+                }
+                
+                // Hole Partnerin aus der ersten Sales Invoice mit Retry
+                function fetchPartnerin(retryCount = 0) {
+                    frappe.call({
+                        method: 'frappe.client.get_list',
+                        args: {
+                            doctype: 'Sales Invoice',
+                            filters: {
+                                subscription: subscriptionName,
+                                docstatus: 1
+                            },
+                            fields: ['sales_partner'],
+                            limit: 1,
+                            order_by: 'posting_date asc'
+                        },
+                        callback: function(r) {
+                            if (r && r.message && r.message.length > 0 && r.message[0].sales_partner) {
+                                const salesPartnerId = r.message[0].sales_partner;
+                                
+                                // Hole den Namen des Sales Partners
+                                frappe.db.get_value('Sales Partner', salesPartnerId, 'partner_name', function(partnerResult) {
+                                    if ($cell.length) {
+                                        if (partnerResult && partnerResult.partner_name) {
+                                            $cell.text(partnerResult.partner_name);
+                                            $cell.attr('title', salesPartnerId); // Tooltip mit ID
+                                        } else {
+                                            $cell.text(salesPartnerId || '-');
+                                        }
+                                        $cell.attr('data-partnerin-loaded', 'true');
+                                    }
+                                });
+                            } else if ($cell.length) {
+                                $cell.text('-');
+                                $cell.attr('data-partnerin-loaded', 'true');
+                            } else if (retryCount < 2) {
+                                // Retry nach kurzer Verzögerung
+                                setTimeout(function() {
+                                    fetchPartnerin(retryCount + 1);
+                                }, 500);
+                            }
+                        },
+                        error: function(r) {
+                            if (retryCount < 2 && $cell.length) {
+                                // Retry bei Fehler
+                                setTimeout(function() {
+                                    fetchPartnerin(retryCount + 1);
+                                }, 500);
+                            } else if ($cell.length) {
+                                $cell.text('-');
+                                $cell.attr('data-partnerin-loaded', 'true');
+                            }
+                        }
+                    });
+                }
+                
+                fetchPartnerin();
+            }
+            
+            // Füge Datenzeilen hinzu oder aktualisiere vorhandene
             $('.list-row').each(function() {
                 const $row = $(this);
                 const $firstCell = $row.find('.list-row-col:first-child');
                 const hasCheckbox = $firstCell.find('input[type="checkbox"]').length > 0;
                 const $targetCell = hasCheckbox ? $row.find('.list-row-col:nth-child(2)') : $firstCell;
                 
-                // Prüfe ob Spalte bereits existiert
-                if ($row.find('.list-row-col[data-fieldname="custom_partnerin"]').length > 0) {
+                if (!$targetCell.length) {
                     return;
                 }
                 
-                if ($targetCell.length) {
-                    // Hole Subscription Name aus der Zeile
-                    let subscriptionName = $row.attr('data-name');
-                    if (!subscriptionName) {
-                        const href = $row.find('a').attr('href');
-                        if (href && href.includes('/app/subscription/')) {
-                            subscriptionName = href.replace('/app/subscription/', '').split('/')[0];
-                        }
-                    }
-                    if (!subscriptionName) {
-                        const href = $targetCell.find('a').attr('href');
-                        if (href && href.includes('/app/subscription/')) {
-                            subscriptionName = href.replace('/app/subscription/', '').split('/')[0];
-                        }
-                    }
-                    if (!subscriptionName) {
-                        const text = $targetCell.text().trim();
-                        if (text && text.match(/^ACC-SUB-/)) {
-                            subscriptionName = text;
-                        }
-                    }
-                    
-                    const $newCell = $('<div>')
+                // Prüfe ob Spalte bereits existiert
+                let $partnerinCell = $row.find('.list-row-col[data-fieldname="custom_partnerin"]');
+                
+                if ($partnerinCell.length === 0) {
+                    // Erstelle neue Spalte
+                    $partnerinCell = $('<div>')
                         .addClass('list-row-col')
                         .attr('data-fieldname', 'custom_partnerin')
                         .css({
                             'min-width': '180px',
                             'max-width': '250px'
                         })
-                        .text('...'); // Placeholder
+                        .text('...');
                     
                     // Füge nach der Ziel-Spalte ein
-                    $targetCell.after($newCell);
-                    
-                    // Hole Partnerin aus der ersten Sales Invoice
-                    if (subscriptionName) {
-                        frappe.call({
-                            method: 'frappe.client.get_list',
-                            args: {
-                                doctype: 'Sales Invoice',
-                                filters: {
-                                    subscription: subscriptionName,
-                                    docstatus: 1
-                                },
-                                fields: ['sales_partner'],
-                                limit: 1,
-                                order_by: 'posting_date asc'
-                            },
-                            callback: function(r) {
-                                if (r.message && r.message.length > 0 && r.message[0].sales_partner) {
-                                    const salesPartnerId = r.message[0].sales_partner;
-                                    
-                                    // Hole den Namen des Sales Partners
-                                    frappe.db.get_value('Sales Partner', salesPartnerId, 'partner_name', function(partnerResult) {
-                                        if (partnerResult && partnerResult.partner_name && $newCell.length) {
-                                            $newCell.text(partnerResult.partner_name);
-                                            $newCell.attr('title', salesPartnerId); // Tooltip mit ID
-                                        } else if ($newCell.length) {
-                                            $newCell.text(salesPartnerId || '-');
-                                        }
-                                    });
-                                } else if ($newCell.length) {
-                                    $newCell.text('-');
-                                }
-                            }
-                        });
-                    } else if ($newCell.length) {
-                        $newCell.text('-');
-                    }
+                    $targetCell.after($partnerinCell);
                 }
+                
+                // Lade Daten (auch wenn Spalte bereits existiert, falls noch nicht geladen)
+                loadPartnerinForRow($row, $partnerinCell);
             });
         }
         
