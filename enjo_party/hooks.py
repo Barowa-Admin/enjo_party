@@ -47,7 +47,8 @@ doctype_js = {
     "Party": "enjo_party/doctype/party/party.js",
     "Sammelbestellung": "enjo_party/doctype/sammelbestellung/sammelbestellung.js",
     "Sales Invoice": "public/js/sales_invoice.js",
-    "Sales Order": "public/js/sales_order.js"
+    "Sales Order": "public/js/sales_order.js",
+    "Subscription": "public/js/subscription.js"
 }
 doctype_list_js = {
     "Party": "enjo_party/doctype/party/party_list.js",

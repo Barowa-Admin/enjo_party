@@ -298,10 +298,12 @@
                 {% endif %}
             {% endif %}
             {% if payment_url %}
+            {# Dekodiere doppelt-encoded URLs: %25 → % #}
+            {% set clean_url = payment_url|replace('%25', '%') %}
             <div style="margin: 10px 0; padding: 10px; border: 2px solid #007bff; border-radius: 5px; background-color: #f8f9ff; text-align: center;">
                 <p style="margin: 0 0 8px 0; font-size: 13px; color: #007bff; font-weight: bold;">Online-Zahlung für Ihr Abonnement</p>
                 <p style="margin: 0 0 8px 0; font-size: 11px; color: #333;">Bezahlen Sie bequem online mit Kreditkarte, SEPA-Lastschrift oder anderen Zahlungsmethoden:</p>
-                <a href="{{ payment_url }}" style="display: inline-block; background-color: #007bff; color: white; padding: 8px 20px; text-decoration: none; border-radius: 4px; font-size: 12px; font-weight: bold;">
+                <a href="{{ clean_url|safe }}" style="display: inline-block; background-color: #007bff; color: white; padding: 8px 20px; text-decoration: none; border-radius: 4px; font-size: 12px; font-weight: bold;">
                     Jetzt online bezahlen
                 </a>
             </div>
