@@ -64,6 +64,16 @@ frappe.listview_settings['Subscription'] = {
         
         addListFormattingCSS();
         
+        // ID-Filter entfernen
+        function removeIdFilter() {
+            // Finde das ID-Filter-Feld
+            const $idFilter = $('input[data-fieldname="name"][placeholder="ID"]');
+            if ($idFilter.length) {
+                const $filterGroup = $idFilter.closest('.form-group');
+                $filterGroup.remove();
+            }
+        }
+        
         // Header der ID-Spalte ändern - finde die Spalte mit "ID" Text oder list-subject Klasse
         function updateFirstColumnHeader() {
             // Finde die Header-Spalte mit list-subject Klasse oder "ID" Text
@@ -292,6 +302,7 @@ frappe.listview_settings['Subscription'] = {
         
         // Funktionen mehrfach ausführen um sicherzustellen dass sie greifen
         function runUpdates() {
+            removeIdFilter();
             updateFirstColumnHeader();
             updateFirstColumnWithCustomerName();
             addPartnerinColumn();
@@ -324,7 +335,7 @@ frappe.listview_settings['Subscription'] = {
             });
         }
         
-        // Observer für Änderungen in der Liste
+        // Observer für Änderungen in der Liste und Filter-Bereich
         if (window.MutationObserver) {
             const observer = new MutationObserver(function(mutations) {
                 setTimeout(runUpdates, 100);
@@ -337,6 +348,22 @@ frappe.listview_settings['Subscription'] = {
                     subtree: true
                 });
             }
+            
+            // Auch Filter-Bereich beobachten
+            const filterSection = document.querySelector('.standard-filter-section, .page-form');
+            if (filterSection) {
+                observer.observe(filterSection, {
+                    childList: true,
+                    subtree: true
+                });
+            }
+        }
+        
+        // Auch wenn Filter-Bereich neu geladen wird
+        if (listview && listview.page) {
+            $(listview.page.wrapper).on('DOMNodeInserted', '.standard-filter-section, .page-form', function() {
+                setTimeout(removeIdFilter, 100);
+            });
         }
     }
 };
