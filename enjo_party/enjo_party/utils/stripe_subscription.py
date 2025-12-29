@@ -35,6 +35,33 @@ def cancel_stripe_subscription_at_period_end(erpnext_subscription_name):
             if stripe_subscription_id:
                 frappe.log_error(f"Stripe Subscription ID gefunden in Custom Field: {stripe_subscription_id} für {erpnext_subscription_name}", "DEBUG: stripe_subscription_cancel")
         
+        # Methode 1b: Falls Custom Field leer, suche in Kommentaren (Fallback wenn Custom Field nicht existiert)
+        if not stripe_subscription_id:
+            try:
+                comments = frappe.get_all("Comment",
+                    filters={
+                        "reference_doctype": "Subscription",
+                        "reference_name": erpnext_subscription_name,
+                        "comment_type": "Comment"
+                    },
+                    fields=["content"],
+                    order_by="creation desc",
+                    limit=10
+                )
+                
+                for comment in comments:
+                    content = comment.get("content", "")
+                    # Suche nach "Stripe Subscription ID: sub_..."
+                    if "Stripe Subscription ID:" in content:
+                        import re
+                        match = re.search(r'Stripe Subscription ID:\s*(sub_[a-zA-Z0-9]+)', content)
+                        if match:
+                            stripe_subscription_id = match.group(1)
+                            frappe.log_error(f"Stripe Subscription ID gefunden in Kommentar: {stripe_subscription_id} für {erpnext_subscription_name}", "DEBUG: stripe_subscription_cancel")
+                            break
+            except Exception as e:
+                frappe.log_error(f"Fehler beim Lesen der Kommentare: {str(e)}", "DEBUG: stripe_subscription_cancel")
+        
         # Methode 2: Suche direkt ALLE aktiven Stripe Subscriptions und finde die passende (nur wenn Custom Field leer ist)
         if not stripe_subscription_id:
             try:

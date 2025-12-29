@@ -145,6 +145,8 @@ def handle_subscription_cancel(doc, method):
     Kündigt auch die Stripe Subscription
     """
     try:
+        frappe.log_error(f"HOOK AUFGERUFEN: handle_subscription_cancel für {doc.name}, Status: {doc.status}, Method: {method}", "DEBUG: subscription_hook")
+        
         # Prüfe ob das Abo aktiv war (nicht bereits storniert)
         if doc.status == "Cancelled":
             frappe.log_error(f"ABO STORNIERT {doc.name}: starte Stripe Kündigung", "DEBUG: subscription_hook")
@@ -157,8 +159,10 @@ def handle_subscription_cancel(doc, method):
                     frappe.log_error(f"ABO STORNIERT {doc.name}: Fehler - Stripe Subscription ID nicht gefunden", "WARNING: subscription_hook")
             except Exception as e:
                 frappe.log_error(f"ABO STORNIERT {doc.name}: Exception {str(e)}\n{frappe.get_traceback()}", "ERROR: subscription_hook")
+        else:
+            frappe.log_error(f"ABO STORNIERT {doc.name}: Status ist nicht 'Cancelled' ({doc.status}), überspringe Stripe Kündigung", "DEBUG: subscription_hook")
     except Exception as e:
-        frappe.log_error(f"Fehler in handle_subscription_cancel für {doc.name}: {str(e)}", "ERROR: subscription_hook")
+        frappe.log_error(f"Fehler in handle_subscription_cancel für {doc.name}: {str(e)}\n{frappe.get_traceback()}", "ERROR: subscription_hook")
 
 def force_subscription_update(doc, method):
     """
