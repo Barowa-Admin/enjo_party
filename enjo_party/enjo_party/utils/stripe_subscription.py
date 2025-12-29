@@ -110,8 +110,6 @@ def cancel_stripe_subscription_at_period_end(erpnext_subscription_name):
                                 break
                         except Exception as e:
                             frappe.log_error(f"Fehler beim Abrufen der Session {session_id}: {str(e)}", "DEBUG: stripe_subscription_cancel")
-            except Exception as e:
-                frappe.log_error(f"Fehler bei Stripe-Suche: {str(e)}\n{frappe.get_traceback()}", "ERROR: stripe_subscription_cancel")
         
         if not stripe_subscription_id:
             frappe.log_error(f"Keine Stripe Subscription ID gefunden für ERPNext Subscription {erpnext_subscription_name}", "WARNING: stripe_subscription_cancel")
