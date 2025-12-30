@@ -144,15 +144,40 @@ def cancel_stripe_subscription_at_period_end(erpnext_subscription_name):
         
         # Kündige die Stripe Subscription zum Ende der Periode
         # Das bedeutet: Aktuelle Periode läuft noch, aber keine neue Periode wird mehr gestartet
-        stripe.Subscription.modify(
-            stripe_subscription_id,
-            cancel_at_period_end=True
-        )
+        frappe.log_error(f"Rufe Stripe API auf: stripe.Subscription.modify({stripe_subscription_id}, cancel_at_period_end=True)", "DEBUG: stripe_subscription_cancel")
         
-        frappe.log_error(f"Stripe Subscription {stripe_subscription_id} wird zum Ende der Periode gekündigt (keine weiteren Abbuchungen)", "SUCCESS: stripe_subscription_cancel")
-        return True
+        try:
+            modified_subscription = stripe.Subscription.modify(
+                stripe_subscription_id,
+                cancel_at_period_end=True
+            )
+            
+            frappe.log_error(f"Stripe API Antwort: cancel_at_period_end={modified_subscription.get('cancel_at_period_end')}, status={modified_subscription.get('status')}", "DEBUG: stripe_subscription_cancel")
+            frappe.log_error(f"Stripe Subscription {stripe_subscription_id} wird zum Ende der Periode gekündigt (keine weiteren Abbuchungen)", "SUCCESS: stripe_subscription_cancel")
+            return True
+        except stripe.error.StripeError as e:
+            frappe.log_error(f"Stripe API Fehler: {str(e)} (Type: {type(e).__name__})", "ERROR: stripe_subscription_cancel")
+            raise
         
     except Exception as e:
         frappe.log_error(f"Fehler beim Kündigen der Stripe Subscription für {erpnext_subscription_name}: {str(e)}\n{frappe.get_traceback()}", "ERROR: stripe_subscription_cancel")
         return False
+
+
+@frappe.whitelist()
+def cancel_subscription_in_stripe(subscription_name):
+    """
+    Server-Funktion um Stripe Subscription direkt zu kündigen
+    Wird vom Client-Script aufgerufen
+    """
+    try:
+        frappe.log_error(f"Server-Funktion aufgerufen: cancel_subscription_in_stripe für {subscription_name}", "DEBUG: stripe_subscription_cancel")
+        result = cancel_stripe_subscription_at_period_end(subscription_name)
+        if result:
+            return {"success": True, "message": "Stripe Subscription wurde erfolgreich gekündigt"}
+        else:
+            return {"success": False, "message": "Stripe Subscription ID nicht gefunden"}
+    except Exception as e:
+        frappe.log_error(f"Fehler in cancel_subscription_in_stripe für {subscription_name}: {str(e)}\n{frappe.get_traceback()}", "ERROR: stripe_subscription_cancel")
+        return {"success": False, "message": str(e)}
 
