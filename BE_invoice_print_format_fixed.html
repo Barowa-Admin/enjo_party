@@ -270,9 +270,45 @@
     <!-- Überweisungshinweis / Abo-Hinweis -->
     {% if doc.subscription %}
         <!-- Abo: Spezieller Text für Dauerauftrag -->
-        <div style="text-align: center; margin: 10px 0; padding: 8px; background-color: #f8f9fa; border: 1px solid #dee2e6; border-radius: 4px;">
-            <p style="margin: 0; font-size: 12px; color: #333; font-weight: bold;">Richten Sie bitte einen Dauerauftrag entsprechend ihrer Lieferintervalls bei Ihrer Bank ein oder nutzen Sie den folgenden Bezahllink:</p>
+        <div style="text-align: center; margin: 6px 0; padding: 5px; background-color: #f8f9fa; border: 1px solid #dee2e6; border-radius: 4px;">
+            <p style="margin: 0; font-size: 11px; color: #333; font-weight: bold;">Richten Sie bitte einen Dauerauftrag entsprechend ihrer Lieferintervalls bei Ihrer Bank ein oder nutzen Sie den folgenden Bezahllink:</p>
         </div>
+        
+        <!-- Abo-Intervall Info -->
+        {% set subscription_doc = frappe.get_doc("Subscription", doc.subscription) %}
+        {% set billing_info = subscription_doc.get_billing_cycle_and_interval() %}
+        {% set interval_text = "" %}
+        {% if billing_info and billing_info|length > 0 %}
+            {% set interval = (billing_info[0].get("billing_interval") or "Month").lower() %}
+            {% set interval_count = billing_info[0].get("billing_interval_count") or 1 %}
+            {% if interval == "month" %}
+                {% if interval_count == 1 %}
+                    {% set interval_text = "monatlich" %}
+                {% else %}
+                    {% set interval_text = "alle " ~ interval_count ~ " Monate" %}
+                {% endif %}
+            {% elif interval == "day" %}
+                {% if interval_count == 1 %}
+                    {% set interval_text = "täglich" %}
+                {% else %}
+                    {% set interval_text = "alle " ~ interval_count ~ " Tage" %}
+                {% endif %}
+            {% elif interval == "week" %}
+                {% if interval_count == 1 %}
+                    {% set interval_text = "wöchentlich" %}
+                {% else %}
+                    {% set interval_text = "alle " ~ interval_count ~ " Wochen" %}
+                {% endif %}
+            {% elif interval == "year" %}
+                {% if interval_count == 1 %}
+                    {% set interval_text = "jährlich" %}
+                {% else %}
+                    {% set interval_text = "alle " ~ interval_count ~ " Jahre" %}
+                {% endif %}
+            {% else %}
+                {% set interval_text = "regelmäßig" %}
+            {% endif %}
+        {% endif %}
         
         <!-- Stripe Payment Link für Abos (nach dem Abo-Hinweis) -->
         {% set payment_requests = frappe.get_all("Payment Request", 
@@ -298,14 +334,19 @@
                 {% endif %}
             {% endif %}
             {% if payment_url %}
-            {# Dekodiere doppelt-encoded URLs: %25 → % #}
-            {% set clean_url = payment_url|replace('%25', '%') %}
-            <div style="margin: 10px 0; padding: 10px; border: 2px solid #007bff; border-radius: 5px; background-color: #f8f9ff; text-align: center;">
-                <p style="margin: 0 0 8px 0; font-size: 13px; color: #007bff; font-weight: bold;">Online-Zahlung für Ihr Abonnement</p>
-                <p style="margin: 0 0 8px 0; font-size: 11px; color: #333;">Bezahlen Sie bequem online mit Kreditkarte, SEPA-Lastschrift oder anderen Zahlungsmethoden:</p>
-                <a href="{{ clean_url|safe }}" style="display: inline-block; background-color: #007bff; color: white; padding: 8px 20px; text-decoration: none; border-radius: 4px; font-size: 12px; font-weight: bold;">
+            {# Dekodiere URL komplett - wkhtmltopdf encoded sie dann korrekt #}
+            {# Erst doppelte Encodings auflösen, dann URL-Encoding dekodieren #}
+            {% set step1 = payment_url|replace('%25', '%')|replace('%25', '%')|replace('%25', '%') %}
+            {% set clean_url = step1|replace('%2F', '/')|replace('%27', "'")|replace('%3D', '=')|replace('%2B', '+')|replace('%3A', ':')|replace('%3F', '?')|replace('%26', '&') %}
+            <div style="margin: 6px 0; padding: 6px; border: 2px solid #007bff; border-radius: 5px; background-color: #f8f9ff; text-align: center;">
+                <p style="margin: 0 0 4px 0; font-size: 12px; color: #007bff; font-weight: bold;">Online-Zahlung für Ihr Abonnement</p>
+                <p style="margin: 0 0 4px 0; font-size: 10px; color: #333;">Bezahlen Sie bequem online mit Kreditkarte, SEPA-Lastschrift oder anderen Zahlungsmethoden:</p>
+                <a href="{{ clean_url|safe }}" style="display: inline-block; background-color: #007bff; color: white; padding: 6px 16px; text-decoration: none; border-radius: 4px; font-size: 11px; font-weight: bold; margin-bottom: 4px;">
                     Jetzt online bezahlen
                 </a>
+                {% if interval_text %}
+                <p style="margin: 4px 0 0 0; font-size: 10px; color: #856404; font-weight: bold;">Hinweis: Hiermit schließen Sie ein Abonnement ab, welches {{ interval_text }} geliefert wird.</p>
+                {% endif %}
             </div>
             {% endif %}
         {% endif %}
