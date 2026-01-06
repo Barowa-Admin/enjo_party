@@ -4,6 +4,187 @@
 frappe.listview_settings['Subscription'] = {
     add_fields: ['party', 'custom_partnerin'],
     
+    onload: function(listview) {
+        console.log('[SUBSCRIPTION FILTER] onload called');
+        
+        // Speichere die letzten gesetzten Werte
+        listview._last_party_value = null;
+        listview._last_partnerin_value = null;
+        listview._is_programmatic_change = false;
+        
+        // Speichere Referenzen zu den Feldern
+        let partyField, partnerinField;
+        
+        // Party-Filter hinzufügen
+        partyField = listview.page.add_field({
+            label: 'Kunde',
+            fieldtype: 'Link',
+            fieldname: 'party',
+            options: 'Customer',
+            change: function() {
+                let party = this.get_value();
+                console.log('[SUBSCRIPTION FILTER] Party field changed:', party, 'Is programmatic:', listview._is_programmatic_change);
+                
+                // Ignoriere wenn programmatisch gesetzt
+                if (listview._is_programmatic_change) {
+                    console.log('[SUBSCRIPTION FILTER] Ignoring programmatic party change');
+                    return;
+                }
+                
+                // Ignoriere wenn Wert sich nicht geändert hat
+                if (party === listview._last_party_value) {
+                    console.log('[SUBSCRIPTION FILTER] Party value unchanged, ignoring');
+                    return;
+                }
+                
+                // Speichere neuen Wert
+                listview._last_party_value = party;
+                
+                // Verhindere Endlosschleife durch Debouncing
+                clearTimeout(listview._party_timeout);
+                listview._party_timeout = setTimeout(() => {
+                    console.log('[SUBSCRIPTION FILTER] Party timeout fired, setting filter:', party);
+                    if (party) {
+                        // Entferne zuerst vorhandene Filter
+                        listview.filter_area.remove('party');
+                        // Füge neuen Filter hinzu (korrekte Array-Syntax)
+                        listview.filter_area.add([['Subscription', 'party', '=', party]]);
+                        console.log('[SUBSCRIPTION FILTER] Party filter added');
+                    } else {
+                        listview.filter_area.remove('party');
+                        console.log('[SUBSCRIPTION FILTER] Party filter removed');
+                    }
+                    // Aktualisiere die Liste
+                    console.log('[SUBSCRIPTION FILTER] Calling refresh after party change');
+                    // Setze Flag VOR refresh
+                    listview._is_programmatic_change = true;
+                    listview.refresh();
+                }, 500);
+            }
+        });
+        
+        // Partnerin-Filter hinzufügen
+        partnerinField = listview.page.add_field({
+            label: 'Partnerin',
+            fieldtype: 'Link',
+            fieldname: 'custom_partnerin',
+            options: 'Sales Partner',
+            change: function() {
+                let partnerin = this.get_value();
+                console.log('[SUBSCRIPTION FILTER] Partnerin field changed:', partnerin, 'Is programmatic:', listview._is_programmatic_change);
+                
+                // Ignoriere wenn programmatisch gesetzt
+                if (listview._is_programmatic_change) {
+                    console.log('[SUBSCRIPTION FILTER] Ignoring programmatic partnerin change');
+                    return;
+                }
+                
+                // Ignoriere wenn Wert sich nicht geändert hat
+                if (partnerin === listview._last_partnerin_value) {
+                    console.log('[SUBSCRIPTION FILTER] Partnerin value unchanged, ignoring');
+                    return;
+                }
+                
+                // Speichere neuen Wert
+                listview._last_partnerin_value = partnerin;
+                
+                // Verhindere Endlosschleife durch Debouncing
+                clearTimeout(listview._partnerin_timeout);
+                listview._partnerin_timeout = setTimeout(() => {
+                    console.log('[SUBSCRIPTION FILTER] Partnerin timeout fired, setting filter:', partnerin);
+                    if (partnerin) {
+                        // Entferne zuerst vorhandene Filter
+                        listview.filter_area.remove('custom_partnerin');
+                        // Füge neuen Filter hinzu (korrekte Array-Syntax)
+                        listview.filter_area.add([['Subscription', 'custom_partnerin', '=', partnerin]]);
+                        console.log('[SUBSCRIPTION FILTER] Partnerin filter added');
+                    } else {
+                        listview.filter_area.remove('custom_partnerin');
+                        console.log('[SUBSCRIPTION FILTER] Partnerin filter removed');
+                    }
+                    // Aktualisiere die Liste
+                    console.log('[SUBSCRIPTION FILTER] Calling refresh after partnerin change');
+                    // Setze Flag VOR refresh
+                    listview._is_programmatic_change = true;
+                    listview.refresh();
+                }, 500);
+            }
+        });
+        
+        // Wrappe listview.refresh() direkt
+        const originalListViewRefresh = listview.refresh;
+        let isRestoringFilters = false;
+        listview.refresh = function() {
+            // Verhindere Endlosschleife während der Wiederherstellung
+            if (isRestoringFilters) {
+                console.log('[SUBSCRIPTION FILTER] Refresh skipped - currently restoring filters');
+                return;
+            }
+            
+            console.log('[SUBSCRIPTION FILTER] listview.refresh called, flag is:', listview._is_programmatic_change);
+            
+            // Verwende die gespeicherten Werte statt der Feldwerte (Felder werden während Refresh zurückgesetzt)
+            const currentParty = listview._last_party_value || (partyField ? partyField.get_value() : null);
+            const currentPartnerin = listview._last_partnerin_value || (partnerinField ? partnerinField.get_value() : null);
+            
+            console.log('[SUBSCRIPTION FILTER] Current values before refresh - Party:', currentParty, 'Partnerin:', currentPartnerin);
+            
+            // Führe Refresh aus (dies setzt die Filter zurück)
+            originalListViewRefresh.call(this);
+            
+            // Stelle Filter IMMER wieder her, wenn Werte vorhanden sind
+            // (Refresh setzt die Filter zurück, daher müssen wir sie immer wiederherstellen)
+            if (currentParty || currentPartnerin) {
+                isRestoringFilters = true;
+                listview._is_programmatic_change = true;
+                
+                setTimeout(() => {
+                    console.log('[SUBSCRIPTION FILTER] Restoring filters after refresh');
+                    console.log('[SUBSCRIPTION FILTER] Values to restore - Party:', currentParty, 'Partnerin:', currentPartnerin);
+                    
+                    // Prüfe nochmal, ob Filter bereits gesetzt sind (nach Refresh)
+                    const existingFiltersAfterRefresh = listview.filter_area.get();
+                    const hasPartyFilterAfter = currentParty && existingFiltersAfterRefresh.some(f => f[1] === 'party' && f[3] === currentParty);
+                    const hasPartnerinFilterAfter = currentPartnerin && existingFiltersAfterRefresh.some(f => f[1] === 'custom_partnerin' && f[3] === currentPartnerin);
+                    
+                    console.log('[SUBSCRIPTION FILTER] Filters after refresh - Party:', hasPartyFilterAfter, 'Partnerin:', hasPartnerinFilterAfter);
+                    
+                    if (currentParty && partyField && !hasPartyFilterAfter) {
+                        console.log('[SUBSCRIPTION FILTER] Restoring party filter:', currentParty);
+                        listview._is_programmatic_change = true;
+                        partyField.set_value(currentParty);
+                        isRestoringFilters = true;
+                        listview.filter_area.add([['Subscription', 'party', '=', currentParty]]);
+                        console.log('[SUBSCRIPTION FILTER] Party filter restored');
+                    }
+                    
+                    if (currentPartnerin && partnerinField && !hasPartnerinFilterAfter) {
+                        console.log('[SUBSCRIPTION FILTER] Restoring partnerin filter:', currentPartnerin);
+                        listview._is_programmatic_change = true;
+                        partnerinField.set_value(currentPartnerin);
+                        isRestoringFilters = true;
+                        listview.filter_area.add([['Subscription', 'custom_partnerin', '=', currentPartnerin]]);
+                        console.log('[SUBSCRIPTION FILTER] Partnerin filter restored');
+                    }
+                    
+                    // Entferne Flags nach längerer Verzögerung
+                    setTimeout(() => {
+                        isRestoringFilters = false;
+                        listview._is_programmatic_change = false;
+                        console.log('[SUBSCRIPTION FILTER] Restoration complete, change events enabled again');
+                    }, 1000);
+                }, 300);
+            } else {
+                // Wenn keine Werte vorhanden, Flag sofort zurücksetzen
+                setTimeout(() => {
+                    listview._is_programmatic_change = false;
+                }, 100);
+            }
+        };
+        
+        console.log('[SUBSCRIPTION FILTER] onload completed');
+    },
+    
     refresh: function(listview) {
         // CSS für ID-Spalte schmaler machen
         function addListFormattingCSS() {
@@ -19,6 +200,28 @@ frappe.listview_settings['Subscription'] = {
                 .list-view .list-row-head .list-row-col.list-subject {
                     max-width: 60% !important;
                     width: 60% !important;
+                }
+                
+                /* Filter-Felder nach links verschieben mit CSS order */
+                .page-form.flex {
+                    display: flex !important;
+                    flex-direction: row !important;
+                    flex-wrap: wrap !important;
+                }
+                
+                /* Kunde Filter ganz nach links */
+                .page-form .form-group[data-fieldname="party"] {
+                    order: -2 !important;
+                }
+                
+                /* Partnerin Filter nach Kunde */
+                .page-form .form-group[data-fieldname="custom_partnerin"] {
+                    order: -1 !important;
+                }
+                
+                /* Alle anderen Form-Gruppen nach den Custom-Filtern */
+                .page-form .form-group:not([data-fieldname="party"]):not([data-fieldname="custom_partnerin"]) {
+                    order: 0 !important;
                 }
             `;
             
@@ -40,169 +243,9 @@ frappe.listview_settings['Subscription'] = {
             }
         }
         
-        // Filter für Party und Partnerin hinzufügen (echte Frappe Standard-Filter)
+        // Nicht mehr nötig - Filter werden über onload hinzugefügt
         function addCustomFilters() {
-            // Verwende Frappe's Standard-Filter-API
-            if (listview && listview.page && listview.page.add_standard_filter) {
-                // Party-Filter hinzufügen
-                if (!$('input[data-fieldname="party"]').length) {
-                    try {
-                        listview.page.add_standard_filter('party', 'Customer');
-                    } catch(e) {
-                        console.log('Standard-Filter-API nicht verfügbar, verwende Fallback');
-                    }
-                }
-                
-                // Partnerin-Filter hinzufügen
-                if (!$('input[data-fieldname="custom_partnerin"]').length) {
-                    try {
-                        listview.page.add_standard_filter('custom_partnerin', 'Sales Partner');
-                    } catch(e) {
-                        console.log('Standard-Filter-API nicht verfügbar, verwende Fallback');
-                    }
-                }
-                
-                // Warte kurz und binde dann Event-Handler für die Standard-Filter
-                setTimeout(function() {
-                    bindFilterEvents();
-                }, 500);
-            } else {
-                // Fallback: Manuell erstellen ohne Labels
-                const $standardFilters = $('.standard-filter-section');
-                if (!$standardFilters.length) {
-                    return;
-                }
-                
-                // Prüfe ob Filter bereits existieren
-                let $partyFilter = $('input[data-fieldname="party"]');
-                let $partnerinFilter = $('input[data-fieldname="custom_partnerin"]');
-                
-                // Party (Kunde)-Filter hinzufügen
-                if ($partyFilter.length === 0) {
-                    const $partyGroup = $(`
-                        <div class="form-group frappe-control input-max-width col-md-2">
-                            <div class="frappe-input"></div>
-                        </div>
-                    `);
-                    
-                    $standardFilters.append($partyGroup);
-                    
-                    const partyControl = frappe.ui.form.make_control({
-                        parent: $partyGroup.find('.frappe-input'),
-                        df: {
-                            fieldtype: 'Link',
-                            fieldname: 'party',
-                            options: 'Customer',
-                            placeholder: 'Kunde',
-                            label: ''
-                        },
-                        render_input: true,
-                        frm: null
-                    });
-                    
-                    // Entferne Label falls vorhanden
-                    setTimeout(function() {
-                        $partyGroup.find('.control-label, .clearfix, label').remove();
-                    }, 100);
-                    
-                    if (partyControl && partyControl.$input) {
-                        // Binde an Frappe's Standard-Filter-System
-                        partyControl.$input.on('change', function() {
-                            const value = partyControl.get_value();
-                            if (value && listview) {
-                                // Entferne zuerst vorhandene party-Filter
-                                if (listview.filter_area) {
-                                    listview.filter_area.remove('party');
-                                }
-                                // Füge neuen Filter hinzu
-                                if (listview.filter_area) {
-                                    listview.filter_area.add([['Subscription', 'party', '=', value]]);
-                                }
-                                // Aktualisiere die Liste
-                                if (listview.list_view && listview.list_view.refresh) {
-                                    listview.list_view.refresh();
-                                } else if (listview.refresh) {
-                                    listview.refresh();
-                                }
-                            } else if (!value && listview) {
-                                // Entferne Filter wenn leer
-                                if (listview.filter_area) {
-                                    listview.filter_area.remove('party');
-                                }
-                                // Aktualisiere die Liste
-                                if (listview.list_view && listview.list_view.refresh) {
-                                    listview.list_view.refresh();
-                                } else if (listview.refresh) {
-                                    listview.refresh();
-                                }
-                            }
-                        });
-                    }
-                }
-                
-                // Partnerin-Filter hinzufügen
-                if ($partnerinFilter.length === 0) {
-                    const $partnerinGroup = $(`
-                        <div class="form-group frappe-control input-max-width col-md-2">
-                            <div class="frappe-input"></div>
-                        </div>
-                    `);
-                    
-                    $standardFilters.append($partnerinGroup);
-                    
-                    const partnerinControl = frappe.ui.form.make_control({
-                        parent: $partnerinGroup.find('.frappe-input'),
-                        df: {
-                            fieldtype: 'Link',
-                            fieldname: 'custom_partnerin',
-                            options: 'Sales Partner',
-                            placeholder: 'Partnerin',
-                            label: ''
-                        },
-                        render_input: true,
-                        frm: null
-                    });
-                    
-                    // Entferne Label falls vorhanden
-                    setTimeout(function() {
-                        $partnerinGroup.find('.control-label, .clearfix, label').remove();
-                    }, 100);
-                    
-                    if (partnerinControl && partnerinControl.$input) {
-                        // Binde an Frappe's Standard-Filter-System
-                        partnerinControl.$input.on('change', function() {
-                            const value = partnerinControl.get_value();
-                            if (value && listview) {
-                                // Entferne zuerst vorhandene custom_partnerin-Filter
-                                if (listview.filter_area) {
-                                    listview.filter_area.remove('custom_partnerin');
-                                }
-                                // Füge neuen Filter hinzu
-                                if (listview.filter_area) {
-                                    listview.filter_area.add([['Subscription', 'custom_partnerin', '=', value]]);
-                                }
-                                // Aktualisiere die Liste
-                                if (listview.list_view && listview.list_view.refresh) {
-                                    listview.list_view.refresh();
-                                } else if (listview.refresh) {
-                                    listview.refresh();
-                                }
-                            } else if (!value && listview) {
-                                // Entferne Filter wenn leer
-                                if (listview.filter_area) {
-                                    listview.filter_area.remove('custom_partnerin');
-                                }
-                                // Aktualisiere die Liste
-                                if (listview.list_view && listview.list_view.refresh) {
-                                    listview.list_view.refresh();
-                                } else if (listview.refresh) {
-                                    listview.refresh();
-                                }
-                            }
-                        });
-                    }
-                }
-            }
+            // Leer
         }
         
         // Labels aus vorhandenen Filtern entfernen
@@ -214,59 +257,14 @@ frappe.listview_settings['Subscription'] = {
             });
         }
         
-        // Event-Handler für Standard-Filter binden
+        // Nicht mehr nötig - Event-Handler werden über onload definiert
         function bindFilterEvents() {
-            // Party-Filter
-            const $partyInput = $('input[data-fieldname="party"]');
-            if ($partyInput.length) {
-                $partyInput.off('change.filter').on('change.filter', function() {
-                    const value = $(this).val();
-                    if (value && listview) {
-                        if (listview.filter_area) {
-                            listview.filter_area.remove('party');
-                            listview.filter_area.add([['Subscription', 'party', '=', value]]);
-                        }
-                        if (listview.list_view && listview.list_view.refresh) {
-                            listview.list_view.refresh();
-                        }
-                    } else if (!value && listview && listview.filter_area) {
-                        listview.filter_area.remove('party');
-                        if (listview.list_view && listview.list_view.refresh) {
-                            listview.list_view.refresh();
-                        }
-                    }
-                });
-            }
-            
-            // Partnerin-Filter
-            const $partnerinInput = $('input[data-fieldname="custom_partnerin"]');
-            if ($partnerinInput.length) {
-                $partnerinInput.off('change.filter').on('change.filter', function() {
-                    const value = $(this).val();
-                    if (value && listview) {
-                        if (listview.filter_area) {
-                            listview.filter_area.remove('custom_partnerin');
-                            listview.filter_area.add([['Subscription', 'custom_partnerin', '=', value]]);
-                        }
-                        if (listview.list_view && listview.list_view.refresh) {
-                            listview.list_view.refresh();
-                        }
-                    } else if (!value && listview && listview.filter_area) {
-                        listview.filter_area.remove('custom_partnerin');
-                        if (listview.list_view && listview.list_view.refresh) {
-                            listview.list_view.refresh();
-                        }
-                    }
-                });
-            }
+            // Leer
         }
         
         // Funktionen ausführen
         function runUpdates() {
             removeIdFilter();
-            addCustomFilters();
-            removeFilterLabels();
-            bindFilterEvents();
         }
         
         // Sofort ausführen
