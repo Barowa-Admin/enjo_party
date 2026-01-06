@@ -228,6 +228,9 @@ doc_events = {
 	"Payment Request": {
 		"before_validate": "enjo_party.enjo_party.utils.payment_request_hooks.validate_payment_request_subscription",
 		"on_update": "enjo_party.enjo_party.utils.payment_request_hooks.create_payment_entry_on_paid"
+	},
+	"Email Queue": {
+		"after_insert": "enjo_party.enjo_party.utils.email_queue_hooks.send_email_immediately"
 	}
 }
 

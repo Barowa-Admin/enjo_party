@@ -413,7 +413,12 @@ def force_subscription_update(doc, method):
                 # WICHTIG: Prüfe auch ob bereits eine E-Mail für diese Invoice gesendet wurde
                 if not has_stripe_subscription(doc.name) and not was_email_already_sent_for_invoice(invoice_name):
                     try:
+                        # WICHTIG: Setze mute_email auf 0 sowohl im Flag als auch im Dokument
                         payment_request.flags.mute_email = 0
+                        payment_request.mute_email = 0
+                        # Stelle sicher, dass mute_email auch in der DB gesetzt ist
+                        payment_request.db_set('mute_email', 0, update_modified=False)
+                        
                         # Stelle sicher, dass die Message im payment_request Objekt ist
                         if not payment_request.message and stripe_url:
                             from frappe.utils.jinja import render_template
@@ -662,7 +667,12 @@ def create_payment_request_for_subscription_invoice(doc, method):
                 # WICHTIG: Prüfe auch ob bereits eine E-Mail für diese Invoice gesendet wurde
                 if not has_stripe_subscription(doc.subscription) and not was_email_already_sent_for_invoice(doc.name):
                     try:
+                        # WICHTIG: Setze mute_email auf 0 sowohl im Flag als auch im Dokument
                         payment_request.flags.mute_email = 0
+                        payment_request.mute_email = 0
+                        # Stelle sicher, dass mute_email auch in der DB gesetzt ist
+                        payment_request.db_set('mute_email', 0, update_modified=False)
+                        
                         # Stelle sicher, dass die Message im payment_request Objekt ist
                         if not payment_request.message and stripe_url:
                             from frappe.utils.jinja import render_template
