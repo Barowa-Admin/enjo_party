@@ -5,7 +5,7 @@ from datetime import datetime
 
 
 @frappe.whitelist()
-def get_provision_data(month=None, year=None):
+def get_provision_data(month=None, year=None, date_from=None, date_to=None):
     """
     Holt Provisionsdaten für den angemeldeten User.
     Umgeht Berechtigungsprüfungen durch eigene Sicherheitslogik.
@@ -65,7 +65,8 @@ def get_provision_data(month=None, year=None):
                 WHEN per.allocated_amount IS NOT NULL THEN (per.allocated_amount / si.grand_total) * si.total_commission
                 ELSE si.total_commission
             END as total_commission,
-            COALESCE(punkte_summe.punkte_gesamt, 0) as punkte_gesamt
+            COALESCE(punkte_summe.punkte_gesamt, 0) as punkte_gesamt,
+            si.grand_total as umsatz
         FROM `tabSales Invoice` si
         LEFT JOIN `tabCustomer` c ON si.customer = c.name
         LEFT JOIN `tabPayment Entry Reference` per ON si.name = per.reference_name AND per.reference_doctype = 'Sales Invoice'
@@ -99,8 +100,14 @@ def get_provision_data(month=None, year=None):
         sql_conditions.append("si.owner = %(current_user)s")
         sql_values["current_user"] = user
     
-    # Monatsfilter
-    if month and year:
+    # Zeitraumfilter
+    if date_from and date_to:
+        # Freier Zeitraum: date_from und date_to verwenden
+        sql_conditions.append("pe.posting_date IS NOT NULL AND pe.posting_date BETWEEN %(first_day)s AND %(last_day)s")
+        sql_values["first_day"] = date_from
+        sql_values["last_day"] = date_to
+    elif month and year:
+        # Monatsfilter: Bestehende Logik
         month_names = [
             "Januar", "Februar", "März", "April", "Mai", "Juni",
             "Juli", "August", "September", "Oktober", "November", "Dezember"
@@ -133,29 +140,48 @@ def get_provision_data(month=None, year=None):
     data = []
     total_provision = 0
     total_punkte = 0
+    total_umsatz = 0
+    total_amount_eligible = 0
     
     for inv in invoices:
         commission = flt(inv.total_commission) if inv.total_commission else 0
         punkte = int(inv.punkte_gesamt) if inv.punkte_gesamt else 0
+        umsatz = flt(inv.umsatz) if inv.umsatz else 0
+        amount_eligible = flt(inv.amount_eligible_for_commission) if inv.amount_eligible_for_commission else 0
         total_provision += commission
         total_punkte += punkte
+        total_umsatz += umsatz
+        total_amount_eligible += amount_eligible
         
         data.append([
             inv.payment_date.strftime('%d.%m.%Y') if inv.payment_date else '',
             inv.name,
             inv.customer_name,
-            flt(inv.amount_eligible_for_commission) if inv.amount_eligible_for_commission else 0,
+            umsatz,
+            amount_eligible,
             commission,
             punkte,
         ])
     
     # Gesamtsumme hinzufügen
-    if data and month:
+    if data and (month or date_from):
+        # Titel für GESAMT-Zeile bestimmen
+        if date_from and date_to:
+            # Freier Zeitraum: Von/Bis Datum anzeigen
+            from frappe.utils import formatdate
+            title = f"Provision {formatdate(date_from, 'dd.MM.yyyy')} - {formatdate(date_to, 'dd.MM.yyyy')}"
+        elif month and year:
+            # Monat/Jahr Modus: Monat/Jahr anzeigen
+            title = f"Provision {month} {year}"
+        else:
+            title = "Provision"
+        
         data.append([
             "",
             "GESAMT",
-            f"Provision {month} {year}",
-            "",
+            title,
+            total_umsatz,
+            total_amount_eligible,
             total_provision,
             total_punkte,
         ])

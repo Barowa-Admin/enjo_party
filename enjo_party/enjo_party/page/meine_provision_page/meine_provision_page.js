@@ -22,6 +22,19 @@ frappe.pages['meine-provision-page'].on_page_load = function(wrapper) {
 	
 	var defaultMonth = monthNames[letzterMonat.getMonth()];
 	var defaultYear = letzterMonat.getFullYear();
+	
+	// Von Datum: 1. des aktuellen Monats (Format: YYYY-MM-DD)
+	var firstDayCurrentMonth = new Date(heute.getFullYear(), heute.getMonth(), 1);
+	var year = firstDayCurrentMonth.getFullYear();
+	var month = String(firstDayCurrentMonth.getMonth() + 1).padStart(2, '0');
+	var day = String(firstDayCurrentMonth.getDate()).padStart(2, '0');
+	var defaultDateFrom = year + '-' + month + '-' + day;
+	
+	// Bis Datum: Heutiges Datum (Format: YYYY-MM-DD)
+	var todayYear = heute.getFullYear();
+	var todayMonth = String(heute.getMonth() + 1).padStart(2, '0');
+	var todayDay = String(heute.getDate()).padStart(2, '0');
+	var defaultDateTo = todayYear + '-' + todayMonth + '-' + todayDay;
 
 	// Filter erstellen
 	page.add_field({
@@ -45,19 +58,149 @@ frappe.pages['meine-provision-page'].on_page_load = function(wrapper) {
 		}
 	});
 
+	// Datum-Felder für freien Zeitraum
+	page.add_field({
+		label: 'Von Datum',
+		fieldtype: 'Date',
+		fieldname: 'date_from',
+		change: function() {
+			loadData();
+		}
+	});
+
+	page.add_field({
+		label: 'Bis Datum',
+		fieldtype: 'Date',
+		fieldname: 'date_to',
+		change: function() {
+			loadData();
+		}
+	});
+
+	// Checkbox für Freier Zeitraum (als letztes Feld ganz rechts)
+	page.add_field({
+		label: 'Freien Zeitraum auswählen',
+		fieldtype: 'Check',
+		fieldname: 'free_period',
+		default: 0,
+		change: function() {
+			togglePeriodFields();
+			loadData();
+		}
+	});
+	
+	// Checkbox-Label breiter machen damit kein Zeilenumbruch
+	setTimeout(function() {
+		if (page.fields_dict.free_period && page.fields_dict.free_period.$wrapper) {
+			var label = page.fields_dict.free_period.$wrapper.find('label');
+			if (label.length) {
+				label.css('white-space', 'nowrap');
+				label.css('min-width', '200px');
+			}
+		}
+	}, 100);
+	
+	// Toggle-Funktion für Felder ein-/ausblenden (nur visuell, technisch bleibt alles gleich)
+	function togglePeriodFields() {
+		var freePeriod = page.fields_dict.free_period ? page.fields_dict.free_period.get_value() : 0;
+		
+		if (freePeriod) {
+			// Freier Zeitraum aktiviert: Monat/Jahr ausblenden, Datum-Felder anzeigen
+			if (page.fields_dict.month && page.fields_dict.month.$wrapper) {
+				page.fields_dict.month.$wrapper.hide();
+			}
+			if (page.fields_dict.year && page.fields_dict.year.$wrapper) {
+				page.fields_dict.year.$wrapper.hide();
+			}
+			if (page.fields_dict.date_from && page.fields_dict.date_from.$wrapper) {
+				page.fields_dict.date_from.$wrapper.show();
+			}
+			if (page.fields_dict.date_to && page.fields_dict.date_to.$wrapper) {
+				page.fields_dict.date_to.$wrapper.show();
+			}
+		} else {
+			// Freier Zeitraum deaktiviert: Datum-Felder ausblenden, Monat/Jahr anzeigen
+			if (page.fields_dict.date_from && page.fields_dict.date_from.$wrapper) {
+				page.fields_dict.date_from.$wrapper.hide();
+			}
+			if (page.fields_dict.date_to && page.fields_dict.date_to.$wrapper) {
+				page.fields_dict.date_to.$wrapper.hide();
+			}
+			if (page.fields_dict.month && page.fields_dict.month.$wrapper) {
+				page.fields_dict.month.$wrapper.show();
+			}
+			if (page.fields_dict.year && page.fields_dict.year.$wrapper) {
+				page.fields_dict.year.$wrapper.show();
+			}
+		}
+	}
+	
+	// Initial: Datum-Felder ausblenden, Monat/Jahr sichtbar lassen
+	// Warten bis alle Felder initialisiert sind
+	setTimeout(function() {
+		togglePeriodFields();
+	}, 150);
+
 	// Datatable Container
 	$(page.body).append('<div id="provision-table" style="margin-top: 20px;"></div>');
 
 	function loadData() {
-		var month = page.fields_dict.month.get_value();
-		var year = page.fields_dict.year.get_value();
+		var freePeriod = page.fields_dict.free_period ? page.fields_dict.free_period.get_value() : 0;
+		var args = {};
+		
+		if (freePeriod) {
+			// Freier Zeitraum: date_from und date_to verwenden
+			// Wichtig: Werte auch abrufen wenn Felder ausgeblendet sind
+			var dateFrom = null;
+			var dateTo = null;
+			
+			if (page.fields_dict.date_from) {
+				dateFrom = page.fields_dict.date_from.get_value();
+			}
+			if (page.fields_dict.date_to) {
+				dateTo = page.fields_dict.date_to.get_value();
+			}
+			
+			// Falls keine Werte vorhanden, Standardwerte verwenden
+			if (!dateFrom) {
+				dateFrom = defaultDateFrom;
+			}
+			if (!dateTo) {
+				dateTo = defaultDateTo;
+			}
+			
+			if (dateFrom && dateTo) {
+				args.date_from = dateFrom;
+				args.date_to = dateTo;
+			} else {
+				// Wenn keine Daten ausgewählt, nichts laden
+				return;
+			}
+		} else {
+			// Monat/Jahr Modus: month und year verwenden
+			// Wichtig: Werte auch abrufen wenn Felder ausgeblendet sind
+			var month = null;
+			var year = null;
+			
+			if (page.fields_dict.month) {
+				month = page.fields_dict.month.get_value();
+			}
+			if (page.fields_dict.year) {
+				year = page.fields_dict.year.get_value();
+			}
+			
+			if (!month || !year) {
+				// Wenn keine Werte vorhanden, nichts laden
+				return;
+			}
+			
+			args.month = month;
+			args.year = year;
+		}
 		
 		frappe.call({
 			method: 'enjo_party.enjo_party.page.meine_provision_page.meine_provision_page.get_provision_data',
-			args: {
-				month: month,
-				year: year
-			},
+			args: args,
 			callback: function(response) {
 				if (response.message) {
 					showTable(response.message);
@@ -69,8 +212,6 @@ frappe.pages['meine-provision-page'].on_page_load = function(wrapper) {
 	// Button Funktion global verfügbar machen
 	window.printProvision = function() {
 		console.log('Print function called!');
-		var month = page.fields_dict.month.get_value();
-		var year = page.fields_dict.year.get_value();
 		
 		// Hole aktuelle Tabellendaten
 		var tableHtml = $('#provision-table').html();
@@ -82,6 +223,36 @@ frappe.pages['meine-provision-page'].on_page_load = function(wrapper) {
 		
 		// Hole aktuellen Benutzernamen
 		var userName = frappe.session.user_fullname || frappe.session.user || 'Unbekannt';
+		
+		// Bestimme Zeitraum-Text je nach Checkbox-Status
+		var freePeriod = page.fields_dict.free_period ? page.fields_dict.free_period.get_value() : 0;
+		var periodText = '';
+		
+		if (freePeriod) {
+			// Freier Zeitraum: Von/Bis Datum verwenden
+			var dateFrom = page.fields_dict.date_from ? page.fields_dict.date_from.get_value() : null;
+			var dateTo = page.fields_dict.date_to ? page.fields_dict.date_to.get_value() : null;
+			
+			if (dateFrom && dateTo) {
+				// Datum formatieren (von YYYY-MM-DD zu DD.MM.YYYY)
+				var formatDate = function(dateStr) {
+					if (!dateStr) return '';
+					var parts = dateStr.split('-');
+					if (parts.length === 3) {
+						return parts[2] + '.' + parts[1] + '.' + parts[0];
+					}
+					return dateStr;
+				};
+				periodText = formatDate(dateFrom) + ' - ' + formatDate(dateTo);
+			} else {
+				periodText = 'Freier Zeitraum';
+			}
+		} else {
+			// Monat/Jahr Modus
+			var month = page.fields_dict.month ? page.fields_dict.month.get_value() : '';
+			var year = page.fields_dict.year ? page.fields_dict.year.get_value() : '';
+			periodText = month + ' ' + year;
+		}
 		
 		// Erstelle CSS für sauberes Drucken
 		var printStyles = `
@@ -166,7 +337,7 @@ frappe.pages['meine-provision-page'].on_page_load = function(wrapper) {
 			<div class="print-only" style="display: none;">
 				<h1>Meine Provision</h1>
 				<h2>Benutzer: ${userName}</h2>
-				<h3>Zeitraum: ${month} ${year}</h3>
+				<h3>Zeitraum: ${periodText}</h3>
 				${tableHtml}
 				<p><small>Erstellt am: ${new Date().toLocaleDateString('de-DE')}</small></p>
 			</div>
@@ -189,12 +360,13 @@ frappe.pages['meine-provision-page'].on_page_load = function(wrapper) {
 	function showTable(data) {
 		var html = '<table class="table table-bordered table-striped">';
 		html += '<thead><tr>';
-		html += '<th style="width: 130px;">Bezahlt am</th>';
-		html += '<th style="width: 200px;">Rechnung</th>';
+		html += '<th style="width: 80px;">Bezahlt am</th>';
+		html += '<th style="width: 150px;">Rechnung</th>';
 		html += '<th style="width: 230px;">Kundenname</th>';
+		html += '<th style="width: 80px;">Umsatz</th>';
 		html += '<th style="width: 160px;">Provisionsfähiger Betrag</th>';
-		html += '<th style="width: 100px;">Provision</th>';
-		html += '<th style="width: 80px;">Punkte</th>';
+		html += '<th style="width: 80px;">Provision</th>';
+		html += '<th style="width: 60px;">Punkte</th>';
 		html += '</tr></thead><tbody>';
 
 		var total = 0;
@@ -214,9 +386,10 @@ frappe.pages['meine-provision-page'].on_page_load = function(wrapper) {
 			}
 			
 			html += '<td>' + (row[2] || '') + '</td>';
-			html += '<td>' + (row[3] ? format_currency(row[3]) : '') + '</td>';
-			html += '<td>' + (row[4] ? format_currency(row[4]) : '') + '</td>';
-			html += '<td>' + (row[5] || '0') + '</td>';
+			html += '<td style="text-align: right;">' + (row[3] ? format_currency(row[3]) : '') + '</td>';
+			html += '<td style="text-align: right;">' + (row[4] ? format_currency(row[4]) : '') + '</td>';
+			html += '<td style="text-align: right;">' + (row[5] ? format_currency(row[5]) : '') + '</td>';
+			html += '<td style="text-align: right;">' + (row[6] || '0') + '</td>';
 			html += '</tr>';
 			
 			if (row[1] !== 'GESAMT') {
@@ -229,8 +402,21 @@ frappe.pages['meine-provision-page'].on_page_load = function(wrapper) {
 		$('#provision-table').html(html);
 	}
 
-	// Initial laden
-	loadData();
+	// Initial laden - Daten für Monat/Jahr laden (Checkbox ist nicht aktiviert)
+	// Datum-Felder befüllen, Felder ausblenden und dann Daten laden
+	setTimeout(function() {
+		// Datum-Felder befüllen (auch wenn sie ausgeblendet werden)
+		if (page.fields_dict.date_from) {
+			page.fields_dict.date_from.set_value(defaultDateFrom);
+		}
+		if (page.fields_dict.date_to) {
+			page.fields_dict.date_to.set_value(defaultDateTo);
+		}
+		// Felder korrekt anzeigen/ausblenden (Monat/Jahr sichtbar, Datum-Felder ausgeblendet)
+		togglePeriodFields();
+		// Daten laden
+		loadData();
+	}, 250);
 };
 
 function format_currency(amount) {
@@ -238,9 +424,6 @@ function format_currency(amount) {
 }
 
 function printProvision() {
-	var month = page.fields_dict.month.get_value();
-	var year = page.fields_dict.year.get_value();
-	
 	// Hole aktuelle Tabellendaten
 	var tableHtml = $('#provision-table').html();
 	
@@ -249,12 +432,42 @@ function printProvision() {
 		return;
 	}
 	
+	// Bestimme Zeitraum-Text je nach Checkbox-Status
+	var freePeriod = page.fields_dict.free_period ? page.fields_dict.free_period.get_value() : 0;
+	var periodText = '';
+	
+	if (freePeriod) {
+		// Freier Zeitraum: Von/Bis Datum verwenden
+		var dateFrom = page.fields_dict.date_from ? page.fields_dict.date_from.get_value() : null;
+		var dateTo = page.fields_dict.date_to ? page.fields_dict.date_to.get_value() : null;
+		
+		if (dateFrom && dateTo) {
+			// Datum formatieren (von YYYY-MM-DD zu DD.MM.YYYY)
+			var formatDate = function(dateStr) {
+				if (!dateStr) return '';
+				var parts = dateStr.split('-');
+				if (parts.length === 3) {
+					return parts[2] + '.' + parts[1] + '.' + parts[0];
+				}
+				return dateStr;
+			};
+			periodText = formatDate(dateFrom) + ' - ' + formatDate(dateTo);
+		} else {
+			periodText = 'Freier Zeitraum';
+		}
+	} else {
+		// Monat/Jahr Modus
+		var month = page.fields_dict.month ? page.fields_dict.month.get_value() : '';
+		var year = page.fields_dict.year ? page.fields_dict.year.get_value() : '';
+		periodText = month + ' ' + year;
+	}
+	
 	// Erstelle Druckfenster wie am Anfang
 	var printHtml = `
 		<!DOCTYPE html>
 		<html>
 		<head>
-			<title>Meine Provision - ${month} ${year}</title>
+			<title>Meine Provision - ${periodText}</title>
 			<meta charset="utf-8">
 			<style>
 				body { 
@@ -294,7 +507,7 @@ function printProvision() {
 		<body>
 			<div class="header">
 				<h1>Meine Provision</h1>
-				<h3>Zeitraum: ${month} ${year}</h3>
+				<h3>Zeitraum: ${periodText}</h3>
 			</div>
 			${tableHtml}
 			<br>
