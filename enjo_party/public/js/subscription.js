@@ -65,77 +65,47 @@ function addCancelButton(frm) {
 						let subscriptionName = frm.doc.name;
 						console.log('Abonnement beenden Button: Subscription Name gespeichert:', subscriptionName);
 						
+						// WICHTIG: Rufe Stripe-Kündigung VOR dem Cancel auf, damit die Subscription noch aktiv ist
+						// Fange den Click-Handler ab und rufe zuerst Stripe-Kündigung auf
+						let originalClickHandler = cancelMenuItem[0].onclick;
+						let originalHref = cancelMenuItem[0].getAttribute('href');
+						
+						// Überschreibe den Click-Handler temporär
+						cancelMenuItem.off('click').on('click', function(e) {
+							e.preventDefault();
+							e.stopPropagation();
+							
+							// Rufe zuerst Stripe-Kündigung auf (BEVOR der Standard-Handler läuft)
+							frappe.call({
+								method: "enjo_party.enjo_party.utils.stripe_subscription.cancel_subscription_in_stripe",
+								args: {
+									subscription_name: subscriptionName
+								},
+								callback: function(r) {
+									console.log('Stripe-Kündigung Antwort (vor Cancel):', r);
+									if (r.message && r.message.success) {
+										console.log('Stripe Subscription erfolgreich gekündigt');
+									} else {
+										console.error('Stripe Kündigung fehlgeschlagen:', r.message);
+									}
+									
+									// Rufe dann den originalen Handler auf
+									if (originalClickHandler) {
+										originalClickHandler.call(cancelMenuItem[0], e);
+									} else if (originalHref) {
+										// Fallback: Navigiere zum Link
+										window.location.href = originalHref;
+									} else {
+										// Letzter Fallback: Trigger den originalen Click-Event
+										cancelMenuItem[0].dispatchEvent(new MouseEvent('click', { bubbles: true }));
+									}
+								}
+							});
+						});
+						
 						// Klicke auf den Menüpunkt (dieser zeigt dann seinen eigenen Bestätigungsdialog)
 						cancelMenuItem[0].click();
 						
-						// Warte auf Bestätigung und rufe dann zusätzlich die Stripe-Kündigung auf
-						// Verwende einen Observer auf das refresh-Event, um zu erkennen, wenn das Dokument neu geladen wird (nach Cancel)
-						let refreshHandler = frm.refresh;
-						let stripeCancelCalled = false;
-						
-						// Überschreibe refresh-Handler temporär
-						frm.refresh = function() {
-							refreshHandler.apply(this, arguments);
-							
-							// Prüfe ob Status auf "Cancelled" gesetzt wurde und Stripe-Kündigung noch nicht aufgerufen wurde
-							if (!stripeCancelCalled && this.doc.status === "Cancelled") {
-								stripeCancelCalled = true;
-								console.log('Status ist Cancelled, rufe Stripe-Kündigung auf für:', subscriptionName);
-								
-								// Rufe Server-Funktion auf, um Stripe Subscription zu kündigen
-								frappe.call({
-									method: "enjo_party.enjo_party.utils.stripe_subscription.cancel_subscription_in_stripe",
-									args: {
-										subscription_name: subscriptionName
-									},
-									callback: function(r) {
-										console.log('Stripe-Kündigung Antwort:', r);
-										if (r.message && r.message.success) {
-											frappe.show_alert({
-												message: __('Stripe Subscription wurde erfolgreich gekündigt'),
-												indicator: 'green'
-											}, 5);
-										} else {
-											console.error('Stripe Kündigung fehlgeschlagen:', r.message);
-											frappe.show_alert({
-												message: __('Stripe Kündigung fehlgeschlagen: ' + (r.message ? r.message.message : 'Unbekannter Fehler')),
-												indicator: 'red'
-											}, 5);
-										}
-									}
-								});
-							}
-						};
-						
-						// Fallback: Prüfe auch nach 2 Sekunden, falls refresh nicht aufgerufen wird
-						setTimeout(() => {
-							if (!stripeCancelCalled && frm.doc.status === "Cancelled") {
-								stripeCancelCalled = true;
-								console.log('Fallback: Status ist Cancelled, rufe Stripe-Kündigung auf für:', subscriptionName);
-								
-								frappe.call({
-									method: "enjo_party.enjo_party.utils.stripe_subscription.cancel_subscription_in_stripe",
-									args: {
-										subscription_name: subscriptionName
-									},
-									callback: function(r) {
-										console.log('Stripe-Kündigung Antwort (Fallback):', r);
-										if (r.message && r.message.success) {
-											frappe.show_alert({
-												message: __('Stripe Subscription wurde erfolgreich gekündigt'),
-												indicator: 'green'
-											}, 5);
-										} else {
-											console.error('Stripe Kündigung fehlgeschlagen:', r.message);
-											frappe.show_alert({
-												message: __('Stripe Kündigung fehlgeschlagen: ' + (r.message ? r.message.message : 'Unbekannter Fehler')),
-												indicator: 'red'
-											}, 5);
-										}
-									}
-								});
-							}
-						}, 2000);
 					} else {
 						// Fallback: Versuche alle Menüpunkte zu durchsuchen
 						let allMenuItems = $('.dropdown-menu a');

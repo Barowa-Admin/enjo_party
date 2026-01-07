@@ -142,11 +142,23 @@ def cancel_stripe_subscription_at_period_end(erpnext_subscription_name):
             frappe.log_error(f"Keine Stripe Subscription ID gefunden für ERPNext Subscription {erpnext_subscription_name}", "WARNING: stripe_subscription_cancel")
             return False
         
-        # Kündige die Stripe Subscription zum Ende der Periode
-        # Das bedeutet: Aktuelle Periode läuft noch, aber keine neue Periode wird mehr gestartet
-        frappe.log_error(f"Rufe Stripe API auf: stripe.Subscription.modify({stripe_subscription_id}, cancel_at_period_end=True)", "DEBUG: stripe_subscription_cancel")
-        
+        # Prüfe zuerst den aktuellen Status der Stripe Subscription
         try:
+            current_subscription = stripe.Subscription.retrieve(stripe_subscription_id)
+            current_status = current_subscription.get('status')
+            current_cancel_at_period_end = current_subscription.get('cancel_at_period_end')
+            
+            frappe.log_error(f"Stripe Subscription Status: {current_status}, cancel_at_period_end: {current_cancel_at_period_end}", "DEBUG: stripe_subscription_cancel")
+            
+            # Wenn bereits gekündigt oder cancel_at_period_end bereits True ist, ist alles gut
+            if current_status == 'canceled' or current_cancel_at_period_end:
+                frappe.log_error(f"Stripe Subscription {stripe_subscription_id} ist bereits gekündigt oder wird bereits gekündigt", "INFO: stripe_subscription_cancel")
+                return True
+            
+            # Kündige die Stripe Subscription zum Ende der Periode
+            # Das bedeutet: Aktuelle Periode läuft noch, aber keine neue Periode wird mehr gestartet
+            frappe.log_error(f"Rufe Stripe API auf: stripe.Subscription.modify({stripe_subscription_id}, cancel_at_period_end=True)", "DEBUG: stripe_subscription_cancel")
+            
             modified_subscription = stripe.Subscription.modify(
                 stripe_subscription_id,
                 cancel_at_period_end=True
@@ -155,6 +167,16 @@ def cancel_stripe_subscription_at_period_end(erpnext_subscription_name):
             frappe.log_error(f"Stripe API Antwort: cancel_at_period_end={modified_subscription.get('cancel_at_period_end')}, status={modified_subscription.get('status')}", "DEBUG: stripe_subscription_cancel")
             frappe.log_error(f"Stripe Subscription {stripe_subscription_id} wird zum Ende der Periode gekündigt (keine weiteren Abbuchungen)", "SUCCESS: stripe_subscription_cancel")
             return True
+            
+        except stripe.error.InvalidRequestError as e:
+            # Wenn die Subscription bereits gekündigt ist, ist das OK
+            error_message = str(e)
+            if "canceled subscription" in error_message.lower() or "can only update" in error_message.lower():
+                frappe.log_error(f"Stripe Subscription {stripe_subscription_id} ist bereits gekündigt - das ist OK", "INFO: stripe_subscription_cancel")
+                return True
+            else:
+                frappe.log_error(f"Stripe API Fehler: {str(e)} (Type: {type(e).__name__})", "ERROR: stripe_subscription_cancel")
+                raise
         except stripe.error.StripeError as e:
             frappe.log_error(f"Stripe API Fehler: {str(e)} (Type: {type(e).__name__})", "ERROR: stripe_subscription_cancel")
             raise
