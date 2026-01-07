@@ -169,14 +169,22 @@ doc_events = {
 		],
 		"on_cancel": "enjo_party.enjo_party.server_scripts.enjo_punkte_vergabe.cancel_points_on_invoice_cancel",
 		# Sammelbestellungs-Status: Prüfe ob alle Rechnungen bezahlt sind
-		"on_update_after_submit": "enjo_party.enjo_party.utils.sammelbestellung_status.update_sammelbestellung_status_on_invoice_payment"
+		# Subscription-Status: Prüfe ob Subscription-Rechnungen bezahlt sind
+		"on_update_after_submit": [
+			"enjo_party.enjo_party.utils.sammelbestellung_status.update_sammelbestellung_status_on_invoice_payment",
+			"enjo_party.enjo_party.utils.subscription_status.update_subscription_status_on_invoice_payment"
+		]
 	},
 	"Sales Order": {
 		"on_submit": "enjo_party.enjo_party.utils.sales_order_hooks.auto_create_and_submit_sales_invoice"
 	},
 	# Sammelbestellungs-Status: Update bei Zahlungseingang
+	# Subscription-Status: Update bei Zahlungseingang
 	"Payment Entry": {
-		"on_submit": "enjo_party.enjo_party.utils.sammelbestellung_status.update_sammelbestellung_status_on_payment"
+		"on_submit": [
+			"enjo_party.enjo_party.utils.sammelbestellung_status.update_sammelbestellung_status_on_payment",
+			"enjo_party.enjo_party.utils.subscription_status.update_subscription_status_on_payment"
+		]
 	},
 	# ===================================================================================
 	# DELIVERY NOTE & PICK LIST HOOKS - LAGER-VALIDIERUNG DEAKTIVIERT
@@ -198,9 +206,11 @@ doc_events = {
 		"before_validate": "enjo_party.enjo_party.utils.delivery_note_hooks.before_validate_delivery_note",
 		"before_submit": "enjo_party.enjo_party.utils.delivery_note_hooks.before_submit_delivery_note",
 		# Sammelbestellungs-Status: Update wenn Gruppenversand-Lieferschein gebucht wird
+		# Subscription-Status: Update wenn Subscription-Lieferschein gebucht wird
 		# Webhook-Trigger: Explizit für Gruppenversand-Lieferscheine, da Frappe's Standard-System diese nicht triggert
 		"on_submit": [
 			"enjo_party.enjo_party.utils.sammelbestellung_status.update_sammelbestellung_status_on_delivery",
+			"enjo_party.enjo_party.utils.subscription_status.update_subscription_status_on_delivery",
 			"enjo_party.enjo_party.utils.delivery_note_hooks.on_submit_delivery_note"
 		]
 	},
