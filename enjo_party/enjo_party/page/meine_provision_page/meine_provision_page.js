@@ -379,21 +379,22 @@ frappe.pages['meine-provision-page'].on_page_load = function(wrapper) {
 			
 			html += '<td>' + (row[0] || '') + '</td>';
 			
-			if (row[1] && row[1] !== 'GESAMT' && row[1].startsWith('ACC-')) {
-				html += '<td><a href="/app/sales-invoice/' + row[1] + '" target="_blank">' + row[1] + '</a></td>';
-			} else {
-				html += '<td>' + (row[1] || '') + '</td>';
-			}
+			html += '<td>' + (row[1] || '') + '</td>';
 			
-			html += '<td>' + (row[2] || '') + '</td>';
-			html += '<td style="text-align: right;">' + (row[3] ? format_currency(row[3]) : '') + '</td>';
+			// Kundenname mit Link (row[2] = customer_name, row[3] = customer_id)
+			if (row[3] && row[1] !== 'GESAMT') {
+				html += '<td><a href="/app/customer/' + row[3] + '" target="_blank">' + (row[2] || '') + '</a></td>';
+			} else {
+				html += '<td>' + (row[2] || '') + '</td>';
+			}
 			html += '<td style="text-align: right;">' + (row[4] ? format_currency(row[4]) : '') + '</td>';
 			html += '<td style="text-align: right;">' + (row[5] ? format_currency(row[5]) : '') + '</td>';
-			html += '<td style="text-align: right;">' + (row[6] || '0') + '</td>';
+			html += '<td style="text-align: right;">' + (row[6] ? format_currency(row[6]) : '') + '</td>';
+			html += '<td style="text-align: right;">' + (row[7] || '0') + '</td>';
 			html += '</tr>';
 			
 			if (row[1] !== 'GESAMT') {
-				total += (row[4] || 0);
+				total += (row[6] || 0);  // Commission ist jetzt row[6]
 			}
 		});
 		

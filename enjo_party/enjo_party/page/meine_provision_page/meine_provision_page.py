@@ -56,6 +56,7 @@ def get_provision_data(month=None, year=None, date_from=None, date_to=None):
             COALESCE(pe.posting_date, si.posting_date) as payment_date,
             si.name,
             c.customer_name,
+            si.customer,
             COALESCE(per.allocated_amount, si.grand_total) as paid_amount,
             CASE 
                 WHEN per.allocated_amount IS NOT NULL THEN (per.allocated_amount / si.grand_total) * si.amount_eligible_for_commission
@@ -157,6 +158,7 @@ def get_provision_data(month=None, year=None, date_from=None, date_to=None):
             inv.payment_date.strftime('%d.%m.%Y') if inv.payment_date else '',
             inv.name,
             inv.customer_name,
+            inv.customer if inv.customer else None,  # Customer-ID für Link
             umsatz,
             amount_eligible,
             commission,
@@ -180,6 +182,7 @@ def get_provision_data(month=None, year=None, date_from=None, date_to=None):
             "",
             "GESAMT",
             title,
+            None,  # Keine Customer-ID für GESAMT-Zeile
             total_umsatz,
             total_amount_eligible,
             total_provision,
