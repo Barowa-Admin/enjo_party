@@ -123,37 +123,39 @@ def was_email_already_sent_for_invoice(invoice_name):
         # Bei Fehler: Annahme dass keine E-Mail gesendet wurde (sicherer)
         return False
 
-def was_email_already_sent_for_subscription(subscription_name):
+def is_first_invoice_for_subscription(invoice_name, subscription_name):
     """
-    Prüft ob bereits eine E-Mail für diese Subscription gesendet wurde
-    (egal für welche Invoice - nur die erste E-Mail pro Subscription)
-    Gibt True zurück wenn bereits eine E-Mail für diese Subscription existiert
+    Prüft ob dies die ERSTE Invoice dieser Subscription ist
+    Gibt True zurück wenn es die erste Invoice ist (dann sollte E-Mail gesendet werden)
     """
     try:
-        # Finde alle Invoices dieser Subscription
+        # Finde ALLE Invoices dieser Subscription (sortiert nach Erstellung)
         invoices = frappe.get_all("Sales Invoice",
             filters={
                 "subscription": subscription_name,
                 "docstatus": 1
             },
-            fields=["name"],
+            fields=["name", "creation"],
             order_by="creation asc"  # Älteste zuerst
         )
         
         if not invoices:
-            return False
+            # Keine Invoices gefunden - sollte nicht passieren, aber sicherheitshalber
+            return True
         
-        # Prüfe ob für IRGENDEINE dieser Invoices bereits eine E-Mail gesendet wurde
-        for invoice in invoices:
-            if was_email_already_sent_for_invoice(invoice.name):
-                frappe.log_error(f"E-Mail bereits gesendet für Subscription {subscription_name} (gefunden bei Invoice {invoice.name})", "DEBUG: email_already_sent_for_subscription")
-                return True
+        # Prüfe ob die aktuelle Invoice die erste (älteste) ist
+        first_invoice = invoices[0]
+        if first_invoice.name == invoice_name:
+            frappe.log_error(f"Erste Invoice für Subscription {subscription_name}: {invoice_name}", "DEBUG: is_first_invoice")
+            return True
         
+        # Es gibt bereits eine ältere Invoice
+        frappe.log_error(f"Nicht erste Invoice für Subscription {subscription_name}: {invoice_name} (erste: {first_invoice.name})", "DEBUG: is_first_invoice")
         return False
     except Exception as e:
-        frappe.log_error(f"Fehler beim Prüfen ob E-Mail bereits für Subscription {subscription_name} gesendet wurde: {str(e)}", "ERROR: email_already_sent_for_subscription")
-        # Bei Fehler: Annahme dass keine E-Mail gesendet wurde (sicherer)
-        return False
+        frappe.log_error(f"Fehler beim Prüfen ob erste Invoice für Subscription {subscription_name}: {str(e)}", "ERROR: is_first_invoice")
+        # Bei Fehler: Annahme dass es die erste ist (sicherer - E-Mail wird gesendet)
+        return True
 
 def handle_subscription_cancel(doc, method):
     """
@@ -412,7 +414,21 @@ def force_subscription_update(doc, method):
                 else:
                     frappe.log_error(f"SUBSCRIPTION HOOK: FEHLER - payment_url konnte nicht erstellt werden für Payment Request {payment_request.name}", "ERROR: subscription_hook")
 
-                # Submit (ohne Standard-Mail) und danach E-Mail manuell senden
+                # WICHTIG: Prüfe VOR submit() ob E-Mail gesendet werden soll
+                # E-Mail-Versendung nur beim ersten Mal (wenn noch keine Stripe Subscription existiert)
+                # Bei automatischen Abbuchungen sendet Stripe keine E-Mail, daher auch wir nicht
+                # WICHTIG: Prüfe ob dies die ERSTE Invoice dieser Subscription ist (nur EINE E-Mail pro Subscription)
+                should_send_email = not has_stripe_subscription(doc.name) and is_first_invoice_for_subscription(invoice_name, doc.name)
+                
+                # WICHTIG: Setze mute_email BEVOR submit(), damit keine automatische E-Mail gesendet wird
+                if not should_send_email:
+                    # Keine E-Mail senden - mute_email bereits auf 1 gesetzt
+                    payment_request.flags.mute_email = 1
+                    payment_request.mute_email = 1
+                    payment_request.db_set('mute_email', 1, update_modified=False)
+                    frappe.log_error(f"SUBSCRIPTION HOOK: Keine E-Mail - bereits gesendet für {doc.name}", "DEBUG: subscription_hook")
+                
+                # Submit (ohne Standard-Mail wenn mute_email=1, sonst danach E-Mail manuell senden)
                 payment_request.submit()
                 
                 # WICHTIG: payment_url NACH Submit nochmal setzen, da ERPNext es möglicherweise überschreibt
@@ -440,11 +456,18 @@ def force_subscription_update(doc, method):
                     else:
                         frappe.log_error("SUBSCRIPTION HOOK: Message Template ist leer!", "WARNING: subscription_hook")
                 
-                # E-Mail-Versendung nur beim ersten Mal (wenn noch keine Stripe Subscription existiert)
-                # Bei automatischen Abbuchungen sendet Stripe keine E-Mail, daher auch wir nicht
-                # WICHTIG: Prüfe ob bereits eine E-Mail für diese Subscription gesendet wurde (nur EINE E-Mail pro Subscription)
-                if not has_stripe_subscription(doc.name) and not was_email_already_sent_for_subscription(doc.name):
+                # E-Mail-Versendung nur wenn should_send_email = True
+                if should_send_email:
                     try:
+                        # WICHTIG: Stelle sicher, dass payment_url VOR send_email() final gesetzt ist
+                        if stripe_url:
+                            # Setze payment_url nochmal explizit, um sicherzustellen dass sie gesetzt ist
+                            payment_request.db_set('payment_url', stripe_url, update_modified=False)
+                            frappe.db.commit()
+                            # WICHTIG: Payment Request neu laden, damit payment_url im Objekt vorhanden ist
+                            payment_request.reload()
+                            frappe.log_error(f"SUBSCRIPTION HOOK: payment_url vor send_email() final gesetzt: {stripe_url[:50]}...", "DEBUG: subscription_hook")
+                        
                         # WICHTIG: Setze mute_email auf 0 sowohl im Flag als auch im Dokument
                         payment_request.flags.mute_email = 0
                         payment_request.mute_email = 0
@@ -465,13 +488,13 @@ def force_subscription_update(doc, method):
                         payment_request.flags.email_account = "Abo Mails"
                         payment_request.send_email()
                         payment_request.make_communication_entry()
-                        frappe.log_error(f"SUBSCRIPTION HOOK: E-Mail gesendet für erste Payment Request {payment_request.name} (noch keine Stripe Subscription, erste E-Mail für Subscription)", "SUCCESS: subscription_hook")
+                        frappe.log_error(f"SUBSCRIPTION HOOK: E-Mail gesendet für erste Payment Request {payment_request.name}", "SUCCESS: subscription_hook")
                     except Exception as e:
                         frappe.log_error(f"Fehler beim Senden der E-Mail: {str(e)}", "ERROR: subscription_hook")
-                elif was_email_already_sent_for_subscription(doc.name):
-                    frappe.log_error(f"SUBSCRIPTION HOOK: Keine E-Mail gesendet - E-Mail wurde bereits für Subscription {doc.name} gesendet (nur eine E-Mail pro Subscription)", "DEBUG: subscription_hook")
+                elif not is_first_invoice_for_subscription(invoice_name, doc.name):
+                    frappe.log_error(f"SUBSCRIPTION HOOK: Keine E-Mail - nicht erste Invoice für {doc.name}", "DEBUG: subscription_hook")
                 else:
-                    frappe.log_error(f"SUBSCRIPTION HOOK: Keine E-Mail gesendet - Stripe Subscription existiert bereits, Stripe bucht automatisch ab", "DEBUG: subscription_hook")
+                    frappe.log_error(f"SUBSCRIPTION HOOK: Keine E-Mail - Stripe Subscription existiert", "DEBUG: subscription_hook")
 
                 frappe.log_error(
                     f"SUBSCRIPTION HOOK: Payment Request {payment_request.name} erstellt",
@@ -654,7 +677,38 @@ def create_payment_request_for_subscription_invoice(doc, method):
                 else:
                     frappe.log_error(f"SUBSCRIPTION HOOK: FEHLER - payment_url konnte nicht erstellt werden für Payment Request {payment_request.name}", "ERROR: subscription_hook")
 
-                # Submit (ohne Standard-Mail) und danach E-Mail manuell senden
+                # WICHTIG: Prüfe VOR submit() ob E-Mail gesendet werden soll
+                # E-Mail-Versendung nur beim ersten Mal (wenn noch keine Stripe Subscription existiert)
+                # Bei automatischen Abbuchungen sendet Stripe keine E-Mail, daher auch wir nicht
+                # WICHTIG: Prüfe ob dies die ERSTE Invoice dieser Subscription ist (nur EINE E-Mail pro Subscription)
+                should_send_email = not has_stripe_subscription(doc.subscription) and is_first_invoice_for_subscription(doc.name, doc.subscription)
+                
+                # WICHTIG: Prüfe nochmal, ob bereits eine Payment Request existiert, bevor E-Mail gesendet wird
+                # Dies verhindert doppelte E-Mails, falls force_subscription_update die Payment Request bereits erstellt hat
+                frappe.db.commit()
+                existing_requests_check = frappe.get_all("Payment Request",
+                    filters={
+                        "reference_doctype": "Sales Invoice",
+                        "reference_name": doc.name,
+                        "docstatus": ["!=", 2],  # Nicht storniert
+                        "name": ["!=", payment_request.name]  # Nicht die gerade erstellte
+                    }
+                )
+                
+                if existing_requests_check:
+                    msg = f"Andere Payment Request existiert bereits für Invoice {doc.name} - überspringe E-Mail"
+                    frappe.log_error(msg[:140], "DEBUG: subscription_payment_request")
+                    should_send_email = False  # Keine E-Mail senden, da bereits eine Payment Request existiert
+                
+                # WICHTIG: Setze mute_email BEVOR submit(), damit keine automatische E-Mail gesendet wird
+                if not should_send_email:
+                    # Keine E-Mail senden - mute_email bereits auf 1 gesetzt
+                    payment_request.flags.mute_email = 1
+                    payment_request.mute_email = 1
+                    payment_request.db_set('mute_email', 1, update_modified=False)
+                    frappe.log_error(f"SUBSCRIPTION HOOK: Keine E-Mail - bereits gesendet für {doc.subscription}", "DEBUG: subscription_payment_request")
+                
+                # Submit (ohne Standard-Mail wenn mute_email=1, sonst danach E-Mail manuell senden)
                 payment_request.submit()
                 
                 # WICHTIG: payment_url NACH Submit nochmal setzen, da ERPNext es möglicherweise überschreibt
@@ -677,28 +731,18 @@ def create_payment_request_for_subscription_invoice(doc, method):
                         frappe.db.commit()
                         payment_request.reload()
                 
-                # WICHTIG: Prüfe nochmal, ob bereits eine Payment Request existiert, bevor E-Mail gesendet wird
-                # Dies verhindert doppelte E-Mails, falls force_subscription_update die Payment Request bereits erstellt hat
-                frappe.db.commit()
-                existing_requests_check = frappe.get_all("Payment Request",
-                    filters={
-                        "reference_doctype": "Sales Invoice",
-                        "reference_name": doc.name,
-                        "docstatus": ["!=", 2],  # Nicht storniert
-                        "name": ["!=", payment_request.name]  # Nicht die gerade erstellte
-                    }
-                )
-                
-                if existing_requests_check:
-                    msg = f"Andere Payment Request existiert bereits für Invoice {doc.name} - überspringe E-Mail"
-                    frappe.log_error(msg[:140], "DEBUG: subscription_payment_request")
-                    return  # Keine E-Mail senden, da bereits eine Payment Request existiert
-                
-                # E-Mail-Versendung nur beim ersten Mal (wenn noch keine Stripe Subscription existiert)
-                # Bei automatischen Abbuchungen sendet Stripe keine E-Mail, daher auch wir nicht
-                # WICHTIG: Prüfe ob bereits eine E-Mail für diese Subscription gesendet wurde (nur EINE E-Mail pro Subscription)
-                if not has_stripe_subscription(doc.subscription) and not was_email_already_sent_for_subscription(doc.subscription):
+                # E-Mail-Versendung nur wenn should_send_email = True
+                if should_send_email:
                     try:
+                        # WICHTIG: Stelle sicher, dass payment_url VOR send_email() final gesetzt ist
+                        if stripe_url:
+                            # Setze payment_url nochmal explizit, um sicherzustellen dass sie gesetzt ist
+                            payment_request.db_set('payment_url', stripe_url, update_modified=False)
+                            frappe.db.commit()
+                            # WICHTIG: Payment Request neu laden, damit payment_url im Objekt vorhanden ist
+                            payment_request.reload()
+                            frappe.log_error(f"SUBSCRIPTION HOOK: payment_url vor send_email() final gesetzt: {stripe_url[:50]}...", "DEBUG: subscription_payment_request")
+                        
                         # WICHTIG: Setze mute_email auf 0 sowohl im Flag als auch im Dokument
                         payment_request.flags.mute_email = 0
                         payment_request.mute_email = 0
@@ -719,13 +763,13 @@ def create_payment_request_for_subscription_invoice(doc, method):
                         payment_request.flags.email_account = "Abo Mails"
                         payment_request.send_email()
                         payment_request.make_communication_entry()
-                        frappe.log_error(f"SUBSCRIPTION HOOK: E-Mail gesendet für erste Payment Request {payment_request.name} (noch keine Stripe Subscription, erste E-Mail für Subscription)", "SUCCESS: subscription_payment_request")
+                        frappe.log_error(f"SUBSCRIPTION HOOK: E-Mail gesendet für erste Payment Request {payment_request.name}", "SUCCESS: subscription_payment_request")
                     except Exception as e:
                         frappe.log_error(f"Fehler beim Senden der E-Mail: {str(e)}", "ERROR: subscription_payment_request")
-                elif was_email_already_sent_for_subscription(doc.subscription):
-                    frappe.log_error(f"SUBSCRIPTION HOOK: Keine E-Mail gesendet - E-Mail wurde bereits für Subscription {doc.subscription} gesendet (nur eine E-Mail pro Subscription)", "DEBUG: subscription_payment_request")
+                elif not is_first_invoice_for_subscription(doc.name, doc.subscription):
+                    frappe.log_error(f"SUBSCRIPTION HOOK: Keine E-Mail - nicht erste Invoice für {doc.subscription}", "DEBUG: subscription_payment_request")
                 else:
-                    frappe.log_error(f"SUBSCRIPTION HOOK: Keine E-Mail gesendet - Stripe Subscription existiert bereits, Stripe bucht automatisch ab", "DEBUG: subscription_payment_request")
+                    frappe.log_error(f"SUBSCRIPTION HOOK: Keine E-Mail - Stripe Subscription existiert", "DEBUG: subscription_payment_request")
 
                 frappe.log_error(
                     f"Payment Request {payment_request.name} für Subscription Invoice {doc.name} erstellt",
