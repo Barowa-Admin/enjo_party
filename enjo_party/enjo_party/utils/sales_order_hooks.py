@@ -804,6 +804,41 @@ def create_picklist_for_sales_order(sales_order_doc):
             if item.item_code and item.item_code.startswith("shipping-"):
                 continue  # Überspringe Versandartikel
             
+            # WICHTIG: Trenn-Items (item_code == "---") nicht als Bundle prüfen
+            if item.item_code == "---":
+                # Trenn-Item direkt hinzufügen ohne Bundle-Prüfung
+                warehouse = item.warehouse
+                if not warehouse:
+                    warehouse = frappe.defaults.get_user_default("Warehouse")
+                    if not warehouse:
+                        warehouses = frappe.get_all("Warehouse", filters={"is_group": 0}, fields=["name"], limit=1)
+                        warehouse = warehouses[0].name if warehouses else "Stores - Main"
+                
+                picklist_item = {
+                    "doctype": "Pick List Item",
+                    "item_code": item.item_code,
+                    "item_name": item.item_name,
+                    "qty": float(item.qty),
+                    "stock_qty": float(item.stock_qty or item.qty),
+                    "picked_qty": 0.0,
+                    "stock_reserved_qty": 0.0,
+                    "uom": item.uom,
+                    "stock_uom": item.stock_uom or item.uom,
+                    "conversion_factor": float(item.conversion_factor or 1.0),
+                    "warehouse": warehouse,
+                    "sales_order": sales_order_doc.name,
+                    "sales_order_item": item.name,
+                    "batch_no": None,
+                    "serial_no": None,
+                    "use_serial_batch_fields": 0,
+                    "serial_and_batch_bundle": None,
+                    "product_bundle_item": None,
+                    "material_request": None,
+                    "material_request_item": None
+                }
+                picklist_data["locations"].append(picklist_item)
+                continue
+            
             warehouse = item.warehouse
             if not warehouse:
                 warehouse = frappe.defaults.get_user_default("Warehouse")
@@ -811,30 +846,71 @@ def create_picklist_for_sales_order(sales_order_doc):
                     warehouses = frappe.get_all("Warehouse", filters={"is_group": 0}, fields=["name"], limit=1)
                     warehouse = warehouses[0].name if warehouses else "Stores - Main"
             
-            picklist_item = {
-                "doctype": "Pick List Item",
-                "item_code": item.item_code,
-                "item_name": item.item_name,
-                "qty": float(item.qty),
-                "stock_qty": float(item.stock_qty or item.qty),
-                "picked_qty": 0.0,
-                "stock_reserved_qty": 0.0,
-                "uom": item.uom,
-                "stock_uom": item.stock_uom or item.uom,
-                "conversion_factor": float(item.conversion_factor or 1.0),
-                "warehouse": warehouse,
-                "sales_order": sales_order_doc.name,
-                "sales_order_item": item.name,
-                "batch_no": None,
-                "serial_no": None,
-                "use_serial_batch_fields": 0,
-                "serial_and_batch_bundle": None,
-                "product_bundle_item": None,
-                "material_request": None,
-                "material_request_item": None
-            }
+            # Prüfe ob Item ein Product Bundle ist
+            bundle_items = frappe.get_all("Product Bundle Item", 
+                                         filters={"parent": item.item_code}, 
+                                         fields=["item_code", "qty", "uom", "description"])
             
-            picklist_data["locations"].append(picklist_item)
+            if bundle_items:
+                # Item ist ein Product Bundle - füge Bundle Items hinzu
+                frappe.log_error(f"Product Bundle erkannt: {item.item_code} mit {len(bundle_items)} Items", "INFO: bundle_detected")
+                for bundle_item in bundle_items:
+                    bundle_qty = float(bundle_item.qty) * float(item.qty)
+                    
+                    # Hole item_name für Bundle-Item
+                    bundle_item_name = bundle_item.description or frappe.get_value("Item", bundle_item.item_code, "item_name") or bundle_item.item_code
+                    
+                    picklist_item = {
+                        "doctype": "Pick List Item",
+                        "item_code": bundle_item.item_code,
+                        "item_name": bundle_item_name,
+                        "qty": bundle_qty,
+                        "stock_qty": bundle_qty,
+                        "picked_qty": 0.0,
+                        "stock_reserved_qty": 0.0,
+                        "uom": bundle_item.uom or item.uom,
+                        "stock_uom": bundle_item.uom or item.stock_uom or item.uom,
+                        "conversion_factor": 1.0,
+                        "warehouse": warehouse,
+                        "sales_order": sales_order_doc.name,
+                        "sales_order_item": item.name,
+                        "batch_no": None,
+                        "serial_no": None,
+                        "use_serial_batch_fields": 0,
+                        "serial_and_batch_bundle": None,
+                        "product_bundle_item": item.item_code,  # Referenz zum Original Bundle
+                        "material_request": None,
+                        "material_request_item": None
+                    }
+                    
+                    picklist_data["locations"].append(picklist_item)
+                    frappe.log_error(f"Bundle Item hinzugefügt: {bundle_item.item_code} (Qty: {bundle_qty}) für Bundle {item.item_code}", "INFO: bundle_item_added")
+            else:
+                # Normaler Artikel - wie bisher
+                picklist_item = {
+                    "doctype": "Pick List Item",
+                    "item_code": item.item_code,
+                    "item_name": item.item_name,
+                    "qty": float(item.qty),
+                    "stock_qty": float(item.stock_qty or item.qty),
+                    "picked_qty": 0.0,
+                    "stock_reserved_qty": 0.0,
+                    "uom": item.uom,
+                    "stock_uom": item.stock_uom or item.uom,
+                    "conversion_factor": float(item.conversion_factor or 1.0),
+                    "warehouse": warehouse,
+                    "sales_order": sales_order_doc.name,
+                    "sales_order_item": item.name,
+                    "batch_no": None,
+                    "serial_no": None,
+                    "use_serial_batch_fields": 0,
+                    "serial_and_batch_bundle": None,
+                    "product_bundle_item": None,
+                    "material_request": None,
+                    "material_request_item": None
+                }
+                
+                picklist_data["locations"].append(picklist_item)
         
         if not picklist_data["locations"]:
             frappe.log_error(f"Keine Items für Pick List gefunden in Sales Order {sales_order_doc.name}", "WARNING: no_picklist_items")

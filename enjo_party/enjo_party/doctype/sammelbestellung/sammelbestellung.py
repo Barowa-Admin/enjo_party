@@ -1410,39 +1410,118 @@ def create_picklists_for_sammelbestellung(sammelbestellung_doc, all_orders_with_
                             frappe.log_error(f"📦 Versandartikel übersprungen für Picklist: {product['item_code']}", "INFO: shipping_item_skipped")
                             continue
                         
+                        # WICHTIG: Trenn-Items (item_code == "---") nicht als Bundle prüfen
+                        if product["item_code"] == "---":
+                            # Trenn-Item direkt hinzufügen ohne Bundle-Prüfung
+                            so_warehouse = product.get("warehouse", get_default_warehouse())
+                            so_item_name = None
+                            for so_item in so_doc.items:
+                                if so_item.item_code == product["item_code"] and so_item.qty == product["qty"]:
+                                    so_warehouse = so_item.warehouse or get_default_warehouse()
+                                    so_item_name = so_item.name
+                                    break
+                            
+                            picklist_item = {
+                                "doctype": "Pick List Item",
+                                "item_code": product["item_code"],
+                                "item_name": product["item_name"],
+                                "qty": float(product["qty"]),
+                                "stock_qty": float(product.get("stock_qty", product["qty"])),
+                                "picked_qty": 0.0,
+                                "stock_reserved_qty": 0.0,
+                                "uom": product.get("uom", "Stk"),
+                                "stock_uom": product.get("stock_uom", "Stk"),
+                                "conversion_factor": float(product.get("conversion_factor", 1.0)),
+                                "warehouse": so_warehouse,
+                                "sales_order": sales_order_name,
+                                "sales_order_item": so_item_name,
+                                "batch_no": None,
+                                "serial_no": None,
+                                "use_serial_batch_fields": 0,
+                                "serial_and_batch_bundle": None,
+                                "product_bundle_item": None,
+                                "material_request": None,
+                                "material_request_item": None
+                            }
+                            all_picklist_items.append(picklist_item)
+                            continue
+                        
                         so_warehouse = product.get("warehouse", get_default_warehouse())
                         so_item_name = None
-                        for so_item in so_doc.items:
-                            if so_item.item_code == product["item_code"] and so_item.qty == product["qty"]:
-                                so_warehouse = so_item.warehouse or get_default_warehouse()
-                                so_item_name = so_item.name
+                        so_item = None
+                        for so_item_iter in so_doc.items:
+                            if so_item_iter.item_code == product["item_code"] and so_item_iter.qty == product["qty"]:
+                                so_warehouse = so_item_iter.warehouse or get_default_warehouse()
+                                so_item_name = so_item_iter.name
+                                so_item = so_item_iter
                                 break
                         
-                        picklist_item = {
-                            "doctype": "Pick List Item",
-                            "item_code": product["item_code"],
-                            "item_name": product["item_name"],
-                            "qty": float(product["qty"]),
-                            "stock_qty": float(product.get("stock_qty", product["qty"])),
-                            "picked_qty": 0.0,
-                            "stock_reserved_qty": 0.0,
-                            "uom": product.get("uom", "Stk"),
-                            "stock_uom": product.get("stock_uom", "Stk"),
-                            "conversion_factor": float(product.get("conversion_factor", 1.0)),
-                            "warehouse": so_warehouse,
-                            "sales_order": sales_order_name,
-                            "sales_order_item": so_item_name,
-                            "batch_no": None,
-                            "serial_no": None,
-                            "use_serial_batch_fields": 0,
-                            "serial_and_batch_bundle": None,
-                            "product_bundle_item": None,
-                            "material_request": None,
-                            "material_request_item": None
-                        }
+                        # Prüfe ob Item ein Product Bundle ist
+                        bundle_items = frappe.get_all("Product Bundle Item", 
+                                                     filters={"parent": product["item_code"]}, 
+                                                     fields=["item_code", "qty", "uom", "description"])
                         
-                        all_picklist_items.append(picklist_item)
-                        frappe.log_error(f"✅ Picklist Item hinzugefügt: {product['item_code']} (SO: {sales_order_name}, SO-Item: {so_item_name}, Customer: {customer})", "INFO: picklist_item_added")
+                        if bundle_items:
+                            # Item ist ein Product Bundle - füge Bundle Items hinzu
+                            frappe.log_error(f"Product Bundle erkannt: {product['item_code']} mit {len(bundle_items)} Items", "INFO: bundle_detected")
+                            for bundle_item in bundle_items:
+                                bundle_qty = float(bundle_item.qty) * float(product["qty"])
+                                
+                                # Hole item_name für Bundle-Item
+                                bundle_item_name = bundle_item.description or frappe.get_value("Item", bundle_item.item_code, "item_name") or bundle_item.item_code
+                                
+                                picklist_item = {
+                                    "doctype": "Pick List Item",
+                                    "item_code": bundle_item.item_code,
+                                    "item_name": bundle_item_name,
+                                    "qty": bundle_qty,
+                                    "stock_qty": bundle_qty,
+                                    "picked_qty": 0.0,
+                                    "stock_reserved_qty": 0.0,
+                                    "uom": bundle_item.uom or product.get("uom", "Stk"),
+                                    "stock_uom": bundle_item.uom or product.get("stock_uom", "Stk"),
+                                    "conversion_factor": 1.0,
+                                    "warehouse": so_warehouse,
+                                    "sales_order": sales_order_name,
+                                    "sales_order_item": so_item_name,  # Referenz zum Original SO Item
+                                    "batch_no": None,
+                                    "serial_no": None,
+                                    "use_serial_batch_fields": 0,
+                                    "serial_and_batch_bundle": None,
+                                    "product_bundle_item": product["item_code"],  # Referenz zum Original Bundle
+                                    "material_request": None,
+                                    "material_request_item": None
+                                }
+                                
+                                all_picklist_items.append(picklist_item)
+                                frappe.log_error(f"Bundle Item hinzugefügt: {bundle_item.item_code} (Qty: {bundle_qty}) für Bundle {product['item_code']}", "INFO: bundle_item_added")
+                        else:
+                            # Normaler Artikel - wie bisher
+                            picklist_item = {
+                                "doctype": "Pick List Item",
+                                "item_code": product["item_code"],
+                                "item_name": product["item_name"],
+                                "qty": float(product["qty"]),
+                                "stock_qty": float(product.get("stock_qty", product["qty"])),
+                                "picked_qty": 0.0,
+                                "stock_reserved_qty": 0.0,
+                                "uom": product.get("uom", "Stk"),
+                                "stock_uom": product.get("stock_uom", "Stk"),
+                                "conversion_factor": float(product.get("conversion_factor", 1.0)),
+                                "warehouse": so_warehouse,
+                                "sales_order": sales_order_name,
+                                "sales_order_item": so_item_name,
+                                "batch_no": None,
+                                "serial_no": None,
+                                "use_serial_batch_fields": 0,
+                                "serial_and_batch_bundle": None,
+                                "product_bundle_item": None,
+                                "material_request": None,
+                                "material_request_item": None
+                            }
+                            
+                            all_picklist_items.append(picklist_item)
+                            frappe.log_error(f"✅ Picklist Item hinzugefügt: {product['item_code']} (SO: {sales_order_name}, SO-Item: {so_item_name}, Customer: {customer})", "INFO: picklist_item_added")
                 
                 if not all_picklist_items:
                     frappe.log_error(f"⚠️ Keine Items für Versandziel {shipping_target} gefunden", "WARNING: no_picklist_items")

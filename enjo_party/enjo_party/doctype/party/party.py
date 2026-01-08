@@ -2309,54 +2309,146 @@ def create_picklists_for_party(party_doc, all_orders_with_shipping, created_orde
 							frappe.log_error(f"📦 Versandartikel übersprungen für Picklist: {product['item_code']}", "INFO: shipping_item_skipped")
 							continue
 						
+						# WICHTIG: Trenn-Items (item_code == "---") nicht als Bundle prüfen
+						if product["item_code"] == "---":
+							# Trenn-Item direkt hinzufügen ohne Bundle-Prüfung
+							so_warehouse = product.get("warehouse", get_default_warehouse())
+							so_item_name = None
+							so_item_name_display = None
+							for so_item in so_doc.items:
+								if so_item.item_code == product["item_code"] and so_item.qty == product["qty"]:
+									so_warehouse = so_item.warehouse or get_default_warehouse()
+									so_item_name = so_item.name
+									so_item_name_display = so_item.item_name
+									break
+							
+							if so_item_name_display:
+								item_name_display = so_item_name_display
+							else:
+								item_name_display = product["item_name"] or product["item_code"]
+								if is_group_shipping:
+									item_name_display = f"[{customer_display_name}] {item_name_display}"
+							
+							picklist_item = {
+								"doctype": "Pick List Item",
+								"item_code": product["item_code"],
+								"item_name": item_name_display,
+								"qty": float(product["qty"]),
+								"stock_qty": float(product.get("stock_qty", product["qty"])),
+								"picked_qty": 0.0,
+								"stock_reserved_qty": 0.0,
+								"uom": product.get("uom", "Stk"),
+								"stock_uom": product.get("stock_uom", "Stk"),
+								"conversion_factor": float(product.get("conversion_factor", 1.0)),
+								"warehouse": so_warehouse,
+								"sales_order": sales_order_name,
+								"sales_order_item": so_item_name,
+								"batch_no": None,
+								"serial_no": None,
+								"use_serial_batch_fields": 0,
+								"serial_and_batch_bundle": None,
+								"product_bundle_item": None,
+								"material_request": None,
+								"material_request_item": None
+							}
+							all_picklist_items.append(picklist_item)
+							continue
+						
 						# Finde das entsprechende SO Item für Warehouse UND item_name
 						so_warehouse = product.get("warehouse", get_default_warehouse())
 						so_item_name = None
 						so_item_name_display = None
-						for so_item in so_doc.items:
-							if so_item.item_code == product["item_code"] and so_item.qty == product["qty"]:
-								so_warehouse = so_item.warehouse or get_default_warehouse()
-								so_item_name = so_item.name  # Wichtig: Sales Order Item Reference!
-								so_item_name_display = so_item.item_name  # WICHTIG: item_name aus Sales Order übernehmen (enthält bereits Präfix bei Gruppenversand!)
+						so_item = None
+						for so_item_iter in so_doc.items:
+							if so_item_iter.item_code == product["item_code"] and so_item_iter.qty == product["qty"]:
+								so_warehouse = so_item_iter.warehouse or get_default_warehouse()
+								so_item_name = so_item_iter.name  # Wichtig: Sales Order Item Reference!
+								so_item_name_display = so_item_iter.item_name  # WICHTIG: item_name aus Sales Order übernehmen (enthält bereits Präfix bei Gruppenversand!)
+								so_item = so_item_iter
 								break
 						
-						# WICHTIG: Verwende item_name aus Sales Order (enthält bereits Präfix bei Gruppenversand)
-						# Falls nicht vorhanden, füge Präfix hinzu
-						if so_item_name_display:
-							item_name_display = so_item_name_display
-							frappe.log_error(f"📦 Item-Name aus Sales Order übernommen: {item_name_display}", "DEBUG: item_name_from_so")
+						# Prüfe ob Item ein Product Bundle ist
+						bundle_items = frappe.get_all("Product Bundle Item", 
+													 filters={"parent": product["item_code"]}, 
+													 fields=["item_code", "qty", "uom", "description"])
+						
+						if bundle_items:
+							# Item ist ein Product Bundle - füge Bundle Items hinzu
+							frappe.log_error(f"Product Bundle erkannt: {product['item_code']} mit {len(bundle_items)} Items", "INFO: bundle_detected")
+							for bundle_item in bundle_items:
+								bundle_qty = float(bundle_item.qty) * float(product["qty"])
+								
+								# Hole item_name für Bundle-Item
+								bundle_item_name = bundle_item.description or frappe.get_value("Item", bundle_item.item_code, "item_name") or bundle_item.item_code
+								
+								# Bei Gruppenversand: Füge Kunden-Präfix hinzu
+								if is_group_shipping:
+									bundle_item_name = f"[{customer_display_name}] {bundle_item_name}"
+								
+								picklist_item = {
+									"doctype": "Pick List Item",
+									"item_code": bundle_item.item_code,
+									"item_name": bundle_item_name,
+									"qty": bundle_qty,
+									"stock_qty": bundle_qty,
+									"picked_qty": 0.0,
+									"stock_reserved_qty": 0.0,
+									"uom": bundle_item.uom or product.get("uom", "Stk"),
+									"stock_uom": bundle_item.uom or product.get("stock_uom", "Stk"),
+									"conversion_factor": 1.0,
+									"warehouse": so_warehouse,
+									"sales_order": sales_order_name,
+									"sales_order_item": so_item_name,  # Referenz zum Original SO Item
+									"batch_no": None,
+									"serial_no": None,
+									"use_serial_batch_fields": 0,
+									"serial_and_batch_bundle": None,
+									"product_bundle_item": product["item_code"],  # Referenz zum Original Bundle
+									"material_request": None,
+									"material_request_item": None
+								}
+								
+								all_picklist_items.append(picklist_item)
+								frappe.log_error(f"Bundle Item hinzugefügt: {bundle_item.item_code} (Qty: {bundle_qty}) für Bundle {product['item_code']}", "INFO: bundle_item_added")
 						else:
-							# Fallback: Füge Präfix hinzu falls nicht vorhanden
-							item_name_display = product["item_name"] or product["item_code"]
-							if is_group_shipping:
-								item_name_display = f"[{customer_display_name}] {item_name_display}"
-								frappe.log_error(f"📦 Item-Name mit Präfix hinzugefügt: {item_name_display} (Original: {product.get('item_name', product.get('item_code'))})", "DEBUG: item_name_with_prefix")
-						
-						picklist_item = {
-							"doctype": "Pick List Item",  # WICHTIG: DocType
-							"item_code": product["item_code"],
-							"item_name": item_name_display,  # Mit Kunden-Präfix bei Gruppenversand
-							"qty": float(product["qty"]),  # WICHTIG: Als Float!
-							"stock_qty": float(product.get("stock_qty", product["qty"])),
-							"picked_qty": 0.0,  # Standardwert
-							"stock_reserved_qty": 0.0,  # Standardwert  
-							"uom": product.get("uom", "Stk"),
-							"stock_uom": product.get("stock_uom", "Stk"),
-							"conversion_factor": float(product.get("conversion_factor", 1.0)),
-							"warehouse": so_warehouse,
-							"sales_order": sales_order_name,
-							"sales_order_item": so_item_name,  # WICHTIG: SO Item Reference
-							"batch_no": None,
-							"serial_no": None,
-							"use_serial_batch_fields": 0,  # Standardwert
-							"serial_and_batch_bundle": None,  # Standardwert
-							"product_bundle_item": None,  # Standardwert
-							"material_request": None,  # Standardwert
-							"material_request_item": None  # Standardwert
-						}
-						
-						all_picklist_items.append(picklist_item)
-						frappe.log_error(f"✅ Picklist Item hinzugefügt: {product['item_code']} (SO: {sales_order_name}, SO-Item: {so_item_name}, Customer: {customer})", "INFO: picklist_item_added")
+							# Normaler Artikel - wie bisher
+							# WICHTIG: Verwende item_name aus Sales Order (enthält bereits Präfix bei Gruppenversand)
+							# Falls nicht vorhanden, füge Präfix hinzu
+							if so_item_name_display:
+								item_name_display = so_item_name_display
+								frappe.log_error(f"📦 Item-Name aus Sales Order übernommen: {item_name_display}", "DEBUG: item_name_from_so")
+							else:
+								# Fallback: Füge Präfix hinzu falls nicht vorhanden
+								item_name_display = product["item_name"] or product["item_code"]
+								if is_group_shipping:
+									item_name_display = f"[{customer_display_name}] {item_name_display}"
+									frappe.log_error(f"📦 Item-Name mit Präfix hinzugefügt: {item_name_display} (Original: {product.get('item_name', product.get('item_code'))})", "DEBUG: item_name_with_prefix")
+							
+							picklist_item = {
+								"doctype": "Pick List Item",  # WICHTIG: DocType
+								"item_code": product["item_code"],
+								"item_name": item_name_display,  # Mit Kunden-Präfix bei Gruppenversand
+								"qty": float(product["qty"]),  # WICHTIG: Als Float!
+								"stock_qty": float(product.get("stock_qty", product["qty"])),
+								"picked_qty": 0.0,  # Standardwert
+								"stock_reserved_qty": 0.0,  # Standardwert  
+								"uom": product.get("uom", "Stk"),
+								"stock_uom": product.get("stock_uom", "Stk"),
+								"conversion_factor": float(product.get("conversion_factor", 1.0)),
+								"warehouse": so_warehouse,
+								"sales_order": sales_order_name,
+								"sales_order_item": so_item_name,  # WICHTIG: SO Item Reference
+								"batch_no": None,
+								"serial_no": None,
+								"use_serial_batch_fields": 0,  # Standardwert
+								"serial_and_batch_bundle": None,  # Standardwert
+								"product_bundle_item": None,  # Standardwert
+								"material_request": None,  # Standardwert
+								"material_request_item": None  # Standardwert
+							}
+							
+							all_picklist_items.append(picklist_item)
+							frappe.log_error(f"✅ Picklist Item hinzugefügt: {product['item_code']} (SO: {sales_order_name}, SO-Item: {so_item_name}, Customer: {customer})", "INFO: picklist_item_added")
 				
 				frappe.log_error(f"📊 Gesamt Items für {shipping_target}: {len(all_picklist_items)} (is_group_shipping: {is_group_shipping})", "DEBUG: total_items_count")
 				
