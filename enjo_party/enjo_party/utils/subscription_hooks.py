@@ -420,15 +420,14 @@ def force_subscription_update(doc, method):
                 # WICHTIG: Prüfe ob dies die ERSTE Invoice dieser Subscription ist (nur EINE E-Mail pro Subscription)
                 should_send_email = not has_stripe_subscription(doc.name) and is_first_invoice_for_subscription(invoice_name, doc.name)
                 
-                # WICHTIG: Setze mute_email BEVOR submit(), damit keine automatische E-Mail gesendet wird
-                if not should_send_email:
-                    # Keine E-Mail senden - mute_email bereits auf 1 gesetzt
-                    payment_request.flags.mute_email = 1
-                    payment_request.mute_email = 1
-                    payment_request.db_set('mute_email', 1, update_modified=False)
-                    frappe.log_error(f"SUBSCRIPTION HOOK: Keine E-Mail - bereits gesendet für {doc.name}", "DEBUG: subscription_hook")
+                # WICHTIG: Setze mute_email IMMER auf 1 BEVOR submit(), damit keine automatische E-Mail gesendet wird
+                # Wir senden die E-Mail danach manuell mit korrekter payment_url
+                payment_request.flags.mute_email = 1
+                payment_request.mute_email = 1
+                payment_request.db_set('mute_email', 1, update_modified=False)
+                frappe.db.commit()
                 
-                # Submit (ohne Standard-Mail wenn mute_email=1, sonst danach E-Mail manuell senden)
+                # Submit (ohne Standard-Mail - wir senden danach manuell wenn should_send_email = True)
                 payment_request.submit()
                 
                 # WICHTIG: payment_url NACH Submit nochmal setzen, da ERPNext es möglicherweise überschreibt
@@ -700,15 +699,14 @@ def create_payment_request_for_subscription_invoice(doc, method):
                     frappe.log_error(msg[:140], "DEBUG: subscription_payment_request")
                     should_send_email = False  # Keine E-Mail senden, da bereits eine Payment Request existiert
                 
-                # WICHTIG: Setze mute_email BEVOR submit(), damit keine automatische E-Mail gesendet wird
-                if not should_send_email:
-                    # Keine E-Mail senden - mute_email bereits auf 1 gesetzt
-                    payment_request.flags.mute_email = 1
-                    payment_request.mute_email = 1
-                    payment_request.db_set('mute_email', 1, update_modified=False)
-                    frappe.log_error(f"SUBSCRIPTION HOOK: Keine E-Mail - bereits gesendet für {doc.subscription}", "DEBUG: subscription_payment_request")
+                # WICHTIG: Setze mute_email IMMER auf 1 BEVOR submit(), damit keine automatische E-Mail gesendet wird
+                # Wir senden die E-Mail danach manuell mit korrekter payment_url
+                payment_request.flags.mute_email = 1
+                payment_request.mute_email = 1
+                payment_request.db_set('mute_email', 1, update_modified=False)
+                frappe.db.commit()
                 
-                # Submit (ohne Standard-Mail wenn mute_email=1, sonst danach E-Mail manuell senden)
+                # Submit (ohne Standard-Mail - wir senden danach manuell wenn should_send_email = True)
                 payment_request.submit()
                 
                 # WICHTIG: payment_url NACH Submit nochmal setzen, da ERPNext es möglicherweise überschreibt
