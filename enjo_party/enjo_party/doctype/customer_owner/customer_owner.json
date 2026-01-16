@@ -1,0 +1,102 @@
+{
+ "actions": [],
+ "allow_rename": 1,
+ "creation": "2025-01-27 10:00:00.000000",
+ "doctype": "DocType",
+ "engine": "InnoDB",
+ "field_order": [
+  "mode",
+  "section_break_customers",
+  "customers",
+  "section_break_bulk",
+  "from_owner",
+  "customer_count",
+  "section_break_new_owner",
+  "new_owner",
+  "moved_customers_list"
+ ],
+ "fields": [
+  {
+   "default": "Einzelne Kunden auswählen",
+   "fieldname": "mode",
+   "fieldtype": "Select",
+   "label": "Modus",
+   "options": "Einzelne Kunden auswählen\nAlle Kunden von Owner verschieben",
+   "reqd": 1
+  },
+  {
+   "depends_on": "eval:doc.mode=='Einzelne Kunden auswählen'",
+   "fieldname": "section_break_customers",
+   "fieldtype": "Section Break",
+   "label": "Kunden"
+  },
+  {
+   "depends_on": "eval:doc.mode=='Einzelne Kunden auswählen'",
+   "fieldname": "customers",
+   "fieldtype": "Table",
+   "label": "Kunden",
+   "options": "Customer Owner Customer"
+  },
+  {
+   "depends_on": "eval:doc.mode=='Alle Kunden von Owner verschieben'",
+   "fieldname": "section_break_bulk",
+   "fieldtype": "Section Break",
+   "label": "Bulk Verschiebung"
+  },
+  {
+   "depends_on": "eval:doc.mode=='Alle Kunden von Owner verschieben'",
+   "fieldname": "from_owner",
+   "fieldtype": "Link",
+   "label": "Von Owner",
+   "options": "User"
+  },
+  {
+   "depends_on": "eval:doc.mode=='Alle Kunden von Owner verschieben'",
+   "fieldname": "customer_count",
+   "fieldtype": "Data",
+   "label": "Gefundene Kunden",
+   "read_only": 1
+  },
+  {
+   "fieldname": "moved_customers_list",
+   "fieldtype": "Small Text",
+   "label": "Verschobene Kunden",
+   "read_only": 1
+  },
+  {
+   "fieldname": "section_break_new_owner",
+   "fieldtype": "Section Break",
+   "label": "Neuer Owner"
+  },
+  {
+   "fieldname": "new_owner",
+   "fieldtype": "Link",
+   "label": "Neuer Owner",
+   "options": "User",
+   "reqd": 1
+  }
+ ],
+ "index_web_pages_for_search": 1,
+ "links": [],
+ "modified": "2025-01-27 10:00:00.000000",
+ "modified_by": "Administrator",
+ "module": "Enjo Party",
+ "name": "Customer Owner",
+ "owner": "Administrator",
+ "permissions": [
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "role": "System Manager",
+   "share": 1,
+   "write": 1
+  }
+ ],
+ "sort_field": "modified",
+ "sort_order": "DESC",
+ "states": []
+}
