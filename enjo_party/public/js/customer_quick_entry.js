@@ -160,7 +160,13 @@ frappe.ui.form.CustomerQuickEntryForm = class CustomerQuickEntryForm extends fra
 
 	set_sales_partner_from_user() {
 		// Nur wenn noch kein Vertriebspartner gesetzt ist
-		if (!this.dialog.get_value('sales_partner')) {
+		if (!this.dialog || !this.dialog.fields_dict.default_sales_partner) {
+			return;
+		}
+		
+		const current_value = this.dialog.get_value('default_sales_partner');
+		
+		if (!current_value) {
 			var user_fullname = frappe.session.user_fullname;
 			
 			if (user_fullname) {
@@ -168,11 +174,17 @@ frappe.ui.form.CustomerQuickEntryForm = class CustomerQuickEntryForm extends fra
 				frappe.db.exists('Sales Partner', user_fullname)
 					.then(exists => {
 						if (exists) {
-							this.dialog.set_value('sales_partner', user_fullname);
+							this.dialog.set_value('default_sales_partner', user_fullname);
+							this.dialog.doc.default_sales_partner = user_fullname;
+							// WICHTIG: Wert in Instanz-Variable speichern für after_insert
+							this._sales_partner_to_save = user_fullname;
 							console.log("Sales Partner gesetzt auf:", user_fullname);
 						}
 					});
 			}
+		} else {
+			// Wert bereits gesetzt - auch in Instanz-Variable speichern
+			this._sales_partner_to_save = current_value;
 		}
 	}
 
@@ -201,17 +213,42 @@ frappe.ui.form.CustomerQuickEntryForm = class CustomerQuickEntryForm extends fra
 			shipping_data.email_address = email_address;
 		}
 		
+		// Hole sales_partner Wert aus Instanz-Variable oder Dialog
+		const sales_partner_to_save = this._sales_partner_to_save || this.dialog.get_value('default_sales_partner');
+		
 		// Überschreibe die after_insert Callback für Lieferadresse
 		const original_after_insert = this.after_insert;
-		this.after_insert = (doc) => {
+		const self = this; // Referenz für Callback
+		this.after_insert = function(doc) {
+			console.log('=== ENJO after_insert CALLBACK AUFGERUFEN ===');
+			console.log('Doc name:', doc.name);
+			console.log('sales_partner_to_save:', sales_partner_to_save);
+			
 			// Originalen Callback ausführen
 			if (original_after_insert) {
-				original_after_insert.call(this, doc);
+				original_after_insert.call(self, doc);
+			}
+			
+			// WICHTIG: default_sales_partner IMMER nach dem Speichern setzen
+			// QuickEntryForm übernimmt dieses Feld nicht korrekt
+			if (sales_partner_to_save) {
+				console.log('Setze default_sales_partner nach dem Speichern auf:', sales_partner_to_save);
+				frappe.db.set_value('Customer', doc.name, 'default_sales_partner', sales_partner_to_save)
+					.then(() => {
+						console.log('default_sales_partner erfolgreich gesetzt!');
+						// Dokument neu laden falls es geöffnet ist
+						if (cur_frm && cur_frm.doc.name === doc.name) {
+							cur_frm.reload_doc();
+						}
+					})
+					.catch(err => {
+						console.error('Fehler beim Setzen von default_sales_partner:', err);
+					});
 			}
 			
 			// Nur Lieferadresse erstellen falls Daten vorhanden
 			if (shipping_data.has_shipping_data) {
-				this.create_shipping_address(doc.name, shipping_data);
+				self.create_shipping_address(doc.name, shipping_data);
 			}
 		};
 
@@ -320,7 +357,7 @@ frappe.ui.form.CustomerQuickEntryForm = class CustomerQuickEntryForm extends fra
 			},
 			{
 				label: 'Vertriebspartner',
-				fieldname: 'sales_partner',
+				fieldname: 'default_sales_partner',
 				fieldtype: 'Link',
 				options: 'Sales Partner',
 			},
