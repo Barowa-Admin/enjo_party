@@ -6,6 +6,42 @@ from frappe.model.document import Document
 
 
 class CustomerOwner(Document):
+	def find_sales_partner_for_user(self, user_email):
+		"""
+		Findet einen Sales Partner für einen User.
+		Suchreihenfolge:
+		1. Sales Partner mit user-Feld = user_email
+		2. Sales Partner mit partner_name = full_name des Users
+		3. Sales Partner mit partner_name = user_email
+		"""
+		sales_partner = None
+		
+		# 1. Versuche über user-Feld
+		try:
+			sales_partner_meta = frappe.get_meta("Sales Partner")
+			if sales_partner_meta.has_field("user"):
+				sales_partner = frappe.db.get_value("Sales Partner", {"user": user_email}, "name")
+		except:
+			pass
+		
+		# 2. Versuche über partner_name mit full_name
+		if not sales_partner:
+			try:
+				user_full_name = frappe.db.get_value("User", user_email, "full_name")
+				if user_full_name:
+					sales_partner = frappe.db.get_value("Sales Partner", {"partner_name": user_full_name}, "name")
+			except:
+				pass
+		
+		# 3. Versuche über partner_name mit user_email direkt
+		if not sales_partner:
+			try:
+				sales_partner = frappe.db.get_value("Sales Partner", {"partner_name": user_email}, "name")
+			except:
+				pass
+		
+		return sales_partner
+	
 	def validate(self):
 		"""Validiere je nach Modus"""
 		# Standard Modus prüfen
@@ -59,12 +95,23 @@ class CustomerOwner(Document):
 			success_count = 0
 			failed_customers = []
 			
+			# Finde Sales Partner für neuen Owner
+			sales_partner = self.find_sales_partner_for_user(self.new_owner)
+			
 			# Ändere den Owner für jeden Kunden
 			for customer_row in self.customers:
 				if customer_row.customer:
 					try:
 						# Ändere den Owner des Kunden
 						frappe.db.set_value("Customer", customer_row.customer, "owner", self.new_owner, update_modified=False)
+						
+						# Setze auch den default_sales_partner
+						if sales_partner:
+							frappe.db.set_value("Customer", customer_row.customer, "default_sales_partner", sales_partner, update_modified=False)
+						else:
+							# Wenn kein Sales Partner gefunden, setze auf leer
+							frappe.db.set_value("Customer", customer_row.customer, "default_sales_partner", "", update_modified=False)
+						
 						success_count += 1
 						
 						# Aktualisiere die Felder in der Tabelle
@@ -121,6 +168,9 @@ class CustomerOwner(Document):
 				)
 				return
 			
+			# Finde Sales Partner für neuen Owner
+			sales_partner = self.find_sales_partner_for_user(self.new_owner)
+			
 			success_count = 0
 			failed_customers = []
 			moved_customers = []
@@ -128,7 +178,16 @@ class CustomerOwner(Document):
 			# Ändere den Owner für alle gefundenen Kunden
 			for customer in customers_to_move:
 				try:
+					# Ändere den Owner des Kunden
 					frappe.db.set_value("Customer", customer.name, "owner", self.new_owner, update_modified=False)
+					
+					# Setze auch den default_sales_partner
+					if sales_partner:
+						frappe.db.set_value("Customer", customer.name, "default_sales_partner", sales_partner, update_modified=False)
+					else:
+						# Wenn kein Sales Partner gefunden, setze auf leer
+						frappe.db.set_value("Customer", customer.name, "default_sales_partner", "", update_modified=False)
+					
 					success_count += 1
 					moved_customers.append(f"{customer.name} - {customer.customer_name}")
 				except Exception as e:
