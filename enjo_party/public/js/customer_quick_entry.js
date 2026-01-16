@@ -57,6 +57,9 @@ frappe.ui.form.CustomerQuickEntryForm = class CustomerQuickEntryForm extends fra
 			
 			// Standard-Feld auch direkt verstecken
 			this.hide_standard_customer_type_field();
+			
+			// Vertriebspartner automatisch setzen
+			this.set_sales_partner_from_user();
 		}, 100);
 		
 		// Nochmal nach längerem Delay für sicheres Verstecken
@@ -153,6 +156,24 @@ frappe.ui.form.CustomerQuickEntryForm = class CustomerQuickEntryForm extends fra
 				this.dialog.$wrapper.find('[data-fieldname="customer_type"]:not([data-fieldname="customer_type_selection"])').closest('.frappe-control').hide();
 			}
 		}, 200);
+	}
+
+	set_sales_partner_from_user() {
+		// Nur wenn noch kein Vertriebspartner gesetzt ist
+		if (!this.dialog.get_value('sales_partner')) {
+			var user_fullname = frappe.session.user_fullname;
+			
+			if (user_fullname) {
+				// Prüfen, ob der Benutzer als Vertriebspartner existiert
+				frappe.db.exists('Sales Partner', user_fullname)
+					.then(exists => {
+						if (exists) {
+							this.dialog.set_value('sales_partner', user_fullname);
+							console.log("Sales Partner gesetzt auf:", user_fullname);
+						}
+					});
+			}
+		}
 	}
 
 	insert() {
@@ -296,6 +317,12 @@ frappe.ui.form.CustomerQuickEntryForm = class CustomerQuickEntryForm extends fra
 				label: 'Mobilfunknummer',
 				fieldname: 'mobile_number',
 				fieldtype: 'Data',
+			},
+			{
+				label: 'Vertriebspartner',
+				fieldname: 'sales_partner',
+				fieldtype: 'Link',
+				options: 'Sales Partner',
 			},
 			{
 				fieldtype: 'Section Break',

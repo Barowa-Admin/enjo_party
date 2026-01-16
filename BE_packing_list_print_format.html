@@ -27,10 +27,98 @@
         <h1 style="font-size: 24px; margin: 0 0 5px 0; color: #333; font-weight: bold;">PACKLISTE</h1>
     </div>
     
-    <!-- Kundenname -->
+    <!-- Packlisten-Daten -->
     <div style="margin-bottom: 20px;">
-        <div style="font-size: 11px; font-weight: bold; color: #333; margin-bottom: 8px; text-transform: uppercase; letter-spacing: 0.5px;">Kunde</div>
-        <div style="font-size: 12px; font-weight: bold; color: #555;">{{ doc.customer_name }}</div>
+        <div style="margin-bottom: 6px; font-size: 11px;">
+            <span style="font-weight: bold; color: #666;">Packlistennummer:</span>
+            <span style="color: #555;"> {{ doc.name }}</span>
+        </div>
+        
+        <div style="margin-bottom: 6px; font-size: 11px;">
+            <span style="font-weight: bold; color: #666;">Datum:</span>
+            <span style="color: #555;">
+                {% if doc.posting_date %}
+                    {% set formatted_date = doc.get_formatted("posting_date") %}
+                    {{ formatted_date.split(" ")[0] if " " in formatted_date else formatted_date }}
+                {% else %}
+                    {% set formatted_date = doc.get_formatted("creation") %}
+                    {{ formatted_date.split(" ")[0] if " " in formatted_date else formatted_date }}
+                {% endif %}
+            </span>
+        </div>
+        
+        {% set invoice_ref = doc.custom_invoice_references %}
+        {% set sales_order_ref = None %}
+        {% if doc.locations %}
+            {% for item in doc.locations %}
+                {% if item.sales_order and not sales_order_ref %}
+                    {% set sales_order_ref = item.sales_order %}
+                {% endif %}
+            {% endfor %}
+        {% endif %}
+        
+        {% set invoice_name = None %}
+        {% set invoice_doc = None %}
+        {% if invoice_ref %}
+            {# Extrahiere Rechnungsnummer aus custom_invoice_references (Format: "INV-001 (Kundenname)") #}
+            {% set invoice_name = invoice_ref.split(" ")[0] if " " in invoice_ref else invoice_ref %}
+            {% set invoice_name = invoice_name.split("(")[0].strip() if "(" in invoice_name else invoice_name.strip() %}
+            {% if frappe.db.exists("Sales Invoice", invoice_name) %}
+                {% set invoice_doc = frappe.get_doc("Sales Invoice", invoice_name) %}
+            {% endif %}
+        {% endif %}
+        
+        {% if invoice_ref %}
+        <div style="margin-bottom: 6px; font-size: 11px;">
+            <span style="font-weight: bold; color: #666;">Rechnungsnummer:</span>
+            <span style="color: #555;"> {{ invoice_ref }}</span>
+        </div>
+        {% elif sales_order_ref %}
+        <div style="margin-bottom: 6px; font-size: 11px;">
+            <span style="font-weight: bold; color: #666;">Auftragsnummer:</span>
+            <span style="color: #555;"> {{ sales_order_ref }}</span>
+        </div>
+        {% endif %}
+        
+        {# Partner-Informationen aus Rechnung oder Sales Order holen #}
+        {% set partner_name = None %}
+        {% if invoice_doc and invoice_doc.sales_partner %}
+            {% set partner_name = invoice_doc.sales_partner %}
+        {% elif sales_order_ref %}
+            {% set so_doc = frappe.get_doc("Sales Order", sales_order_ref) if frappe.db.exists("Sales Order", sales_order_ref) else None %}
+            {% if so_doc and so_doc.sales_partner %}
+                {% set partner_name = so_doc.sales_partner %}
+            {% endif %}
+        {% elif doc.sales_partner %}
+            {% set partner_name = doc.sales_partner %}
+        {% endif %}
+        
+        {% if partner_name %}
+            {% set partner_doc = frappe.get_doc("Sales Partner", partner_name) if frappe.db.exists("Sales Partner", partner_name) else None %}
+            {% if partner_doc %}
+                <div style="margin-bottom: 6px; font-size: 11px;">
+                    <span style="font-weight: bold; color: #666;">Vertriebspartnerin:</span>
+                    <span style="color: #555;"> {{ partner_name }}</span>
+                </div>
+                {% if partner_doc.email_id %}
+                <div style="margin-bottom: 6px; font-size: 11px;">
+                    <span style="font-weight: bold; color: #666;">E-Mail:</span>
+                    <span style="color: #555;"> {{ partner_doc.email_id }}</span>
+                </div>
+                {% endif %}
+                {% if partner_doc.mobile_no or partner_doc.phone_no %}
+                <div style="margin-bottom: 6px; font-size: 11px;">
+                    <span style="font-weight: bold; color: #666;">Telefon:</span>
+                    <span style="color: #555;"> {{ partner_doc.mobile_no or partner_doc.phone_no }}</span>
+                </div>
+                {% endif %}
+            {% else %}
+                <div style="margin-bottom: 6px; font-size: 11px;">
+                    <span style="font-weight: bold; color: #666;">Vertriebspartnerin:</span>
+                    <span style="color: #555;"> {{ partner_name }}</span>
+                </div>
+            {% endif %}
+        {% endif %}
     </div>
     
     <!-- Items Tabelle - Packliste (minimalistisch) -->
