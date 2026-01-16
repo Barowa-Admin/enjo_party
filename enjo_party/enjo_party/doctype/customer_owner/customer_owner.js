@@ -1,7 +1,25 @@
 frappe.ui.form.on('Customer Owner', {
+	onload(frm) {
+		// Wenn neues Dokument und im Einzel-Modus, füge automatisch eine leere Zeile hinzu
+		if (frm.is_new() && frm.doc.mode === 'Einzelne Kunden auswählen') {
+			if (!frm.doc.customers || frm.doc.customers.length === 0) {
+				frm.add_child('customers');
+				frm.refresh_field('customers');
+			}
+		}
+	},
+	
 	refresh(frm) {
 		// Aktualisiere Feld-Sichtbarkeit basierend auf Modus
 		update_field_visibility(frm);
+		
+		// Wenn neues Dokument und im Einzel-Modus, füge automatisch eine leere Zeile hinzu
+		if (frm.is_new() && frm.doc.mode === 'Einzelne Kunden auswählen') {
+			if (!frm.doc.customers || frm.doc.customers.length === 0) {
+				frm.add_child('customers');
+				frm.refresh_field('customers');
+			}
+		}
 		
 		// Aktualisiere alle aktuellen Owner in der Tabelle (nur im Einzel-Modus)
 		if (frm.doc.mode === 'Einzelne Kunden auswählen') {
@@ -17,6 +35,14 @@ frappe.ui.form.on('Customer Owner', {
 	mode(frm) {
 		// Wenn Modus geändert wird, aktualisiere Sichtbarkeit
 		update_field_visibility(frm);
+		
+		// Wenn auf Einzel-Modus gewechselt wird und keine Zeilen vorhanden sind, füge eine leere Zeile hinzu
+		if (frm.doc.mode === 'Einzelne Kunden auswählen') {
+			if (!frm.doc.customers || frm.doc.customers.length === 0) {
+				frm.add_child('customers');
+				frm.refresh_field('customers');
+			}
+		}
 		
 		// Setze customer_count zurück wenn nicht im Bulk-Modus
 		if (frm.doc.mode !== 'Alle Kunden von Owner verschieben') {
