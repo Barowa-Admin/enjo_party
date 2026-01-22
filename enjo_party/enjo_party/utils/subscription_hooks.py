@@ -1,6 +1,6 @@
 import frappe
 from frappe import _
-from frappe.utils import today
+from frappe.utils import add_days, today
 from enjo_party.enjo_party.utils.stripe_checkout import create_stripe_checkout_session
 from enjo_party.enjo_party.utils.stripe_subscription import cancel_stripe_subscription_at_period_end
 from enjo_party.enjo_party.utils.sales_invoice_hooks import ensure_inclusive_taxes
@@ -123,6 +123,63 @@ def was_email_already_sent_for_invoice(invoice_name):
         # Bei Fehler: Annahme dass keine E-Mail gesendet wurde (sicherer)
         return False
 
+def get_invoice_email_address(invoice):
+    """
+    Ermittelt die beste E-Mail-Adresse für die Rechnungszustellung.
+    """
+    if getattr(invoice, "contact_email", None):
+        return invoice.contact_email
+
+    customer_email = frappe.db.get_value("Customer", invoice.customer, "email_id")
+    if customer_email:
+        return customer_email
+
+    return None
+
+def send_subscription_payment_request_email(payment_request, invoice, include_payment_link):
+    """
+    Sendet die E-Mail für Subscription-Payment-Requests kontrolliert aus.
+    """
+    if was_email_already_sent_for_invoice(invoice.name):
+        frappe.log_error(
+            f"E-Mail bereits versendet für Invoice {invoice.name} - überspringe Versand",
+            "DEBUG: subscription_email_send",
+        )
+        return
+
+    email_to = payment_request.email_to or get_invoice_email_address(invoice)
+    if not email_to:
+        frappe.log_error(
+            f"Keine E-Mail-Adresse für Invoice {invoice.name} gefunden - Versand übersprungen",
+            "WARNING: subscription_email_send",
+        )
+        return
+
+    payment_request.db_set("email_to", email_to, update_modified=False)
+
+    if include_payment_link:
+        from frappe.utils.jinja import render_template
+        gateway_account = frappe.get_doc("Payment Gateway Account", "Stripe-Stripe - EUR")
+        message_template = gateway_account.message or ""
+        rendered_message = render_template(
+            message_template,
+            {
+                "doc": invoice,
+                "payment_url": payment_request.payment_url,
+            },
+        )
+        payment_request.db_set("message", rendered_message, update_modified=False)
+    else:
+        message = (
+            f"Hallo,\n\nanbei findest du deine Rechnung {invoice.name}."
+            "\n\nViele Grüße\n"
+        )
+        payment_request.db_set("message", message, update_modified=False)
+
+    payment_request.db_set("subject", f"Rechnung {invoice.name}", update_modified=False)
+    payment_request.send_email()
+    payment_request.make_communication_entry()
+
 def is_first_invoice_for_subscription(invoice_name, subscription_name):
     """
     Prüft ob dies die ERSTE Invoice dieser Subscription ist
@@ -214,8 +271,16 @@ def force_subscription_update(doc, method):
         
         if start_date_reached:
             frappe.log_error(f"SUBSCRIPTION HOOK: Startdatum {subscription.start_date} ist erreicht, führe process() aus", "DEBUG: subscription_hook")
-            
-            subscription.process()
+
+            processing_date = None
+            if subscription.generate_invoice_at == "Beginning of the current subscription period":
+                processing_date = subscription.current_invoice_start
+            elif subscription.generate_invoice_at == "End of the current subscription period":
+                processing_date = subscription.current_invoice_end
+            elif subscription.generate_invoice_at == "Days before the current subscription period":
+                processing_date = add_days(subscription.current_invoice_start, -subscription.number_of_days)
+
+            subscription.process(posting_date=processing_date)
             frappe.db.commit()
             
             frappe.log_error(f"SUBSCRIPTION HOOK: process() abgeschlossen für {doc.name}", "DEBUG: subscription_hook")
@@ -321,10 +386,10 @@ def force_subscription_update(doc, method):
                     "payment_gateway_account": "Stripe-Stripe - EUR",
                     "grand_total": invoice_grand_total,
                     "currency": invoice.currency,
-                    "email_to": invoice.contact_email,
+                    "email_to": get_invoice_email_address(invoice),
                     "subject": f"Rechnung {invoice.name}",
                     "is_a_subscription": 1,
-                    "payment_channel": "Phone",
+                    "payment_channel": "Email",
                     "mute_email": 1
                 })
                 
@@ -414,7 +479,7 @@ def force_subscription_update(doc, method):
                 else:
                     frappe.log_error(f"SUBSCRIPTION HOOK: FEHLER - payment_url konnte nicht erstellt werden für Payment Request {payment_request.name}", "ERROR: subscription_hook")
 
-                # Submit Payment Request (E-Mail wird automatisch von ERPNext gesendet)
+                # Submit Payment Request (E-Mail wird manuell gesteuert)
                 payment_request.submit()
                 
                 # WICHTIG: payment_url NACH Submit nochmal setzen, da ERPNext es möglicherweise überschreibt
@@ -423,19 +488,13 @@ def force_subscription_update(doc, method):
                     frappe.db.commit()
                     frappe.log_error(f"SUBSCRIPTION HOOK: payment_url nach submit erneut gesetzt", "DEBUG: subscription_hook")
                 
-                # WICHTIG: Message NACH Submit nochmal setzen, falls sie überschrieben wurde
-                if stripe_url:
-                    from frappe.utils.jinja import render_template
-                    gateway_account = frappe.get_doc("Payment Gateway Account", "Stripe-Stripe - EUR")
-                    message_template = gateway_account.message or ""
-                    if message_template:
-                        rendered_message = render_template(message_template, {
-                            "doc": invoice,
-                            "payment_url": stripe_url
-                        })
-                        payment_request.db_set('message', rendered_message, update_modified=False)
-                        frappe.db.commit()
-                        payment_request.reload()
+                # E-Mail versenden (erste Rechnung mit Link, Folge ohne Link)
+                is_first_invoice = is_first_invoice_for_subscription(invoice.name, doc.name)
+                send_subscription_payment_request_email(
+                    payment_request,
+                    invoice,
+                    include_payment_link=is_first_invoice,
+                )
 
                 frappe.log_error(
                     f"SUBSCRIPTION HOOK: Payment Request {payment_request.name} erstellt",
@@ -527,10 +586,10 @@ def create_payment_request_for_subscription_invoice(doc, method):
                     "payment_gateway_account": "Stripe-Stripe - EUR",
                     "grand_total": doc.grand_total,
                     "currency": doc.currency,
-                    "email_to": doc.contact_email,
+                    "email_to": get_invoice_email_address(doc),
                     "subject": f"Rechnung {doc.name}",
                     "is_a_subscription": 1,
-                    "payment_channel": "Phone",
+                    "payment_channel": "Email",
                     "mute_email": 1
                 })
                 
@@ -618,7 +677,7 @@ def create_payment_request_for_subscription_invoice(doc, method):
                 else:
                     frappe.log_error(f"SUBSCRIPTION HOOK: FEHLER - payment_url konnte nicht erstellt werden für Payment Request {payment_request.name}", "ERROR: subscription_hook")
 
-                # Submit Payment Request (E-Mail wird automatisch von ERPNext gesendet)
+                # Submit Payment Request (E-Mail wird manuell gesteuert)
                 payment_request.submit()
                 
                 # WICHTIG: payment_url NACH Submit nochmal setzen, da ERPNext es möglicherweise überschreibt
@@ -627,19 +686,13 @@ def create_payment_request_for_subscription_invoice(doc, method):
                     frappe.db.commit()
                     frappe.log_error(f"SUBSCRIPTION HOOK: payment_url nach submit erneut gesetzt", "DEBUG: subscription_hook")
                 
-                # WICHTIG: Message NACH Submit nochmal setzen, falls sie überschrieben wurde
-                if stripe_url:
-                    from frappe.utils.jinja import render_template
-                    gateway_account = frappe.get_doc("Payment Gateway Account", "Stripe-Stripe - EUR")
-                    message_template = gateway_account.message or ""
-                    if message_template:
-                        rendered_message = render_template(message_template, {
-                            "doc": doc,
-                            "payment_url": stripe_url
-                        })
-                        payment_request.db_set('message', rendered_message, update_modified=False)
-                        frappe.db.commit()
-                        payment_request.reload()
+                # E-Mail versenden (erste Rechnung mit Link, Folge ohne Link)
+                is_first_invoice = is_first_invoice_for_subscription(doc.name, doc.subscription)
+                send_subscription_payment_request_email(
+                    payment_request,
+                    doc,
+                    include_payment_link=is_first_invoice,
+                )
 
                 frappe.log_error(
                     f"Payment Request {payment_request.name} für Subscription Invoice {doc.name} erstellt",
