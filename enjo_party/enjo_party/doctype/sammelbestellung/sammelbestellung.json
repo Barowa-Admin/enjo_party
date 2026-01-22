@@ -131,7 +131,7 @@
    "fieldtype": "Select",
    "in_list_view": 1,
    "label": "Status",
-   "options": "Kunden\nProdukte\nGebucht\nAbgeschlossen",
+   "options": "Kunden\nProdukte\nGebucht\nAusgeliefert\nÜberfällig\nRetourniert",
    "read_only": 1
   },
   {

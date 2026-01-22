@@ -2,7 +2,48 @@
 // For license information, please see license.txt
 
 frappe.listview_settings['Subscription'] = {
-    add_fields: ['party', 'custom_partnerin'],
+    add_fields: ['party', 'custom_partnerin', 'status', 'cancel_at_period_end', 'custom_payment_status'],
+    
+    // Status-Farben definieren
+    get_indicator: function(doc) {
+        // Beendet (Cancelled oder cancel_at_period_end) - Grau
+        if (doc.status === "Cancelled" || doc.cancel_at_period_end === 1) {
+            return [__("Beendet"), "gray", "status,=,Cancelled"];
+        }
+        
+        // Prüfe custom_payment_status (wird vom Scheduler gesetzt)
+        if (doc.custom_payment_status) {
+            // Retourniert - Blau
+            if (doc.custom_payment_status === "Retourniert") {
+                return [__("Retourniert"), "blue", "custom_payment_status,=,Retourniert"];
+            }
+            // Überfällig - Rot
+            if (doc.custom_payment_status === "Überfällig") {
+                return [__("Überfällig"), "red", "custom_payment_status,=,Überfällig"];
+            }
+            // Unbezahlt - Orange
+            if (doc.custom_payment_status === "Unbezahlt") {
+                return [__("Unbezahlt"), "orange", "custom_payment_status,=,Unbezahlt"];
+            }
+            // Bezahlt - Grün
+            if (doc.custom_payment_status === "Bezahlt") {
+                return [__("Bezahlt"), "green", "custom_payment_status,=,Bezahlt"];
+            }
+        }
+        
+        // Fallback auf Standard-Status
+        if (doc.status === "Active") {
+            return [__("Aktiv"), "green", "status,=,Active"];
+        }
+        if (doc.status === "Past Due Date") {
+            return [__("Überfällig"), "red", "status,=,Past Due Date"];
+        }
+        if (doc.status === "Unpaid") {
+            return [__("Unbezahlt"), "orange", "status,=,Unpaid"];
+        }
+        
+        return [__(doc.status), "gray", "status,=," + doc.status];
+    },
     
     onload: function(listview) {
         console.log('[SUBSCRIPTION FILTER] onload called');

@@ -244,23 +244,11 @@ doc_events = {
 # Scheduled Tasks
 # ---------------
 
-# scheduler_events = {
-# 	"all": [
-# 		"enjo_party.tasks.all"
-# 	],
-# 	"daily": [
-# 		"enjo_party.tasks.daily"
-# 	],
-# 	"hourly": [
-# 		"enjo_party.tasks.hourly"
-# 	],
-# 	"weekly": [
-# 		"enjo_party.tasks.weekly"
-# 	],
-# 	"monthly": [
-# 		"enjo_party.tasks.monthly"
-# 	],
-# }
+scheduler_events = {
+	"daily": [
+		"enjo_party.enjo_party.utils.status_scheduler.update_overdue_status"
+	]
+}
 
 # Testing
 # -------

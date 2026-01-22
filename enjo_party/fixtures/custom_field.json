@@ -11,6 +11,39 @@
  },
  {
   "doctype": "Custom Field",
+  "name": "Sales Order-custom_subscription",
+  "dt": "Sales Order",
+  "fieldname": "custom_subscription",
+  "fieldtype": "Link",
+  "options": "Subscription",
+  "label": "Subscription",
+  "read_only": 1,
+  "insert_after": "custom_shipping_order"
+ },
+ {
+  "doctype": "Custom Field",
+  "name": "Subscription-custom_payment_status",
+  "dt": "Subscription",
+  "fieldname": "custom_payment_status",
+  "fieldtype": "Select",
+  "options": "\nBezahlt\nUnbezahlt\nÜberfällig\nRetourniert\nBeendet",
+  "label": "Zahlungsstatus",
+  "read_only": 1,
+  "in_list_view": 1,
+  "insert_after": "status"
+ },
+ {
+  "doctype": "Custom Field",
+  "name": "Subscription-custom_partnerin",
+  "dt": "Subscription",
+  "fieldname": "custom_partnerin",
+  "fieldtype": "Link",
+  "options": "Sales Partner",
+  "label": "Partnerin",
+  "insert_after": "party"
+ },
+ {
+  "doctype": "Custom Field",
   "name": "Sales Order-custom_shipping_target",
   "dt": "Sales Order",
   "fieldname": "custom_shipping_target",

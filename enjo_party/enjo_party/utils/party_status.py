@@ -2,25 +2,165 @@
 # For license information, please see license.txt
 
 """
-Party-Status-Manipulation
+Party-Status-Berechnung
 
-Dieses Modul manipuliert den ECHTEN ERPNext-Status (per_billed, per_delivered, 
-billing_status, delivery_status) für Parties.
+Dieses Modul berechnet den korrekten Status für Parties (Präsentationen) basierend auf:
+- Zahlungsstatus der Rechnungen (outstanding_amount)
+- Lieferstatus (Delivery Note)
+- Stornierte Rechnungen (Retourniert)
+- Überfälligkeit (due_date + 5 Tage)
 
-Problem:
-- Einzelne Kunden-Aufträge bekommen Rechnungen aber keine Lieferscheine
-- Gruppenversand bekommt Lieferscheine aber keine Rechnungen
-- ERPNext berechnet Status falsch weil die Dokumente "getrennt" sind
-
-Lösung:
-- Wenn ALLE Rechnungen der Party bezahlt sind → setze per_billed=100 
-  für ALLE Sales Orders (inkl. Gruppenversand)
-- Wenn Gruppenversand-Lieferschein gebucht → setze per_delivered=100 
-  für ALLE Sales Orders (inkl. Kunden-Aufträge)
+Status-Hierarchie:
+1. Retourniert - Mind. 1 stornierte Rechnung (docstatus=2)
+2. Überfällig - Mind. 1 Rechnung mit outstanding_amount>0 UND due_date + 5 Tage < heute
+3. Ausgeliefert - Alle Rechnungen bezahlt UND Lieferschein gebucht
+4. Gebucht - docstatus=1, aber noch nicht ausgeliefert oder offene Rechnungen
 """
 
 import frappe
-from frappe.utils import flt
+from frappe.utils import flt, add_days, getdate, today
+
+
+# Anzahl Tage nach Fälligkeit bis "Überfällig"
+OVERDUE_DAYS = 5
+
+
+def calculate_party_status(party_name):
+    """
+    Berechnet den korrekten Status für eine Party.
+    
+    Rückgabe: Der berechnete Status-String
+    
+    Status-Priorität (von höchster zu niedrigster):
+    1. Retourniert - Mind. 1 stornierte Rechnung vorhanden
+    2. Überfällig - Mind. 1 Rechnung überfällig (due_date + 5 Tage < heute)
+    3. Ausgeliefert - Alle Sales Orders vollständig ausgeliefert (per_delivered=100)
+    4. Gebucht - Default für gebuchte Parties
+    """
+    try:
+        # Prüfe ob die Party existiert und gebucht ist
+        party_data = frappe.db.get_value("Party", party_name, 
+                                          ["docstatus", "status"], as_dict=True)
+        
+        if not party_data or party_data.docstatus != 1:
+            # Nicht gebucht - behalte aktuellen Status (Gäste, Produkte, Geschenke)
+            return party_data.status if party_data else "Gäste"
+        
+        # Hole alle Rechnungen dieser Party
+        invoices = frappe.get_all(
+            "Sales Invoice",
+            filters={
+                "custom_party_reference": party_name
+            },
+            fields=["name", "docstatus", "outstanding_amount", "due_date", "grand_total"]
+        )
+        
+        # 1. Prüfe auf stornierte Rechnungen (Retourniert)
+        cancelled_invoices = [inv for inv in invoices if inv.docstatus == 2]
+        if cancelled_invoices:
+            return "Retourniert"
+        
+        # Filtere nur gebuchte Rechnungen für weitere Prüfungen
+        submitted_invoices = [inv for inv in invoices if inv.docstatus == 1]
+        
+        # 2. Prüfe auf überfällige Rechnungen (nur wenn Rechnungen vorhanden)
+        if submitted_invoices:
+            today_date = getdate(today())
+            for inv in submitted_invoices:
+                if flt(inv.outstanding_amount) > 0.01:
+                    # Rechnung ist noch offen - prüfe Fälligkeit
+                    if inv.due_date:
+                        overdue_date = add_days(inv.due_date, OVERDUE_DAYS)
+                        if getdate(overdue_date) < today_date:
+                            return "Überfällig"
+        
+        # 3. HAUPTKRITERIUM: Prüfe ob alle Sales Orders ausgeliefert wurden
+        # Das ist das wichtigste Kriterium, Rechnungen sind sekundär
+        has_delivery = check_party_delivery(party_name)
+        
+        # Wenn vollständig ausgeliefert → Ausgeliefert (unabhängig von Rechnungen)
+        if has_delivery:
+            return "Ausgeliefert"
+        
+        # Sonst: Gebucht
+        return "Gebucht"
+        
+    except Exception as e:
+        frappe.log_error(f"Fehler bei Status-Berechnung für {party_name}: {str(e)}", 
+                        "ERROR: calculate_party_status")
+        return "Gebucht"
+
+
+def check_party_delivery(party_name):
+    """
+    Prüft ob alle Sales Orders der Party ausgeliefert wurden.
+    
+    Rückgabe: True wenn alle Orders per_delivered=100 haben, sonst False
+    """
+    try:
+        # Finde ALLE Sales Orders der Party
+        sales_orders = frappe.get_all(
+            "Sales Order",
+            filters={
+                "custom_party_reference": party_name,
+                "docstatus": 1
+            },
+            fields=["name", "per_delivered", "delivery_status"]
+        )
+        
+        if not sales_orders:
+            # Keine Sales Orders gefunden - nicht ausgeliefert
+            return False
+        
+        # Prüfe ob ALLE Orders vollständig ausgeliefert sind (per_delivered=100)
+        all_delivered = all(flt(so.per_delivered) >= 100 for so in sales_orders)
+        
+        return all_delivered
+        
+    except Exception as e:
+        frappe.log_error(f"Fehler beim Prüfen des Lieferstatus: {str(e)}", 
+                        "ERROR: check_party_delivery")
+        return False
+
+
+def update_party_status(party_name):
+    """
+    Berechnet und aktualisiert den Status einer Party.
+    """
+    try:
+        new_status = calculate_party_status(party_name)
+        current_status = frappe.db.get_value("Party", party_name, "status")
+        
+        # Nur "Gäste" Status nicht überschreiben (initiale Erstellung)
+        # Alle anderen Status (Produkte, Geschenke, Gebucht) können überschrieben werden
+        if current_status == "Gäste":
+            # Gäste-Status nicht automatisch überschreiben
+            return current_status
+        
+        if new_status != current_status:
+            frappe.db.set_value("Party", party_name, "status", new_status, 
+                               update_modified=False)
+            frappe.db.commit()
+            
+            frappe.log_error(f"Party {party_name}: Status geändert von '{current_status}' auf '{new_status}'", 
+                           "INFO: status_updated")
+            
+            # Sende Realtime-Event
+            frappe.publish_realtime(
+                "party_status_updated",
+                {
+                    "doctype": "Party",
+                    "name": party_name,
+                    "status": new_status
+                }
+            )
+        
+        return new_status
+        
+    except Exception as e:
+        frappe.log_error(f"Fehler beim Status-Update: {str(e)}", 
+                        "ERROR: update_party_status")
+        return None
 
 
 def update_party_status_on_payment(doc, method):
@@ -39,7 +179,10 @@ def update_party_status_on_payment(doc, method):
                 if party_reference and frappe.db.exists("Party", party_reference):
                     frappe.log_error(f"Payment für Party {party_reference} erkannt", 
                                     "INFO: party_payment")
+                    # Aktualisiere Sales Order Status-Felder
                     update_party_billing_status(party_reference)
+                    # Berechne und setze Party-Status
+                    update_party_status(party_reference)
                     
     except Exception as e:
         frappe.log_error(f"Fehler beim Update des Billing-Status nach Zahlung: {str(e)}", 
@@ -56,7 +199,10 @@ def update_party_status_on_invoice_payment(doc, method):
         if party_reference and frappe.db.exists("Party", party_reference):
             frappe.log_error(f"Invoice-Update für Party {party_reference}", 
                             "INFO: invoice_update")
+            # Aktualisiere Sales Order Status-Felder
             update_party_billing_status(party_reference)
+            # Berechne und setze Party-Status
+            update_party_status(party_reference)
             
     except Exception as e:
         frappe.log_error(f"Fehler beim Update nach Invoice-Update: {str(e)}", 
@@ -92,7 +238,10 @@ def update_party_status_on_delivery(doc, method):
         if party_reference and frappe.db.exists("Party", party_reference):
             frappe.log_error(f"Gruppenversand-Lieferschein für Party {party_reference}", 
                            "INFO: shipping_delivery")
+            # Aktualisiere Sales Order Status-Felder
             update_party_delivery_status(party_reference)
+            # Berechne und setze Party-Status
+            update_party_status(party_reference)
             
     except Exception as e:
         frappe.log_error(f"Fehler beim Update nach Lieferschein: {str(e)}", 
@@ -450,92 +599,10 @@ def update_party_delivery_status(party_name):
 
 def update_party_completion_status(party_name):
     """
-    Prüft ob ALLE Sales Orders einer Party wirklich "Completed" sind
-    (per_billed=100 UND per_delivered=100) und setzt dann den Status der 
-    Party selbst auf "Abgeschlossen"
-    
-    WICHTIG: Setzt nur auf "Abgeschlossen", wenn wirklich beide Bedingungen erfüllt sind
-    und der Status noch nicht "Abgeschlossen" ist (um alte Daten nicht zu überschreiben)
+    DEPRECATED: Wird durch update_party_status ersetzt.
+    Behalten für Abwärtskompatibilität.
     """
-    try:
-        # Prüfe zuerst ob die Party überhaupt submitted ist
-        party_docstatus = frappe.db.get_value("Party", party_name, "docstatus")
-        if party_docstatus != 1:
-            # Party ist nicht submitted - keine Status-Änderung
-            frappe.log_error(f"Party {party_name} ist nicht submitted (docstatus={party_docstatus}) - überspringe", 
-                           "DEBUG: party_not_submitted")
-            return
-        
-        # Prüfe zuerst den aktuellen Status der Party
-        current_status = frappe.db.get_value("Party", party_name, "status")
-        
-        # Wenn bereits "Abgeschlossen", nichts tun (verhindert Überschreibung alter Daten)
-        if current_status == "Abgeschlossen":
-            frappe.log_error(f"Party {party_name} bereits 'Abgeschlossen' - überspringe", 
-                           "DEBUG: already_completed")
-            return
-        
-        # WICHTIG: Nur prüfen wenn Party im Status "Geschenke" oder "Gebucht" ist
-        # In früheren Status ("Gäste", "Produkte") sollten noch keine Orders existieren
-        if current_status not in ["Geschenke", "Gebucht"]:
-            frappe.log_error(f"Party {party_name} ist im Status '{current_status}' - noch keine Orders erwartet, überspringe", 
-                           "DEBUG: party_not_ready")
-            return
-        
-        # Finde alle Sales Orders der Party mit ihren Status-Werten
-        sales_orders = frappe.get_all(
-            "Sales Order",
-            filters={
-                "custom_party_reference": party_name,
-                "docstatus": 1
-            },
-            fields=["name", "status", "per_billed", "per_delivered", "billing_status", "delivery_status"]
-        )
-        
-        if not sales_orders:
-            # Keine Orders gefunden - Party sollte nicht auf "Abgeschlossen" gesetzt werden
-            frappe.log_error(f"Party {party_name}: Keine Sales Orders gefunden - überspringe", 
-                           "DEBUG: no_orders")
-            return
-        
-        # WICHTIG: Prüfe nicht nur den Status, sondern auch ob wirklich per_billed=100 UND per_delivered=100
-        # Das verhindert, dass alte Orders die zufällig "Completed" sind, die Party auf "Abgeschlossen" setzen
-        all_really_completed = True
-        for so in sales_orders:
-            per_billed = flt(so.per_billed) or 0
-            per_delivered = flt(so.per_delivered) or 0
-            
-            # Nur wenn wirklich beide 100% sind UND Status "Completed", dann ist es wirklich abgeschlossen
-            if not (per_billed >= 100 and per_delivered >= 100 and so.status == "Completed"):
-                all_really_completed = False
-                frappe.log_error(f"Sales Order {so.name}: per_billed={per_billed}, per_delivered={per_delivered}, status={so.status} - NICHT wirklich completed", 
-                               "DEBUG: not_really_completed")
-                break
-        
-        frappe.log_error(f"Party {party_name}: {len(sales_orders)} Orders, alle wirklich completed: {all_really_completed}", 
-                        "DEBUG: completion_check")
-        
-        if all_really_completed:
-            # Setze den Status der Party auf "Abgeschlossen"
-            frappe.db.set_value("Party", party_name, "status", "Abgeschlossen", 
-                               update_modified=False)
-            frappe.db.commit()
-            frappe.log_error(f"Party {party_name} auf 'Abgeschlossen' gesetzt!", 
-                           "SUCCESS: party_completed")
-            
-            # Sende Realtime-Event um geöffnete Dokumente zu aktualisieren
-            frappe.publish_realtime(
-                "party_status_updated",
-                {
-                    "doctype": "Party",
-                    "name": party_name,
-                    "status": "Abgeschlossen"
-                }
-            )
-        
-    except Exception as e:
-        frappe.log_error(f"Fehler beim Update des Party-Status: {str(e)}", 
-                        "ERROR: completion_status")
+    update_party_status(party_name)
 
 
 @frappe.whitelist()
@@ -547,18 +614,16 @@ def recalculate_party_status(party_name):
         frappe.log_error(f"Manuelles Status-Update für {party_name}", 
                         "INFO: manual_update")
         
+        # Aktualisiere Sales Order Status-Felder (für ERPNext-Kompatibilität)
         update_party_billing_status(party_name)
         update_party_delivery_status(party_name)
         
-        # Auch den Completion-Status prüfen
-        update_party_completion_status(party_name)
-        
-        # Aktuellen Status holen
-        current_status = frappe.db.get_value("Party", party_name, "status")
+        # Berechne und setze den neuen Party-Status
+        new_status = update_party_status(party_name)
         
         return {
             "success": True,
-            "message": f"Status wurde aktualisiert (Party: {current_status})"
+            "message": f"Status wurde aktualisiert (Party: {new_status})"
         }
         
     except Exception as e:
@@ -583,8 +648,11 @@ def recalculate_all_party_status():
         updated = 0
         for party in parties:
             try:
+                # Aktualisiere Sales Order Status-Felder
                 update_party_billing_status(party.name)
                 update_party_delivery_status(party.name)
+                # Berechne und setze den Party-Status
+                update_party_status(party.name)
                 updated += 1
             except Exception as e:
                 frappe.log_error(f"Fehler bei {party.name}: {str(e)}", 

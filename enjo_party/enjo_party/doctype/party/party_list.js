@@ -4,16 +4,37 @@
 frappe.listview_settings['Party'] = {
     // Status-Farben definieren
     get_indicator: function(doc) {
+        // Abgesagt (docstatus=2) - Grau
+        if (doc.docstatus === 2) {
+            return [__("Abgesagt"), "gray", "docstatus,=,2"];
+        }
+        // Ausgeliefert - Grün
+        if (doc.status === "Ausgeliefert") {
+            return [__("Ausgeliefert"), "green", "status,=,Ausgeliefert"];
+        }
+        // Überfällig - Rot
+        if (doc.status === "Überfällig") {
+            return [__("Überfällig"), "red", "status,=,Überfällig"];
+        }
+        // Retourniert - Blau
+        if (doc.status === "Retourniert") {
+            return [__("Retourniert"), "blue", "status,=,Retourniert"];
+        }
+        // Gebucht - Gelb
+        if (doc.status === "Gebucht") {
+            return [__("Gebucht"), "yellow", "status,=,Gebucht"];
+        }
+        // Geschenke - Orange (Workflow-Status)
+        if (doc.status === "Geschenke") {
+            return [__("Geschenke"), "orange", "status,=,Geschenke"];
+        }
+        // Produkte - Orange (Workflow-Status)
+        if (doc.status === "Produkte") {
+            return [__("Produkte"), "orange", "status,=,Produkte"];
+        }
+        // Gäste - Orange (Workflow-Status)
         if (doc.status === "Gäste") {
             return [__("Gäste"), "orange", "status,=,Gäste"];
-        } else if (doc.status === "Produkte") {
-            return [__("Produkte"), "yellow", "status,=,Produkte"];
-        } else if (doc.status === "Geschenke") {
-            return [__("Geschenke"), "blue", "status,=,Geschenke"];
-        } else if (doc.status === "Gebucht") {
-            return [__("Gebucht"), "blue", "status,=,Gebucht"];
-        } else if (doc.status === "Abgeschlossen") {
-            return [__("Abgeschlossen"), "green", "status,=,Abgeschlossen"];
         }
         return [__(doc.status), "gray", "status,=," + doc.status];
     },
