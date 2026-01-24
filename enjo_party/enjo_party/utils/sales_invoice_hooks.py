@@ -448,6 +448,107 @@ def after_insert_sales_invoice(doc, method):
     """Hook für Sales Invoice after_insert - keine spezielle Logik mehr nötig"""
     pass
 
+def after_save_sales_invoice(doc, method):
+    """
+    Hook für Sales Invoice after_save
+    Sendet automatisch eine E-Mail mit der Rechnung an den Kunden, wenn die Rechnung gebucht wurde
+    """
+    if doc.doctype != "Sales Invoice":
+        return
+    
+    # Nur wenn die Rechnung gebucht wurde (docstatus == 1)
+    if doc.docstatus != 1:
+        return
+    
+    # Prüfe ob bereits eine E-Mail für diese Rechnung gesendet wurde
+    try:
+        # Prüfe ob bereits eine Email Queue für diese Invoice existiert
+        email_queues = frappe.get_all("Email Queue",
+            filters={
+                "reference_doctype": "Sales Invoice",
+                "reference_name": doc.name,
+                "status": ["!=", "Error"]
+            },
+            fields=["name"],
+            limit=1
+        )
+        
+        if email_queues:
+            frappe.log_error(f"E-Mail bereits gesendet für Invoice {doc.name} (Email Queue gefunden: {email_queues[0].name})", "DEBUG: invoice_email_already_sent")
+            return
+        
+        # Prüfe ob bereits eine Communication für diese Invoice existiert
+        communications = frappe.get_all("Communication",
+            filters={
+                "reference_doctype": "Sales Invoice",
+                "reference_name": doc.name,
+                "communication_type": "Communication",
+                "sent_or_received": "Sent"
+            },
+            fields=["name"],
+            limit=1
+        )
+        
+        if communications:
+            frappe.log_error(f"E-Mail bereits gesendet für Invoice {doc.name} (Communication gefunden: {communications[0].name})", "DEBUG: invoice_email_already_sent")
+            return
+        
+        # Hole E-Mail-Adresse des Kunden
+        email_to = None
+        
+        # Versuche zuerst contact_email aus der Rechnung
+        if getattr(doc, "contact_email", None):
+            email_to = doc.contact_email
+        
+        # Falls nicht vorhanden, hole E-Mail vom Customer
+        if not email_to:
+            email_to = frappe.db.get_value("Customer", doc.customer, "email_id")
+        
+        # Falls immer noch keine E-Mail-Adresse, überspringe Versand
+        if not email_to:
+            frappe.log_error(f"Keine E-Mail-Adresse für Invoice {doc.name} gefunden - Versand übersprungen", "WARNING: invoice_email_no_address")
+            return
+        
+        # Sende E-Mail mit Rechnung
+        # Verwende Frappe's Standard-Funktion zum Versenden von Dokumenten per E-Mail
+        try:
+            # Lade das Dokument neu, um sicherzustellen, dass alle Daten aktuell sind
+            invoice_doc = frappe.get_doc("Sales Invoice", doc.name)
+            
+            # Verwende Frappe's Standard-Funktion zum Versenden von Dokumenten per E-Mail
+            from frappe.email.doctype.email_template.email_template import get_email_template
+            from frappe.utils import get_url_to_form
+            
+            # Versuche eine E-Mail-Vorlage zu finden (optional)
+            email_template = None
+            try:
+                # Suche nach einer E-Mail-Vorlage für Sales Invoice
+                email_template = frappe.db.get_value("Email Template", 
+                    {"reference_doctype": "Sales Invoice", "is_default": 1}, 
+                    "name")
+            except:
+                pass
+            
+            # Erstelle Communication und sende E-Mail
+            from frappe.core.doctype.communication.email import make
+            make(
+                doctype="Sales Invoice",
+                name=invoice_doc.name,
+                recipients=[email_to],
+                send_email=True,
+                print_format=None,  # Verwende Standard-Print-Format
+                subject=f"Rechnung {invoice_doc.name}",
+                message="Hallo,\n\nanbei findest du deine Rechnung.\n\nViele Grüße"
+            )
+            
+            frappe.log_error(f"E-Mail erfolgreich versendet für Invoice {invoice_doc.name} an {email_to}", "INFO: invoice_email_sent")
+            
+        except Exception as e:
+            frappe.log_error(f"Fehler beim Versenden der E-Mail für Invoice {doc.name}: {str(e)}", "ERROR: invoice_email_send_failed")
+    
+    except Exception as e:
+        frappe.log_error(f"Fehler in after_save_sales_invoice für {doc.name}: {str(e)}", "ERROR: after_save_sales_invoice")
+
 def onload_sales_invoice(doc, method):
     """
     Hook für Sales Invoice onload
