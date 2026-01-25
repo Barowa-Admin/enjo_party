@@ -164,7 +164,8 @@ doc_events = {
 		"after_save": "enjo_party.enjo_party.utils.sales_invoice_hooks.after_save_sales_invoice",
 		"on_submit": [
 			"enjo_party.enjo_party.server_scripts.enjo_punkte_vergabe.award_points_on_invoice_submit",
-			"enjo_party.enjo_party.utils.subscription_hooks.create_payment_request_for_subscription_invoice"
+			"enjo_party.enjo_party.utils.subscription_hooks.create_payment_request_for_subscription_invoice",
+			"enjo_party.enjo_party.utils.sales_invoice_hooks.after_save_sales_invoice"
 			# "enjo_party.enjo_party.utils.sales_invoice_hooks.auto_create_picklist_from_invoice"  # DEAKTIVIERT - wird jetzt in Sammelbestellung gesteuert
 		],
 		"on_cancel": "enjo_party.enjo_party.server_scripts.enjo_punkte_vergabe.cancel_points_on_invoice_cancel",

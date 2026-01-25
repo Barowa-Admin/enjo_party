@@ -453,11 +453,15 @@ def after_save_sales_invoice(doc, method):
     Hook für Sales Invoice after_save
     Sendet automatisch eine E-Mail mit der Rechnung an den Kunden, wenn die Rechnung gebucht wurde
     """
+    # Debug-Log um zu sehen, ob die Funktion aufgerufen wird
+    frappe.log_error(f"after_save_sales_invoice aufgerufen für {doc.name}, docstatus: {doc.docstatus}", "DEBUG: after_save_sales_invoice")
+    
     if doc.doctype != "Sales Invoice":
         return
     
     # Nur wenn die Rechnung gebucht wurde (docstatus == 1)
     if doc.docstatus != 1:
+        frappe.log_error(f"Rechnung {doc.name} ist nicht gebucht (docstatus={doc.docstatus}) - E-Mail wird nicht versendet", "DEBUG: after_save_sales_invoice")
         return
     
     # Prüfe ob bereits eine E-Mail für diese Rechnung gesendet wurde
