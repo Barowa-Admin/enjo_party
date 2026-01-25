@@ -531,16 +531,7 @@ def after_save_sales_invoice(doc, method):
             
             # Die korrekten Schlüssel für Frappe Email Templates
             template_subject = email_template.get("subject") if email_template else None
-            template_message = email_template.get("message") if email_template else None  # "message" ist korrekt
-            
-            # Debug: Prüfe die Werte
-            frappe.log_error(f"Subject: '{template_subject}', Message length: {len(template_message) if template_message else 0}", "DEBUG: template_check")
-            
-            # Fallback falls message None ist
-            if not template_message and email_template:
-                # Versuche andere mögliche Schlüssel
-                template_message = email_template.get("response") or email_template.get("content") or email_template.get("body")
-                frappe.log_error(f"Fallback message: {template_message[:100] if template_message else 'None'}", "DEBUG: fallback_message")
+            template_message = email_template.get("response") if email_template else None  # "response" ist korrekt!
             
             make(
                 doctype="Sales Invoice",
@@ -549,7 +540,8 @@ def after_save_sales_invoice(doc, method):
                 send_email=True,
                 print_format=None,  # Verwende Standard-Print-Format
                 subject=template_subject,  # Subject aus Template
-                message=template_message  # Response aus Template
+                message=template_message,  # Response aus Template
+                reply_to=""  # Leere Reply-To Adresse
             )
             
             frappe.log_error(f"E-Mail erfolgreich versendet für Invoice {invoice_doc.name} an {email_to} (mit Template '{email_template_name}')", "INFO: invoice_email_sent")
