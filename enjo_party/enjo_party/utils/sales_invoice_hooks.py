@@ -526,16 +526,12 @@ def after_save_sales_invoice(doc, method):
             # Konvertiere das Dokument zu einem Dictionary für das Template
             email_template = get_email_template(email_template_name, doc=invoice_doc.as_dict())
             
-            # Debug: Zeige Template-Inhalt
-            frappe.log_error(f"Template-Inhalt: {email_template}", "DEBUG: email_template_content")
-            
             # Erstelle Communication und sende E-Mail mit Template
             from frappe.core.doctype.communication.email import make
             
+            # Die korrekten Schlüssel für Frappe Email Templates
             template_subject = email_template.get("subject") if email_template else None
-            template_message = email_template.get("message") if email_template else None
-            
-            frappe.log_error(f"Template Subject: '{template_subject}', Message: '{template_message}'", "DEBUG: template_values")
+            template_message = email_template.get("message") if email_template else None  # "message" ist korrekt
             
             make(
                 doctype="Sales Invoice",
@@ -544,7 +540,7 @@ def after_save_sales_invoice(doc, method):
                 send_email=True,
                 print_format=None,  # Verwende Standard-Print-Format
                 subject=template_subject,  # Subject aus Template
-                message=template_message  # Message aus Template
+                message=template_message  # Response aus Template
             )
             
             frappe.log_error(f"E-Mail erfolgreich versendet für Invoice {invoice_doc.name} an {email_to} (mit Template '{email_template_name}')", "INFO: invoice_email_sent")
