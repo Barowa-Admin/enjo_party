@@ -510,26 +510,18 @@ def after_save_sales_invoice(doc, method):
             return
         
         # Sende E-Mail mit Rechnung
-        # Verwende Frappe's Standard-Funktion zum Versenden von Dokumenten per E-Mail
+        # Verwende das E-Mail-Template "Rechnung"
         try:
             # Lade das Dokument neu, um sicherzustellen, dass alle Daten aktuell sind
             invoice_doc = frappe.get_doc("Sales Invoice", doc.name)
             
-            # Verwende Frappe's Standard-Funktion zum Versenden von Dokumenten per E-Mail
+            # Lade das E-Mail-Template "Rechnung" explizit
             from frappe.email.doctype.email_template.email_template import get_email_template
-            from frappe.utils import get_url_to_form
             
-            # Versuche eine E-Mail-Vorlage zu finden (optional)
-            email_template = None
-            try:
-                # Suche nach einer E-Mail-Vorlage für Sales Invoice
-                email_template = frappe.db.get_value("Email Template", 
-                    {"reference_doctype": "Sales Invoice", "is_default": 1}, 
-                    "name")
-            except:
-                pass
+            email_template_name = "Rechnung"
+            email_template = get_email_template(email_template_name, doc=invoice_doc)
             
-            # Erstelle Communication und sende E-Mail
+            # Erstelle Communication und sende E-Mail mit Template
             from frappe.core.doctype.communication.email import make
             make(
                 doctype="Sales Invoice",
@@ -537,14 +529,16 @@ def after_save_sales_invoice(doc, method):
                 recipients=[email_to],
                 send_email=True,
                 print_format=None,  # Verwende Standard-Print-Format
-                subject=f"Rechnung {invoice_doc.name}",
-                message="Hallo,\n\nanbei findest du deine Rechnung.\n\nViele Grüße"
+                subject=email_template.get("subject"),  # Subject aus Template
+                message=email_template.get("message")  # Message aus Template
             )
             
-            frappe.log_error(f"E-Mail erfolgreich versendet für Invoice {invoice_doc.name} an {email_to}", "INFO: invoice_email_sent")
+            frappe.log_error(f"E-Mail erfolgreich versendet für Invoice {invoice_doc.name} an {email_to} (mit Template '{email_template_name}')", "INFO: invoice_email_sent")
             
         except Exception as e:
             frappe.log_error(f"Fehler beim Versenden der E-Mail für Invoice {doc.name}: {str(e)}", "ERROR: invoice_email_send_failed")
+            import traceback
+            frappe.log_error(f"Traceback: {traceback.format_exc()}", "ERROR: invoice_email_send_failed_traceback")
     
     except Exception as e:
         frappe.log_error(f"Fehler in after_save_sales_invoice für {doc.name}: {str(e)}", "ERROR: after_save_sales_invoice")
