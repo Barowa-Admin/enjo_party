@@ -527,11 +527,22 @@ def after_save_sales_invoice(doc, method):
             email_template = get_email_template(email_template_name, doc=invoice_doc.as_dict())
             
             # Sende E-Mail mit Template (message/content muss gesetzt sein)
-            from frappe import sendmail
+            from frappe import attach_print, sendmail
             
             # get_email_template liefert {"subject", "message"}
             template_subject = email_template.get("subject") if email_template else None
             template_message = email_template.get("message") if email_template else None
+            
+            print_format = invoice_doc.meta.default_print_format or "Standard"
+            attachments = [
+                attach_print(
+                    "Sales Invoice",
+                    invoice_doc.name,
+                    file_name=invoice_doc.name,
+                    doc=invoice_doc,
+                    print_format=print_format,
+                )
+            ]
             
             sendmail(
                 recipients=[email_to],
@@ -539,7 +550,7 @@ def after_save_sales_invoice(doc, method):
                 message=template_message,
                 reference_doctype="Sales Invoice",
                 reference_name=invoice_doc.name,
-                reply_to="",  # Reply-To leer setzen
+                attachments=attachments,
             )
             
             frappe.log_error(f"E-Mail erfolgreich versendet für Invoice {invoice_doc.name} an {email_to} (mit Template '{email_template_name}')", "INFO: invoice_email_sent")
