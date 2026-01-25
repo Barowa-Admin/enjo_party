@@ -523,7 +523,8 @@ def after_save_sales_invoice(doc, method):
             from frappe.email.doctype.email_template.email_template import get_email_template
             
             email_template_name = "Rechnung"
-            email_template = get_email_template(email_template_name, doc=invoice_doc)
+            # Konvertiere das Dokument zu einem Dictionary für das Template
+            email_template = get_email_template(email_template_name, doc=invoice_doc.as_dict())
             
             # Erstelle Communication und sende E-Mail mit Template
             from frappe.core.doctype.communication.email import make
