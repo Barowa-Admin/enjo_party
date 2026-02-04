@@ -108,7 +108,7 @@ frappe.ui.form.CustomerQuickEntryForm = class CustomerQuickEntryForm extends fra
 		this.dialog.set_df_property('address_line2', 'reqd', 1);   // Pflichtfeld
 		
 		// Lieferadresse für Unternehmen
-		this.dialog.set_df_property('shipping_address_line1', 'label', 'Name des Ansprechpartners');
+		this.dialog.set_df_property('shipping_address_line1', 'label', 'Lieferschein Aufschrift');
 		this.dialog.set_df_property('shipping_address_line2', 'label', 'Straße & Hausnummer');
 		this.dialog.set_df_property('shipping_address_line2', 'hidden', 0);  // Sichtbar machen
 		

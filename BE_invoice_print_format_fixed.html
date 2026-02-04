@@ -51,7 +51,8 @@
             <td style="width: 33%; vertical-align: top; padding-right: 15px;">
                 <div style="font-size: 11px; font-weight: bold; color: #333; margin-bottom: 5px; text-transform: uppercase; letter-spacing: 0.5px;">Lieferadresse</div>
                 {% if doc.shipping_address_name and doc.shipping_address_name != doc.customer_address %}
-                <div style="font-size: 12px; font-weight: bold; margin-bottom: 3px;">{{ doc.shipping_address_name }}</div>
+                {% set shipping_addr_doc = frappe.get_doc("Address", doc.shipping_address_name) %}
+                <div style="font-size: 12px; font-weight: bold; margin-bottom: 3px;">{{ shipping_addr_doc.get("address_title") or doc.shipping_address_name }}</div>
                 {% if doc.shipping_address %}
                     {% set shipping_lines = doc.shipping_address.split('\n') %}
                     {% for line in shipping_lines %}
@@ -128,6 +129,13 @@
                             <span style="color: #555;"> {{ sammel_doc.sammelbestellung_name or party_ref }}</span>
                         </div>
                     {% endif %}
+                {% endif %}
+                
+                {% if doc.subscription %}
+                <div style="margin-bottom: 3px; font-size: 11px;">
+                    <span style="font-weight: bold; color: #666;">Abo-Nr.:</span>
+                    <span style="color: #555;"> {{ doc.subscription }}</span>
+                </div>
                 {% endif %}
                 
                 {% if doc.contact_email %}
