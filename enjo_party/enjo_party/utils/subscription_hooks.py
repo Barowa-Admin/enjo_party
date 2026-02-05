@@ -136,6 +136,22 @@ def get_invoice_email_address(invoice):
 
     return None
 
+
+def _get_partnerin_email(sales_partner_name):
+    """E-Mail der Vertriebspartnerin: Sales Partner hat User-Link -> User.email."""
+    if not sales_partner_name:
+        return None
+    try:
+        meta = frappe.get_meta("Sales Partner")
+        if meta.has_field("user"):
+            user = frappe.db.get_value("Sales Partner", sales_partner_name, "user")
+            if user:
+                return frappe.db.get_value("User", user, "email")
+    except Exception:
+        pass
+    return None
+
+
 def send_subscription_payment_request_email(payment_request, invoice, include_payment_link):
     """
     Sendet die E-Mail für Subscription-Payment-Requests kontrolliert aus.
@@ -177,7 +193,34 @@ def send_subscription_payment_request_email(payment_request, invoice, include_pa
         payment_request.db_set("message", message, update_modified=False)
 
     payment_request.db_set("subject", f"Rechnung {invoice.name}", update_modified=False)
-    payment_request.send_email()
+
+    # BCC: Vertriebspartnerin aus der Rechnung (Sales Invoice.sales_partner)
+    bcc_list = None
+    sales_partner = getattr(invoice, "sales_partner", None) or (invoice.get("sales_partner") if isinstance(invoice, dict) else None)
+    if sales_partner:
+        partnerin_email = _get_partnerin_email(sales_partner)
+        if partnerin_email:
+            bcc_list = [partnerin_email]
+
+    from frappe.utils.background_jobs import enqueue
+    email_args = {
+        "recipients": email_to,
+        "sender": None,
+        "subject": payment_request.subject,
+        "message": payment_request.get_message(),
+        "now": True,
+        "attachments": [
+            frappe.attach_print(
+                payment_request.reference_doctype,
+                payment_request.reference_name,
+                file_name=payment_request.reference_name,
+                print_format=payment_request.print_format,
+            )
+        ],
+    }
+    if bcc_list:
+        email_args["bcc"] = bcc_list
+    enqueue(method=frappe.sendmail, queue="short", timeout=300, is_async=True, **email_args)
     payment_request.make_communication_entry()
 
 def is_first_invoice_for_subscription(invoice_name, subscription_name):
