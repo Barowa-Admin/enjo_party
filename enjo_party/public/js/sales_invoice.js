@@ -486,21 +486,8 @@ frappe.ui.form.on('Sales Invoice Item', {
                 const premiumVariants = (r.message.variants && r.message.variants.premium) ? r.message.variants.premium : [];
                 const allAktionsCodes = [...standardVariants, ...premiumVariants].map(v => v.code).filter(Boolean);
 
-                // Manuelles Hinzufügen von Aktionsartikeln unterbinden
-                if (allAktionsCodes.includes(row.item_code)) {
-                    frappe.show_alert('Aktionsartikel dürfen nur über das Auswahlfenster hinzugefügt werden.', 5);
-                    try {
-                        const grid = frm.get_field("items").grid;
-                        const gr = grid.grid_rows_by_docname[cdn];
-                        if (gr) {
-                            gr.remove();
-                            frm.refresh_field("items");
-                            return;
-                        }
-                    } catch (e) { /* fallback unten */ }
-                    frappe.model.set_value(cdt, cdn, 'item_code', '');
-                    frappe.model.set_value(cdt, cdn, 'qty', 0);
-                }
+                // Bei der Rechnung (nur Chef-Zugriff): Aktionsartikel dürfen manuell hinzugefügt werden.
+                // Block nur im Sales Order (sales_order.js).
             }
         });
     },
