@@ -1,0 +1,276 @@
+{% set company = frappe.get_doc("Company", doc.company) %}
+
+{% for page_num in range(1, 2) %}
+<div class="print-format page-{{ page_num }}" style="margin: 0; padding: 25px 15px 15px 15px; font-family: 'Aptos', 'Segoe UI', Arial, sans-serif; position: relative; font-size: 10px;">
+    <!-- Briefkopf mit zwei Logos -->
+    <div style="position: relative; margin-bottom: 20px; border-bottom: 1px solid #ccc; padding-bottom: 15px;">
+        <!-- ENJO Logo links oben -->
+        <div style="position: absolute; top: 0; left: 0;">
+            <img src="https://bemotion.qob.app/files/logo_DE_Mittre.jpg" style="max-width: 100px; max-height: 75px; width: 100px; height: auto;" alt="ENJO Logo">
+        </div>
+        
+        <!-- BE'motion Logo rechts oben -->
+        <div style="position: absolute; top: 0; right: 0;">
+            <img src="https://bemotion.qob.app/files/Logo_Transparent_2.png" style="max-width: 100px; max-height: 75px; width: 80px; height: auto;" alt="BE'motion Logo">
+        </div>
+        
+        <!-- Adresse mittig -->
+        <div style="margin: 0 120px; text-align: center;">
+            <div style="font-size: 16px; font-weight: bold; margin-bottom: 6px;">ENJO Deutschland Mitte</div>
+            <div style="font-size: 14px; margin-bottom: 2px;">BE'motion - Inhaberin Esther Buchroth</div>
+            <div style="font-size: 12px; margin-bottom: 2px;">Elisabeth-Schumacher-Str.33</div>
+            <div style="font-size: 12px; margin-bottom: 2px;">04328 Leipzig</div>
+        </div>
+    </div>
+    
+    <!-- Angebot Header -->
+    <div style="text-align: center; margin-bottom: 10px;">
+        <h1 style="font-size: 20px; margin: 0 0 2px 0;">ANGEBOT</h1>
+    </div>
+    
+    <!-- Professionelles 3-Spalten Layout -->
+    <table style="width: 100%; margin-bottom: 20px; border-collapse: collapse;">
+        <tr>
+            <!-- Kundenadresse -->
+            <td style="width: 33%; vertical-align: top; padding-right: 15px;">
+                <div style="font-size: 11px; font-weight: bold; color: #333; margin-bottom: 5px; text-transform: uppercase; letter-spacing: 0.5px;">Kundenadresse</div>
+                <div style="font-size: 12px; font-weight: bold; margin-bottom: 3px;">{{ doc.party_name or doc.customer_name }}</div>
+                
+                {% if doc.address_display %}
+                    {% set address_lines = doc.address_display.split('\n') %}
+                    {% for line in address_lines %}
+                        {% if line.strip() %}
+                            <div style="font-size: 11px; margin-bottom: 1px; color: #555;">{{ line.strip() }}</div>
+                        {% endif %}
+                    {% endfor %}
+                {% endif %}
+            </td>
+            
+            <!-- Lieferadresse -->
+            <td style="width: 33%; vertical-align: top; padding-right: 15px;">
+                <div style="font-size: 11px; font-weight: bold; color: #333; margin-bottom: 5px; text-transform: uppercase; letter-spacing: 0.5px;">Lieferadresse</div>
+                {% if doc.shipping_address_name and doc.shipping_address_name != doc.customer_address and frappe.db.exists("Address", doc.shipping_address_name) %}
+                {% set shipping_addr_doc = frappe.get_doc("Address", doc.shipping_address_name) %}
+                <div style="font-size: 12px; font-weight: bold; margin-bottom: 3px;">{{ shipping_addr_doc.get("address_title") or doc.shipping_address_name }}</div>
+                {% if doc.shipping_address %}
+                    {% set shipping_lines = doc.shipping_address.split('\n') %}
+                    {% for line in shipping_lines %}
+                        {% if line.strip() %}
+                            <div style="font-size: 11px; margin-bottom: 1px; color: #555;">{{ line.strip() }}</div>
+                        {% endif %}
+                    {% endfor %}
+                {% endif %}
+                {% else %}
+                <div style="font-size: 12px; font-weight: bold; margin-bottom: 3px;">{{ doc.party_name or doc.customer_name }}</div>
+                {% if doc.address_display %}
+                    {% set address_lines = doc.address_display.split('\n') %}
+                    {% for line in address_lines %}
+                        {% if line.strip() %}
+                            <div style="font-size: 11px; margin-bottom: 1px; color: #555;">{{ line.strip() }}</div>
+                        {% endif %}
+                    {% endfor %}
+                {% endif %}
+                {% endif %}
+            </td>
+            
+            <!-- Angebotsdaten -->
+            <td style="width: 34%; vertical-align: top;">
+                <div style="font-size: 11px; font-weight: bold; color: #333; margin-bottom: 5px; text-transform: uppercase; letter-spacing: 0.5px;">Angebotsdaten</div>
+                
+                <div style="margin-bottom: 3px; font-size: 11px;">
+                    <span style="font-weight: bold; color: #666;">Angebotsnr.:</span>
+                    <span style="font-weight: bold; color: #555;"> {{ doc.name }}</span>
+                </div>
+                
+                <div style="margin-bottom: 3px; font-size: 11px;">
+                    <span style="font-weight: bold; color: #666;">Datum:</span>
+                    <span style="color: #555;"> {{ doc.get_formatted("transaction_date") if doc.transaction_date else "-" }}</span>
+                </div>
+                
+                <div style="margin-bottom: 3px; font-size: 11px;">
+                    <span style="font-weight: bold; color: #666;">Gültig bis:</span>
+                    <span style="color: #555;"> {{ doc.get_formatted("valid_till") if doc.valid_till else "-" }}</span>
+                </div>
+                
+                <div style="margin-bottom: 3px; font-size: 11px;">
+                    <span style="font-weight: bold; color: #666;">Vertriebspartner:</span>
+                    <span style="color: #555;"> {{ doc.sales_partner or "-" }}</span>
+                </div>
+                
+                <div style="margin-bottom: 3px; font-size: 11px;">
+                    <span style="font-weight: bold; color: #666;">Kundennummer:</span>
+                    <span style="color: #555;"> {{ doc.customer or doc.party_name or "-" }}</span>
+                </div>
+                
+                {% if doc.get("custom_party_reference") %}
+                    {% set party_ref = doc.custom_party_reference %}
+                    {% set is_party = frappe.db.exists("Party", party_ref) %}
+                    {% set is_sammelbestellung = frappe.db.exists("Sammelbestellung", party_ref) %}
+                    {% if is_party %}
+                        {% set party_doc = frappe.get_doc("Party", party_ref) %}
+                        <div style="margin-bottom: 3px; font-size: 11px;">
+                            <span style="font-weight: bold; color: #666;">Präsentation:</span>
+                            <span style="color: #555;"> {{ party_doc.party_name or party_ref }}</span>
+                        </div>
+                    {% elif is_sammelbestellung %}
+                        {% set sammel_doc = frappe.get_doc("Sammelbestellung", party_ref) %}
+                        <div style="margin-bottom: 3px; font-size: 11px;">
+                            <span style="font-weight: bold; color: #666;">Sammelbestellung:</span>
+                            <span style="color: #555;"> {{ sammel_doc.sammelbestellung_name or party_ref }}</span>
+                        </div>
+                    {% endif %}
+                {% endif %}
+                
+                {% if doc.get("contact_email") %}
+                <div style="margin-bottom: 3px; font-size: 11px;">
+                    <span style="font-weight: bold; color: #666;">E-Mail:</span>
+                    <span style="color: #555;"> {{ doc.contact_email }}</span>
+                </div>
+                {% endif %}
+                
+                {% if doc.get("contact_mobile") %}
+                <div style="margin-bottom: 3px; font-size: 11px;">
+                    <span style="font-weight: bold; color: #666;">Telefon:</span>
+                    <span style="color: #555;"> {{ doc.contact_mobile }}</span>
+                </div>
+                {% endif %}
+            </td>
+        </tr>
+    </table>
+    
+    <!-- Items Tabelle mit angepassten Spaltenbreiten -->
+    <table style="width: 100%; border-collapse: collapse; margin-bottom: 10px;" border="1">
+        <thead>
+            <tr style="background-color: #f8f9fa;">
+                <th style="padding: 6px; text-align: center; width: 8%; font-size: 12px;">Pos</th>
+                <th style="padding: 6px; text-align: left; width: 20%; font-size: 12px;">Artikel</th>
+                <th style="padding: 6px; text-align: left; width: 35%; font-size: 12px;">Artikelname</th>
+                <th style="padding: 6px; text-align: center; width: 10%; font-size: 12px;">Menge</th>
+                <th style="padding: 6px; text-align: right; width: 12%; font-size: 12px;">Einzelpreis</th>
+                <th style="padding: 6px; text-align: right; width: 12%; font-size: 12px;">Betrag</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for item in doc.items %}
+                {% set is_gg = False %}
+                {% set original_text = "" %}
+                {% set rabatt_text = "" %}
+                
+                {% if item.description and item.description|string %}
+                    {% set desc_str = item.description|string %}
+                    {% if "GG - Original:" in desc_str %}
+                        {% set is_gg = True %}
+                        {% set desc_parts = desc_str.split("Original:") %}
+                        {% if desc_parts|length > 1 %}
+                            {% set after_original = desc_parts[1] %}
+                            {% if "," in after_original %}
+                                {% set original_text = after_original.split(",")[0].strip() %}
+                                {% if "Rabatt:" in after_original %}
+                                    {% set rabatt_text = after_original.split("Rabatt:")[1].strip() %}
+                                {% endif %}
+                            {% else %}
+                                {% set original_text = after_original.strip() %}
+                            {% endif %}
+                        {% endif %}
+                    {% endif %}
+                {% endif %}
+            <tr>
+                <td style="padding: 6px; text-align: center; font-size: 12px;">{{ item.idx }}</td>
+                <td style="padding: 6px; font-size: 12px;">{{ item.item_code }}</td>
+                <td style="padding: 6px; font-size: 12px; vertical-align: top;">
+                    <div style="line-height: 1.4;">{{ item.item_name or '' }}</div>
+                    {% if is_gg and original_text %}
+                    <div style="font-size: 9px; color: #666; margin-top: 4px; font-style: italic; line-height: 1.3;">
+                        <span style="text-decoration: line-through;">Original: {{ original_text }}</span>
+                        {% if rabatt_text %}<span style="margin-left: 10px; color: #dc2626;">{{ rabatt_text }}</span>{% endif %}
+                    </div>
+                    {% endif %}
+                </td>
+                <td style="padding: 6px; text-align: center; font-size: 12px;">{{ item.qty|int if item.qty|int == item.qty else item.qty }}</td>
+                <td style="padding: 6px; text-align: right; font-size: 12px;">{{ item.get_formatted("rate", doc) }}</td>
+                <td style="padding: 6px; text-align: right; font-size: 12px;">{{ item.get_formatted("amount", doc) }}</td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+    
+    <!-- Gewicht und Totals -->
+    <table style="width: 100%; margin-bottom: 10px;">
+        <tr>
+            <td style="width: 50%; vertical-align: top;">
+                {% if doc.get("total_net_weight") %}
+                <div style="margin-bottom: 8px; font-size: 12px;"><strong>Gewicht:</strong> {{ doc.total_net_weight }} g</div>
+                {% endif %}
+                <div style="font-size: 12px;"><strong>Gesamtmenge:</strong> 
+                    {% set total_qty = namespace(value=0) %}
+                    {% for item in doc.items %}
+                        {% set total_qty.value = total_qty.value + (item.qty|float) %}
+                    {% endfor %}
+                    {{ total_qty.value|int if total_qty.value|int == total_qty.value else total_qty.value }}
+                </div>
+            </td>
+            <td style="width: 50%; vertical-align: top;">
+                <table style="width: 100%; border-collapse: collapse;">
+                    <tr>
+                        <td style="padding: 3px; text-align: right; font-size: 12px;">Nettosumme:</td>
+                        <td style="padding: 3px; text-align: right; width: 120px; font-size: 12px;">{{ doc.get_formatted("net_total", doc) }}</td>
+                    </tr>
+                    {% for tax in doc.taxes %}
+                    <tr>
+                        <td style="padding: 3px; text-align: right; font-size: 12px;">
+                            {% if tax.description and "Umsatzsteuer" in tax.description %}
+                                {{ tax.description.replace("Umsatzsteuer", "MwSt.") }}:
+                            {% else %}
+                                {{ tax.description or "" }}:
+                            {% endif %}
+                        </td>
+                        <td style="padding: 3px; text-align: right; font-size: 12px;">{{ tax.get_formatted("tax_amount", doc) }}</td>
+                    </tr>
+                    {% endfor %}
+                    <tr style="border-top: 2px solid #000; font-weight: bold;">
+                        <td style="padding: 6px; text-align: right; font-size: 12px;"><strong>Gesamtsumme:</strong></td>
+                        <td style="padding: 6px; text-align: right; font-size: 12px;"><strong>{{ doc.get_formatted("grand_total", doc) }}</strong></td>
+                    </tr>
+                </table>
+            </td>
+        </tr>
+    </table>
+    
+    <!-- Hinweis für Angebot -->
+    <div style="text-align: center; margin: 10px 0; padding: 8px; background-color: #f8f9fa; border: 1px solid #dee2e6; border-radius: 4px;">
+        <p style="margin: 0; font-size: 12px; color: #333;">Dieses Angebot ist freibleibend und unverbindlich.</p>
+    </div>
+</div>
+{% endfor %}
+
+<style>
+@page {
+  size: A4;
+  margin: 20mm 20mm 20mm 20mm;
+}
+
+@media print {
+  html, body {
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
+  }
+  .print-format img {
+    max-width: 100px;
+    max-height: 75px;
+    height: auto;
+  }
+  .print-format h1 { font-size: 20px; }
+  .print-format td, .print-format th { font-size: 11px; }
+  .footer-static {
+    position: fixed;
+    bottom: 0;
+    left: 0;
+    right: 0;
+    width: 100%;
+    font-size: 9px;
+    line-height: 1.2;
+    padding: 10px 15px;
+    background: white;
+  }
+}
+</style>

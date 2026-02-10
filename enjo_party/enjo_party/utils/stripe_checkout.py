@@ -115,6 +115,67 @@ def create_stripe_checkout_session(payment_request):
         return None
 
 
+def get_payment_link_url(payment_request_name):
+    """
+    Gibt die dauerhafte Zahlungs-URL zurück. Dieser Link leitet bei jedem Klick
+    auf eine frische Stripe Checkout Session weiter (gültig 24h), sodass der
+    Link in E-Mail/Rechnung nicht nach 24 Stunden abläuft.
+    """
+    base = frappe.utils.get_url()
+    from urllib.parse import quote
+    return f"{base}/api/method/enjo_party.enjo_party.utils.stripe_checkout.redirect_to_stripe_checkout?payment_request_name={quote(str(payment_request_name))}"
+
+
+@frappe.whitelist(allow_guest=True)
+def redirect_to_stripe_checkout(payment_request_name):
+    """
+    Erstellt bei jedem Aufruf eine neue Stripe Checkout Session und leitet
+    dorthin weiter. So bleibt der Link in E-Mails/Rechnungen dauerhaft nutzbar
+    (Stripe-Sessions laufen nach 24h ab, dieser Link nicht).
+    """
+    try:
+        if not payment_request_name:
+            frappe.respond_as_web_page(
+                _("Ungültiger Link"),
+                _("Zahlungslink ist ungültig."),
+                indicator_color="red",
+                http_status_code=400,
+            )
+            return
+        if not frappe.db.exists("Payment Request", payment_request_name):
+            frappe.respond_as_web_page(
+                _("Link ungültig"),
+                _("Zahlungsanfrage wurde nicht gefunden."),
+                indicator_color="red",
+                http_status_code=404,
+            )
+            return
+        frappe.set_user("Administrator")
+        payment_request = frappe.get_doc("Payment Request", payment_request_name)
+        if payment_request.status == "Paid":
+            redirect_url = frappe.utils.get_url()
+            frappe.redirect(redirect_url)
+            return
+        checkout_url = create_stripe_checkout_session(payment_request)
+        if checkout_url:
+            frappe.redirect(checkout_url)
+        else:
+            frappe.respond_as_web_page(
+                _("Zahlungslink konnte nicht erstellt werden"),
+                _("Bitte versuche es später erneut oder kontaktiere uns."),
+                indicator_color="red",
+                http_status_code=500,
+            )
+    except Exception as e:
+        frappe.log_error(f"Fehler in redirect_to_stripe_checkout: {str(e)}", "ERROR: stripe_checkout")
+        frappe.respond_as_web_page(
+            _("Fehler"),
+            _("Zahlungslink konnte nicht geladen werden."),
+            indicator_color="red",
+            http_status_code=500,
+        )
+
+
 @frappe.whitelist(allow_guest=True)
 def get_stripe_checkout_url(payment_request_name):
     """

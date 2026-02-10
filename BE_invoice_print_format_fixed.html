@@ -327,18 +327,16 @@
         {% if payment_requests %}
             {% set pr = payment_requests[0] %}
             {% set payment_url = None %}
-            {# WICHTIG: Verwende nur die gespeicherte payment_url, wenn sie eine Stripe Checkout URL ist #}
-            {# Prüfe ob payment_url mit checkout.stripe.com beginnt (nicht mit /stripe_checkout) #}
+            {# Quelle: immer nur pr.payment_url (eine Stelle). Gültig: Stripe-Checkout-URL ODER unser Dauer-Link (redirect_to_stripe_checkout). Nie: /stripe_checkout #}
             {% if pr.payment_url %}
                 {% set url_str = pr.payment_url|string %}
                 {% if "checkout.stripe.com" in url_str and "/stripe_checkout" not in url_str %}
-                    {# Das ist eine echte Stripe Checkout URL #}
                     {% set payment_url = pr.payment_url %}
-                {% elif not pr.payment_gateway %}
-                    {# Wenn payment_gateway leer ist, verwende die gespeicherte payment_url direkt (nur wenn nicht /stripe_checkout) #}
-                    {% if "/stripe_checkout" not in url_str %}
-                        {% set payment_url = pr.payment_url %}
-                    {% endif %}
+                {% elif "redirect_to_stripe_checkout" in url_str %}
+                    {# Unser dauerhafter Zahlungslink (erzeugt bei Klick neue Stripe-Session) #}
+                    {% set payment_url = pr.payment_url %}
+                {% elif not pr.payment_gateway and "/stripe_checkout" not in url_str %}
+                    {% set payment_url = pr.payment_url %}
                 {% endif %}
             {% endif %}
             {% if payment_url %}

@@ -1,7 +1,7 @@
 import frappe
 from frappe import _
 from frappe.utils import add_days, today
-from enjo_party.enjo_party.utils.stripe_checkout import create_stripe_checkout_session
+from enjo_party.enjo_party.utils.stripe_checkout import create_stripe_checkout_session, get_payment_link_url
 from enjo_party.enjo_party.utils.stripe_subscription import cancel_stripe_subscription_at_period_end
 from enjo_party.enjo_party.utils.sales_invoice_hooks import ensure_inclusive_taxes
 
@@ -492,30 +492,31 @@ def force_subscription_update(doc, method):
                     stripe_url = create_stripe_checkout_session(payment_request)
                 
                 if stripe_url:
-                    # Immer die echte Stripe-URL verwenden
-                    payment_request.payment_url = stripe_url
+                    # Dauerhafte Zahlungs-URL verwenden (bei Klick wird neue Stripe-Session erzeugt, Link läuft nicht nach 24h ab)
+                    payment_link_url = get_payment_link_url(payment_request.name)
+                    payment_request.payment_url = payment_link_url
                     # WICHTIG: Lokale Checkout-Seite dauerhaft deaktivieren.
                     # Durch das Leeren von payment_gateway verhindert ERPNext das Generieren von /stripe_checkout-Links.
                     # payment_gateway_account NICHT löschen, da Subscription Plans es benötigen
                     payment_request.db_set('payment_gateway', '', update_modified=False)
-                    # Speichere payment_url in DB
-                    payment_request.db_set('payment_url', stripe_url, update_modified=False)
+                    # Speichere payment_url in DB (dauerhafter Link)
+                    payment_request.db_set('payment_url', payment_link_url, update_modified=False)
                     frappe.db.commit()
                     # Prüfe nochmal ob payment_url gesetzt wurde
                     payment_request.reload()
-                    if payment_request.payment_url != stripe_url:
+                    if payment_request.payment_url != payment_link_url:
                         frappe.log_error(f"SUBSCRIPTION HOOK: payment_url wurde nicht gespeichert, setze erneut", "WARNING: subscription_hook")
-                        payment_request.db_set('payment_url', stripe_url, update_modified=False)
+                        payment_request.db_set('payment_url', payment_link_url, update_modified=False)
                         frappe.db.commit()
-                    frappe.log_error(f"SUBSCRIPTION HOOK: payment_url erfolgreich gesetzt: {stripe_url[:50]}...", "DEBUG: subscription_hook")
+                    frappe.log_error(f"SUBSCRIPTION HOOK: payment_url (dauerhafter Link) gesetzt", "DEBUG: subscription_hook")
                     
-                    # Rendere Message Template aus Payment Gateway Account
+                    # Rendere Message Template aus Payment Gateway Account (mit dauerhaftem payment_url)
                     from frappe.utils.jinja import render_template
                     gateway_account = frappe.get_doc("Payment Gateway Account", "Stripe-Stripe - EUR")
                     message_template = gateway_account.message or ""
                     rendered_message = render_template(message_template, {
                         "doc": invoice,
-                        "payment_url": stripe_url
+                        "payment_url": payment_link_url
                     })
                     payment_request.message = rendered_message
                     payment_request.save(ignore_permissions=True)
@@ -527,7 +528,7 @@ def force_subscription_update(doc, method):
                 
                 # WICHTIG: payment_url NACH Submit nochmal setzen, da ERPNext es möglicherweise überschreibt
                 if stripe_url:
-                    payment_request.db_set('payment_url', stripe_url, update_modified=False)
+                    payment_request.db_set('payment_url', payment_link_url, update_modified=False)
                     frappe.db.commit()
                     frappe.log_error(f"SUBSCRIPTION HOOK: payment_url nach submit erneut gesetzt", "DEBUG: subscription_hook")
                 
@@ -690,30 +691,31 @@ def create_payment_request_for_subscription_invoice(doc, method):
                     stripe_url = create_stripe_checkout_session(payment_request)
                 
                 if stripe_url:
-                    # Immer die echte Stripe-URL verwenden
-                    payment_request.payment_url = stripe_url
+                    # Dauerhafte Zahlungs-URL verwenden (bei Klick wird neue Stripe-Session erzeugt, Link läuft nicht nach 24h ab)
+                    payment_link_url = get_payment_link_url(payment_request.name)
+                    payment_request.payment_url = payment_link_url
                     # WICHTIG: Lokale Checkout-Seite dauerhaft deaktivieren.
                     # Durch das Leeren von payment_gateway verhindert ERPNext das Generieren von /stripe_checkout-Links.
                     # payment_gateway_account NICHT löschen, da Subscription Plans es benötigen
                     payment_request.db_set('payment_gateway', '', update_modified=False)
-                    # Speichere payment_url in DB
-                    payment_request.db_set('payment_url', stripe_url, update_modified=False)
+                    # Speichere payment_url in DB (dauerhafter Link)
+                    payment_request.db_set('payment_url', payment_link_url, update_modified=False)
                     frappe.db.commit()
                     # Prüfe nochmal ob payment_url gesetzt wurde
                     payment_request.reload()
-                    if payment_request.payment_url != stripe_url:
+                    if payment_request.payment_url != payment_link_url:
                         frappe.log_error(f"SUBSCRIPTION HOOK: payment_url wurde nicht gespeichert, setze erneut", "WARNING: subscription_hook")
-                        payment_request.db_set('payment_url', stripe_url, update_modified=False)
+                        payment_request.db_set('payment_url', payment_link_url, update_modified=False)
                         frappe.db.commit()
-                    frappe.log_error(f"SUBSCRIPTION HOOK: payment_url erfolgreich gesetzt: {stripe_url[:50]}...", "DEBUG: subscription_hook")
+                    frappe.log_error(f"SUBSCRIPTION HOOK: payment_url (dauerhafter Link) gesetzt", "DEBUG: subscription_hook")
                     
-                    # Rendere Message Template aus Payment Gateway Account
+                    # Rendere Message Template aus Payment Gateway Account (mit dauerhaftem payment_url)
                     from frappe.utils.jinja import render_template
                     gateway_account = frappe.get_doc("Payment Gateway Account", "Stripe-Stripe - EUR")
                     message_template = gateway_account.message or ""
                     rendered_message = render_template(message_template, {
                         "doc": doc,
-                        "payment_url": stripe_url
+                        "payment_url": payment_link_url
                     })
                     payment_request.message = rendered_message
                     payment_request.save(ignore_permissions=True)
@@ -725,7 +727,7 @@ def create_payment_request_for_subscription_invoice(doc, method):
                 
                 # WICHTIG: payment_url NACH Submit nochmal setzen, da ERPNext es möglicherweise überschreibt
                 if stripe_url:
-                    payment_request.db_set('payment_url', stripe_url, update_modified=False)
+                    payment_request.db_set('payment_url', payment_link_url, update_modified=False)
                     frappe.db.commit()
                     frappe.log_error(f"SUBSCRIPTION HOOK: payment_url nach submit erneut gesetzt", "DEBUG: subscription_hook")
                 
