@@ -85,22 +85,22 @@ def create_stripe_checkout_session(payment_request):
             metadata=metadata
         )
 
-        # Speichere die Stripe Checkout URL direkt in der Payment Request
+        # Speichere die Stripe Checkout URL in der Payment Request nur bei Draft (vor Submit)
+        # Bei bereits submitted Payment Request (z.B. Aufruf aus redirect_to_stripe_checkout) nicht
+        # überschreiben – sonst UpdateAfterSubmitError; die DB behält den Dauer-Link.
         if not session.url:
-            frappe.log_error(f"FEHLER: Stripe Session hat keine URL für Payment Request {payment_request.name}", "ERROR: stripe_checkout")
+            frappe.log_error(f"Stripe Session ohne URL für {payment_request.name}", "stripe_checkout")
             return None
         
-        payment_request.payment_url = session.url
-        payment_request.flags.ignore_permissions = True
-        payment_request.save(ignore_permissions=True)
-        
-        # WICHTIG: Commit und prüfe ob payment_url gespeichert wurde
-        frappe.db.commit()
-        payment_request.reload()
-        if payment_request.payment_url != session.url:
-            # Versuche erneut zu speichern
-            payment_request.db_set('payment_url', session.url, update_modified=False)
+        if payment_request.docstatus == 0:
+            payment_request.payment_url = session.url
+            payment_request.flags.ignore_permissions = True
+            payment_request.save(ignore_permissions=True)
             frappe.db.commit()
+            payment_request.reload()
+            if payment_request.payment_url != session.url:
+                payment_request.db_set('payment_url', session.url, update_modified=False)
+                frappe.db.commit()
         
         # WICHTIG: Wenn es eine Subscription ist, speichere die Stripe Subscription ID in der Payment Request
         # (wird nach erfolgreichem Payment verfügbar sein)
@@ -111,7 +111,7 @@ def create_stripe_checkout_session(payment_request):
         return session.url
         
     except Exception as e:
-        frappe.log_error(f"Fehler beim Erstellen der Stripe Checkout Session: {str(e)}", "ERROR: stripe_checkout")
+        frappe.log_error(f"create_stripe_checkout_session: {payment_request.name}: {str(e)[:200]}", "stripe_checkout")
         return None
 
 
@@ -167,7 +167,7 @@ def redirect_to_stripe_checkout(payment_request_name):
                 http_status_code=500,
             )
     except Exception as e:
-        frappe.log_error(f"Fehler in redirect_to_stripe_checkout: {str(e)}", "ERROR: stripe_checkout")
+        frappe.log_error(f"redirect_to_stripe_checkout: {str(e)[:200]}", "stripe_checkout")
         frappe.respond_as_web_page(
             _("Fehler"),
             _("Zahlungslink konnte nicht geladen werden."),
@@ -195,6 +195,6 @@ def get_stripe_checkout_url(payment_request_name):
             frappe.throw(_("Fehler beim Erstellen der Stripe Checkout Session"))
             
     except Exception as e:
-        frappe.log_error(f"Fehler in get_stripe_checkout_url: {str(e)}", "ERROR: stripe_checkout")
+        frappe.log_error(f"get_stripe_checkout_url: {str(e)[:200]}", "stripe_checkout")
         frappe.throw(_("Fehler beim Generieren des Payment Links"))
 

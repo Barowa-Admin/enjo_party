@@ -1,8 +1,5 @@
 {% set company = frappe.get_doc("Company", doc.company) %}
-<!-- Meta-Tag für Browser-Druckeinstellungen -->
-<meta name="print-headers" content="false">
-<meta name="print-footers" content="false">
-<div class="print-format" style="margin: 0; padding: 10px; font-family: Arial, sans-serif; position: relative; font-size: 12px; zoom: 1; -webkit-transform: scale(1); transform: scale(1);">
+<div class="print-format" style="margin: 0; padding: 10px; font-family: Arial, sans-serif; position: relative; font-size: 12px;">
     <!-- Briefkopf mit zwei Logos -->
     <div style="position: relative; margin-bottom: 20px; border-bottom: 1px solid #ccc; padding-bottom: 15px;">
         <!-- ENJO Logo links oben -->
@@ -231,32 +228,33 @@
                 </div>
             </td>
             <td style="width: 50%; vertical-align: top;">
+                {% set shipping_items = [] %}
+                {% set shipping_total = namespace(value=0) %}
+                {% for item in doc.items %}
+                    {% if item.item_code and "shipping" in (item.item_code|string|lower) %}
+                        {% set _ = shipping_items.append(item) %}
+                        {% set shipping_total.value = shipping_total.value + (item.amount or 0) %}
+                    {% endif %}
+                {% endfor %}
                 <table style="width: 100%; border-collapse: collapse;">
                     <tr>
                         <td style="padding: 3px; text-align: right; font-size: 12px;">Nettosumme:</td>
-                        <td style="padding: 3px; text-align: right; width: 120px; font-size: 12px;">{{ doc.get_formatted("net_total", doc) }}</td>
+                        <td style="padding: 3px; text-align: right; width: 120px; font-size: 12px;">{% if doc.custom_brutto_netto and shipping_items %}{{ frappe.format((doc.net_total or 0) - shipping_total.value, {"fieldtype": "Currency", "options": doc.currency}) }}{% else %}{{ doc.get_formatted("net_total", doc) }}{% endif %}</td>
                     </tr>
+                    {% if not doc.custom_brutto_netto %}
                     {% for tax in doc.taxes %}
                     <tr>
                         <td style="padding: 3px; text-align: right; font-size: 12px;">
-                            {% if "Umsatzsteuer" in tax.description %}
+                            {% if tax.description and "Umsatzsteuer" in tax.description %}
                                 {{ tax.description.replace("Umsatzsteuer", "MwSt.") }}:
                             {% else %}
-                                {{ tax.description }}:
+                                {{ tax.description or "Steuer" }}:
                             {% endif %}
                         </td>
                         <td style="padding: 3px; text-align: right; font-size: 12px;">{{ tax.get_formatted("tax_amount", doc) }}</td>
                     </tr>
                     {% endfor %}
-                    
-                    <!-- Versandkosten nach MwSt. -->
-                    {% set shipping_items = [] %}
-                    {% for item in doc.items %}
-                        {% if item.item_code and "shipping" in item.item_code.lower() %}
-                            {% set _ = shipping_items.append(item) %}
-                        {% endif %}
-                    {% endfor %}
-                    
+                    {% endif %}
                     {% if shipping_items %}
                     {% for item in shipping_items %}
                     <tr>
@@ -265,16 +263,31 @@
                     </tr>
                     {% endfor %}
                     {% endif %}
-                    
                     <tr style="border-top: 2px solid #000; font-weight: bold;">
                         <td style="padding: 6px; text-align: right; font-size: 12px;"><strong>Gesamtsumme:</strong></td>
-                        <td style="padding: 6px; text-align: right; font-size: 12px;"><strong>{{ doc.get_formatted("total", doc) }}</strong></td>
+                        <td style="padding: 6px; text-align: right; font-size: 12px;"><strong>{% if doc.custom_brutto_netto %}{{ doc.get_formatted("net_total", doc) }}{% else %}{{ doc.get_formatted("total", doc) }}{% endif %}</strong></td>
                     </tr>
                 </table>
             </td>
         </tr>
     </table>
     
+    {% set has_payment_terms = namespace(found=false) %}
+    {% if doc.payment_schedule %}
+    {% for row in doc.payment_schedule %}
+        {% if row.description or row.payment_term %}
+            {% set has_payment_terms.found = true %}
+        {% endif %}
+    {% endfor %}
+    {% endif %}
+    {% if has_payment_terms.found %}
+    <div style="margin-top: 0px; font-size: 11px; color: #555;">
+        <span style="font-weight: bold; color: #333; text-transform: uppercase; letter-spacing: 0.5px;">Zahlungsbedingungen:</span>
+        {% set ns = namespace(first=true) %}
+        {% for row in doc.payment_schedule %}{% if row.description or row.payment_term %}{% if not ns.first %} {% endif %}{% set ns.first = false %}{{ row.description or row.payment_term }}{% endif %}{% endfor %}
+    </div>
+    {% endif %}
+
     <!-- Überweisungshinweis / Abo-Hinweis -->
     {% if doc.subscription %}
         <!-- Abo: Spezieller Text für Dauerauftrag -->
@@ -380,64 +393,23 @@
     
 </div>
 
-<!-- STATISCHE FOOTER LÖSUNG - Kein Seitenwechsel -->
-<div class="footer-static" style="margin-top: 20px; font-size: 8px; line-height: 1.2; border-top: 1px solid #ccc; padding-top: 8px;">
-    <p style="margin: 2px 0;"><strong>Zahlungsbedingungen:</strong> Vorkasse | <strong>Bankverbindung:</strong> Postbank | <strong>Empfänger:</strong> Esther Buchroth</p>
-    <p style="margin: 2px 0;"><strong>IBAN:</strong> DE36 8607 0407 0063 8312 00 | <strong>BIC:</strong> DEUTDE8LP37 | <strong>Zahlungslink:</strong> pay.bemotionme.com</p>
-    <p style="margin: 2px 0;"><strong>BE'motion - INHABERIN ESTHER BUCHROTH</strong> | <strong>UID:</strong> DE237359306 | <strong>Tel.:</strong> +49 172 58 22 656 | <strong>E-Mail:</strong> enjo@bemotionme.com</p>
-    <p style="margin: 2px 0;">Die gelieferte Ware bleibt bis zur vollständigen Bezahlung des Kaufpreises unser Eigentum. Gastgebergeschenke wurden nicht verrechnet.</p>
-</div>
-
 <style>
-/* WKHTMLTOPDF BEWÄHRTE LÖSUNG - Footer am Seitenende */
 @media print {
-  /* STATISCHE FOOTER LÖSUNG - Kein Seitenwechsel */
   @page {
     size: A4;
-    margin: 8mm 8mm 8mm 8mm; /* Normaler Rand */
+    margin: 8mm 8mm 8mm 8mm;
   }
   
-  /* Hauptinhalt kompakt */
   .print-format {
     margin-bottom: 0 !important;
     padding-bottom: 0 !important;
-  }
-  
-  /* Footer statisch - KEIN Seitenwechsel */
-  .footer-static {
-    margin-top: 15px !important;
-    font-size: 8px !important;
-    line-height: 1.2 !important;
-    border-top: 1px solid #ccc !important;
-    padding-top: 8px !important;
-    page-break-inside: avoid !important;
     page-break-after: avoid !important;
   }
   
-  .footer-static p {
-    margin: 2px 0 !important;
-    font-size: 8px !important;
-  }
-  
-  /* NUR DAS: Verhindere leere zweite Seite */
   body {
     page-break-after: avoid !important;
   }
   
-  /* Browser-UI Elemente standardmäßig deaktivieren */
-  /* Verhindere Browser-Header/Footer beim Drucken */
-  @page {
-    margin: 8mm 8mm 25mm 8mm !important;
-    /* Deaktiviere Browser-Header/Footer */
-    @top-left { content: none; }
-    @top-center { content: none; }
-    @top-right { content: none; }
-    @bottom-left { content: none; }
-    @bottom-center { content: none; }
-    @bottom-right { content: none; }
-  }
-  
-  /* Zusätzliche Browser-spezifische Regeln */
   html {
     -webkit-print-color-adjust: exact !important;
     print-color-adjust: exact !important;
@@ -454,11 +426,7 @@
 
 /* Print-Optimierungen für bessere PDF-Darstellung */
 @media print {
-  /* Safari Zoom-Fix behalten */
   html, body {
-    zoom: 1 !important;
-    -webkit-transform: scale(1) !important;
-    transform: scale(1) !important;
     -webkit-text-size-adjust: 100% !important;
   }
   

@@ -2,12 +2,9 @@
 <div class="print-format" style="margin: 0; padding: 10px; font-family: Arial, sans-serif; position: relative; font-size: 12px;">
     <!-- Briefkopf mit Logo rechts oben -->
     <div style="position: relative; margin-bottom: 20px; border-bottom: 1px solid #ccc; padding-bottom: 15px;">
-        <!-- Logo rechts oben -->
         <div style="position: absolute; top: 0; right: 0;">
             <img src="/files/logo_DE_Mittre.jpg" style="max-width: 100px; max-height: 75px; width: 100px; height: auto;" alt="ENJO Logo">
         </div>
-        
-        <!-- Adresse links -->
         <div style="margin-right: 120px;">
             <div style="font-size: 16px; font-weight: bold; margin-bottom: 6px;">ENJO Deutschland Mitte</div>
             <div style="font-size: 14px; margin-bottom: 2px;">BE'motion - Inhaberin Esther Buchroth</div>
@@ -16,21 +13,17 @@
             <div style="font-size: 12px; margin-bottom: 6px;">Deutschland</div>
         </div>
     </div>
-    
-    <!-- Auftrag Header -->
+
     <div style="text-align: center; margin-bottom: 15px;">
         <h1 style="font-size: 24px; margin: 0 0 5px 0;">AUFTRAG</h1>
         <h3 style="font-size: 16px; margin: 0 0 10px 0;">{{ doc.name }}</h3>
     </div>
-    
-    <!-- Professionelles 3-Spalten Layout -->
+
     <table style="width: 100%; margin-bottom: 20px; border-collapse: collapse;">
         <tr>
-            <!-- Rechnungsadresse -->
             <td style="width: 33%; vertical-align: top; padding-right: 15px;">
                 <div style="font-size: 11px; font-weight: bold; color: #333; margin-bottom: 8px; text-transform: uppercase; letter-spacing: 0.5px;">Rechnungsadresse</div>
                 <div style="font-size: 12px; font-weight: bold; margin-bottom: 6px;">{{ doc.customer_name }}</div>
-                
                 {% if doc.address_display %}
                     {% set address_lines = doc.address_display.split('\n') %}
                     {% for line in address_lines %}
@@ -40,8 +33,6 @@
                     {% endfor %}
                 {% endif %}
             </td>
-            
-            <!-- Lieferadresse -->
             <td style="width: 33%; vertical-align: top; padding-right: 15px;">
                 <div style="font-size: 11px; font-weight: bold; color: #333; margin-bottom: 8px; text-transform: uppercase; letter-spacing: 0.5px;">Lieferadresse</div>
                 {% if doc.shipping_address_name and doc.shipping_address_name != doc.customer_address %}
@@ -66,31 +57,24 @@
                 {% endif %}
                 {% endif %}
             </td>
-            
-            <!-- Auftragsdaten -->
             <td style="width: 34%; vertical-align: top;">
                 <div style="font-size: 11px; font-weight: bold; color: #333; margin-bottom: 8px; text-transform: uppercase; letter-spacing: 0.5px;">Auftragsdaten</div>
-                
                 <div style="margin-bottom: 6px; font-size: 11px;">
                     <span style="font-weight: bold; color: #666;">Auftragsdatum:</span>
                     <span style="color: #555;"> {{ doc.get_formatted("transaction_date") }}</span>
                 </div>
-                
                 <div style="margin-bottom: 6px; font-size: 11px;">
                     <span style="font-weight: bold; color: #666;">Lieferdatum:</span>
                     <span style="color: #555;"> {{ doc.get_formatted("delivery_date") if doc.delivery_date else "-" }}</span>
                 </div>
-                
                 <div style="margin-bottom: 6px; font-size: 11px;">
                     <span style="font-weight: bold; color: #666;">Vertriebspartner:</span>
                     <span style="color: #555;"> {{ doc.sales_partner  or "-" }}</span>
                 </div>
-                
                 <div style="margin-bottom: 6px; font-size: 11px;">
                     <span style="font-weight: bold; color: #666;">Kundennummer:</span>
                     <span style="color: #555;"> {{ doc.customer or "-" }}</span>
                 </div>
-                
                 {% if doc.custom_party_reference %}
                     {% set party_ref = doc.custom_party_reference %}
                     {% set is_party = frappe.db.exists("Party", party_ref) %}
@@ -109,14 +93,12 @@
                         </div>
                     {% endif %}
                 {% endif %}
-                
                 {% if doc.contact_email %}
                 <div style="margin-bottom: 6px; font-size: 11px;">
                     <span style="font-weight: bold; color: #666;">E-Mail:</span>
                     <span style="color: #555;"> {{ doc.contact_email }}</span>
                 </div>
                 {% endif %}
-                
                 {% if doc.contact_mobile %}
                 <div style="margin-bottom: 6px; font-size: 11px;">
                     <span style="font-weight: bold; color: #666;">Telefon:</span>
@@ -126,19 +108,19 @@
             </td>
         </tr>
     </table>
-    
+
     {% if doc.custom_text %}
     <div style="margin-bottom: 10px; font-size: 12px; color: #333;">{{ doc.custom_text }}</div>
     {% endif %}
-    <!-- Items Tabelle - Mit Preisen (wie Rechnung) -->
+    <!-- Items Tabelle - nur Netto -->
     <table style="width: 100%; border-collapse: collapse; margin-bottom: 20px;" border="1">
         <thead>
             <tr style="background-color: #f8f9fa;">
                 <th style="padding: 8px; text-align: left; font-size: 12px; font-weight: bold; color: #333; border: 1px solid #ddd;">Artikel</th>
                 <th style="padding: 8px; text-align: left; font-size: 12px; font-weight: bold; color: #333; border: 1px solid #ddd;">Artikelname</th>
                 <th style="padding: 8px; text-align: right; font-size: 12px; font-weight: bold; color: #333; border: 1px solid #ddd;">Menge</th>
-                <th style="padding: 8px; text-align: right; font-size: 12px; font-weight: bold; color: #333; border: 1px solid #ddd;">Einzelpreis</th>
-                <th style="padding: 8px; text-align: right; font-size: 12px; font-weight: bold; color: #333; border: 1px solid #ddd;">Gesamtpreis</th>
+                <th style="padding: 8px; text-align: right; font-size: 12px; font-weight: bold; color: #333; border: 1px solid #ddd;">Einzelpreis (Netto)</th>
+                <th style="padding: 8px; text-align: right; font-size: 12px; font-weight: bold; color: #333; border: 1px solid #ddd;">Gesamtpreis (Netto)</th>
             </tr>
         </thead>
         <tbody>
@@ -146,16 +128,10 @@
                 {% set is_gg = False %}
                 {% set original_text = "" %}
                 {% set rabatt_text = "" %}
-                
-                {# DEBUG: Zeige description für alle Items #}
-                {# {{ item.item_code }}: description = "{{ item.description }}" #}
-                
-                {# Prüfe ob description GG-Info enthält #}
                 {% if item.description and item.description|string %}
                     {% set desc_str = item.description|string %}
                     {% if "GG - Original:" in desc_str %}
                         {% set is_gg = True %}
-                        {# Extrahiere Original und Rabatt aus description #}
                         {% set desc_parts = desc_str.split("Original:") %}
                         {% if desc_parts|length > 1 %}
                             {% set after_original = desc_parts[1] %}
@@ -182,23 +158,22 @@
                     {% endif %}
                 </td>
                 <td style="padding: 8px; text-align: right; font-size: 12px; color: #555; border: 1px solid #ddd;">{{ item.qty|int if item.qty|int == item.qty else item.qty }}</td>
-                <td style="padding: 8px; text-align: right; font-size: 12px; color: #555; border: 1px solid #ddd;">{{ frappe.format(item.rate, {"fieldtype": "Currency"}) }}</td>
-                <td style="padding: 8px; text-align: right; font-size: 12px; color: #555; border: 1px solid #ddd;">{{ frappe.format(item.amount, {"fieldtype": "Currency"}) }}</td>
+                <td style="padding: 8px; text-align: right; font-size: 12px; color: #555; border: 1px solid #ddd;">{{ frappe.format(item.net_rate, {"fieldtype": "Currency"}) }}</td>
+                <td style="padding: 8px; text-align: right; font-size: 12px; color: #555; border: 1px solid #ddd;">{{ frappe.format(item.net_amount, {"fieldtype": "Currency"}) }}</td>
             </tr>
             {% endfor %}
         </tbody>
         <tfoot>
             <tr style="background-color: #f8f9fa; font-weight: bold;">
-                <td colspan="4" style="padding: 8px; text-align: right; font-size: 12px; color: #333; border: 1px solid #ddd;">Gesamtsumme:</td>
-                <td style="padding: 8px; text-align: right; font-size: 12px; color: #333; border: 1px solid #ddd;">{{ frappe.format(doc.grand_total, {"fieldtype": "Currency"}) }}</td>
+                <td colspan="4" style="padding: 8px; text-align: right; font-size: 12px; color: #333; border: 1px solid #ddd;">Gesamtsumme (Netto):</td>
+                <td style="padding: 8px; text-align: right; font-size: 12px; color: #333; border: 1px solid #ddd;">{{ frappe.format(doc.net_total, {"fieldtype": "Currency"}) }}</td>
             </tr>
         </tfoot>
     </table>
 
-    <!-- Netto-Aufstellung (wie bei Rechnung) -->
     <table style="width: 100%; margin-bottom: 10px;">
         <tr>
-            <td style="width: 50%; vertical-align: top;">
+            <td style="vertical-align: top;">
                 {% if doc.total_net_weight %}
                 <div style="margin-bottom: 8px; font-size: 12px;"><strong>Gewicht:</strong> {{ doc.total_net_weight }} g</div>
                 {% endif %}
@@ -211,44 +186,6 @@
                     {% endfor %}
                     {{ total_qty.value|int if total_qty.value|int == total_qty.value else total_qty.value }}
                 </div>
-            </td>
-            <td style="width: 50%; vertical-align: top;">
-                <table style="width: 100%; border-collapse: collapse;">
-                    <tr>
-                        <td style="padding: 3px; text-align: right; font-size: 12px;">Nettosumme:</td>
-                        <td style="padding: 3px; text-align: right; width: 120px; font-size: 12px;">{{ doc.get_formatted("net_total", doc) }}</td>
-                    </tr>
-                    {% for tax in doc.taxes %}
-                    <tr>
-                        <td style="padding: 3px; text-align: right; font-size: 12px;">
-                            {% if tax.description and "Umsatzsteuer" in tax.description %}
-                                {{ tax.description.replace("Umsatzsteuer", "MwSt.") }}:
-                            {% else %}
-                                {{ tax.description or "Steuer" }}:
-                            {% endif %}
-                        </td>
-                        <td style="padding: 3px; text-align: right; font-size: 12px;">{{ tax.get_formatted("tax_amount", doc) }}</td>
-                    </tr>
-                    {% endfor %}
-                    {% set shipping_items = [] %}
-                    {% for item in doc.items %}
-                        {% if item.item_code and "shipping" in (item.item_code|lower) %}
-                            {% set _ = shipping_items.append(item) %}
-                        {% endif %}
-                    {% endfor %}
-                    {% if shipping_items %}
-                    {% for item in shipping_items %}
-                    <tr>
-                        <td style="padding: 3px; text-align: right; font-size: 12px;">Versand:</td>
-                        <td style="padding: 3px; text-align: right; font-size: 12px;">{{ item.get_formatted("amount", doc) }}</td>
-                    </tr>
-                    {% endfor %}
-                    {% endif %}
-                    <tr style="border-top: 2px solid #000; font-weight: bold;">
-                        <td style="padding: 6px; text-align: right; font-size: 12px;"><strong>Gesamtsumme:</strong></td>
-                        <td style="padding: 6px; text-align: right; font-size: 12px;"><strong>{{ doc.get_formatted("grand_total", doc) }}</strong></td>
-                    </tr>
-                </table>
             </td>
         </tr>
     </table>
@@ -272,52 +209,22 @@
 </div>
 
 <style>
-/* WKHTMLTOPDF BEWÄHRTE LÖSUNG - Kein position:fixed */
 @media print {
-  /* Seiten-Grundeinstellungen - KEINE LEERE SEITE */
-  @page {
-    size: A4;
-    margin: 8mm 8mm 8mm 8mm; /* Kleinere Margins für mehr Platz */
-  }
-  
-  /* Hauptinhalt kompakt halten, keine leere Folgeseite */
+  @page { size: A4; margin: 8mm 8mm 8mm 8mm; }
   .print-format {
     margin-bottom: 0 !important;
     padding-bottom: 0 !important;
     page-break-after: avoid !important;
   }
-  
-  body {
-    page-break-after: avoid !important;
-  }
-  
-  html {
-    -webkit-print-color-adjust: exact !important;
-    print-color-adjust: exact !important;
-  }
-  
-  html, body {
-    -webkit-text-size-adjust: 100% !important;
-  }
-  
-  /* Schriftgrößen für Safari stabilisieren */
-  .print-format img {
-    max-width: 100px !important;
-    max-height: 75px !important;
-    width: 100px !important;
-    height: auto !important;
-  }
-  
+  body { page-break-after: avoid !important; }
+  html { -webkit-print-color-adjust: exact !important; print-color-adjust: exact !important; }
+  html, body { -webkit-text-size-adjust: 100% !important; }
+  .print-format img { max-width: 100px !important; max-height: 75px !important; width: 100px !important; height: auto !important; }
   .print-format h1 { font-size: 20px !important; }
   .print-format h3 { font-size: 14px !important; }
   .print-format td, .print-format th { font-size: 11px !important; }
 }
-
-/* Browser-Ansicht - Footer normal anzeigen */
 @media screen {
-  .print-format {
-    margin-top: 30px;
-    display: block;
-  }
+  .print-format { margin-top: 30px; display: block; }
 }
 </style>
