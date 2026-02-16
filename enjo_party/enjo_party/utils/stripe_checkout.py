@@ -57,13 +57,21 @@ def create_stripe_checkout_session(payment_request):
                     "ERROR: stripe_checkout_subscription"
                 )
 
+        try:
+            grand_total = float(payment_request.grand_total)
+        except (TypeError, ValueError):
+            grand_total = 0.0
+        if grand_total <= 0:
+            frappe.log_error(f"create_stripe_checkout_session: grand_total ungültig für {payment_request.name}", "stripe_checkout")
+            return None
+        currency = (getattr(payment_request, "currency", None) or "eur").lower()[:3]
         price_data = {
-            'currency': payment_request.currency.lower(),
+            'currency': currency,
             'product_data': {
                 'name': f'Rechnung {payment_request.reference_name}',
                 'description': f"BE'motion Abonnement - Rechnung {payment_request.reference_name}",
             },
-            'unit_amount': int(payment_request.grand_total * 100),
+            'unit_amount': int(round(grand_total * 100)),
         }
 
         if recurring_config:
@@ -81,7 +89,7 @@ def create_stripe_checkout_session(payment_request):
             mode=mode,
             success_url=f'{redirect_url}?session_id={{CHECKOUT_SESSION_ID}}',
             cancel_url=redirect_url,
-            customer_email=payment_request.email_to,
+            customer_email=payment_request.email_to or None,
             metadata=metadata
         )
 
@@ -111,7 +119,10 @@ def create_stripe_checkout_session(payment_request):
         return session.url
         
     except Exception as e:
-        frappe.log_error(f"create_stripe_checkout_session: {payment_request.name}: {str(e)[:200]}", "stripe_checkout")
+        frappe.log_error(
+            f"create_stripe_checkout_session {getattr(payment_request, 'name', '?')}: {str(e)}\n{frappe.get_traceback()}",
+            "stripe_checkout",
+        )
         return None
 
 
@@ -156,6 +167,11 @@ def redirect_to_stripe_checkout(payment_request_name):
             redirect_url = frappe.utils.get_url()
             frappe.redirect(redirect_url)
             return
+        # Stripe braucht oft customer_email – falls leer, aus Kunde nachladen
+        if not payment_request.email_to and getattr(payment_request, "party_type", None) == "Customer" and payment_request.party:
+            customer_email = frappe.db.get_value("Customer", payment_request.party, "email_id")
+            if customer_email:
+                payment_request.email_to = customer_email
         checkout_url = create_stripe_checkout_session(payment_request)
         if checkout_url:
             frappe.redirect(checkout_url)
