@@ -314,11 +314,6 @@
 
     <!-- Überweisungshinweis / Abo-Hinweis -->
     {% if doc.subscription %}
-        <!-- Abo: Spezieller Text für Dauerauftrag -->
-        <div style="text-align: center; margin: 6px 0; padding: 5px; background-color: #f8f9fa; border: 1px solid #dee2e6; border-radius: 4px;">
-            <p style="margin: 0; font-size: 11px; color: #333; font-weight: bold;">Richten Sie bitte einen Dauerauftrag entsprechend ihrer Lieferintervalls bei Ihrer Bank ein oder nutzen Sie den folgenden Bezahllink:</p>
-        </div>
-        
         <!-- Abo-Intervall Info -->
         {% set subscription_doc = frappe.get_doc("Subscription", doc.subscription) %}
         {% set billing_info = subscription_doc.get_billing_cycle_and_interval() %}
@@ -355,41 +350,58 @@
             {% endif %}
         {% endif %}
         
-        <!-- Stripe Payment Link für Abos (nach dem Abo-Hinweis) -->
         {% set payment_requests = frappe.get_all("Payment Request", 
-            filters={"reference_name": doc.name, "docstatus": 1}, 
+            filters={"reference_doctype": "Sales Invoice", "reference_name": doc.name, "docstatus": 1}, 
             fields=["name", "payment_url", "payment_gateway"], 
             order_by="creation desc", 
             limit=1) %}
+        {% set abo_ns = namespace(has_link=false) %}
         {% if payment_requests %}
             {% set pr = payment_requests[0] %}
             {% set payment_url = None %}
-            {# Quelle: immer nur pr.payment_url (eine Stelle). Gültig: Stripe-Checkout-URL ODER unser Dauer-Link (redirect_to_stripe_checkout). Nie: /stripe_checkout #}
             {% if pr.payment_url %}
                 {% set url_str = pr.payment_url|string %}
-                {% if "checkout.stripe.com" in url_str and "/stripe_checkout" not in url_str %}
+                {% if "redirect_to_stripe_checkout" in url_str %}
                     {% set payment_url = pr.payment_url %}
-                {% elif "redirect_to_stripe_checkout" in url_str %}
-                    {# Unser dauerhafter Zahlungslink (erzeugt bei Klick neue Stripe-Session) #}
+                {% elif "checkout.stripe.com" in url_str and "/stripe_checkout" not in url_str %}
                     {% set payment_url = pr.payment_url %}
                 {% elif not pr.payment_gateway and "/stripe_checkout" not in url_str %}
                     {% set payment_url = pr.payment_url %}
                 {% endif %}
             {% endif %}
+            {% if not payment_url %}
+                {% set payment_url = frappe.utils.get_url() ~ "/api/method/enjo_party.enjo_party.utils.stripe_checkout.redirect_to_stripe_checkout?payment_request_name=" ~ pr.name %}
+            {% endif %}
             {% if payment_url %}
-            {# Dekodiere URL komplett - wkhtmltopdf encoded sie dann korrekt #}
-            {# Erst doppelte Encodings auflösen, dann URL-Encoding dekodieren #}
-            {% set step1 = payment_url|replace('%25', '%')|replace('%25', '%')|replace('%25', '%') %}
-            {% set clean_url = step1|replace('%2F', '/')|replace('%27', "'")|replace('%3D', '=')|replace('%2B', '+')|replace('%3A', ':')|replace('%3F', '?')|replace('%26', '&') %}
-            <div style="margin: 6px 0; padding: 6px; border: 2px solid #007bff; border-radius: 5px; background-color: #f8f9ff; text-align: center;">
-                <p style="margin: 0 0 4px 0; font-size: 12px; color: #007bff; font-weight: bold;">Online-Zahlung für Ihr Abonnement</p>
-                <p style="margin: 0 0 4px 0; font-size: 10px; color: #333;">Bezahlen Sie bequem online mit Kreditkarte, SEPA-Lastschrift oder anderen Zahlungsmethoden:</p>
-                <a href="{{ clean_url|safe }}" style="display: inline-block; background-color: #007bff; color: white; padding: 6px 16px; text-decoration: none; border-radius: 4px; font-size: 11px; font-weight: bold; margin-bottom: 4px;">
-                    Jetzt online bezahlen
-                </a>
-                {% if interval_text %}
-                <p style="margin: 4px 0 0 0; font-size: 10px; color: #856404; font-weight: bold;">Hinweis: Hiermit schließen Sie ein Abonnement ab, welches {{ interval_text }} geliefert wird.</p>
-                {% endif %}
+                {% set abo_ns.has_link = true %}
+                {% set step1 = payment_url|replace('%25', '%')|replace('%25', '%')|replace('%25', '%') %}
+                {% set clean_url = step1|replace('%2F', '/')|replace('%27', "'")|replace('%3D', '=')|replace('%2B', '+')|replace('%3A', ':')|replace('%3F', '?')|replace('%26', '&') %}
+        <!-- Abo mit Link: Dauerauftrag-Text im blauen Kasten, kein ENJO/Instagram -->
+        <div style="margin: 4px 0; padding: 8px; border: 2px solid #007bff; border-radius: 5px; background-color: #f8f9ff; text-align: center;">
+            <p style="margin: 0 0 6px 0; font-size: 11px; color: #333; font-weight: bold;">Richten Sie bitte einen Dauerauftrag entsprechend Ihres Lieferintervalls bei Ihrer Bank ein oder nutzen Sie den folgenden Bezahllink:</p>
+            <p style="margin: 0 0 3px 0; font-size: 12px; color: #007bff; font-weight: bold;">Online-Zahlung für Ihr Abonnement</p>
+            <p style="margin: 0 0 4px 0; font-size: 10px; color: #333;">Bezahlen Sie bequem online mit Kreditkarte, SEPA-Lastschrift oder anderen Zahlungsmethoden:</p>
+            <a href="{{ clean_url|safe }}" style="display: inline-block; background-color: #007bff; color: white; padding: 6px 16px; text-decoration: none; border-radius: 4px; font-size: 11px; font-weight: bold; margin-bottom: 4px;">
+                Jetzt online bezahlen
+            </a>
+            {% if interval_text %}
+            <p style="margin: 4px 0 0 0; font-size: 10px; color: #856404; font-weight: bold;">Hinweis: Hiermit schließen Sie ein Abonnement ab, welches {{ interval_text }} geliefert wird.</p>
+            {% endif %}
+        </div>
+            {% endif %}
+        {% endif %}
+        {% if not abo_ns.has_link %}
+            {% if payment_requests %}
+            <!-- Abo mit PR aber ohne Zahlungslink (Randfall): Dauerauftrag-Text + ENJO -->
+            <div style="text-align: center; margin: 4px 0; padding: 6px; background-color: #f8f9fa; border: 1px solid #dee2e6; border-radius: 4px;">
+                <p style="margin: 0 0 4px 0; font-size: 11px; color: #333; font-weight: bold;">Richten Sie bitte einen Dauerauftrag entsprechend Ihres Lieferintervalls bei Ihrer Bank ein oder nutzen Sie den folgenden Bezahllink:</p>
+                <p style="margin: 6px 0 0 0; font-size: 10px; color: #333; font-style: italic;">Viel Spaß mit Ihren ENJO-Produkten wünscht Ihnen Ihr BE'motion Team loves ENJO. Instagram: <strong>ENJO_Deutschland_Mitte</strong></p>
+                <p style="margin: 2px 0 0 0;"><img src="/files/enjo_insta.png" style="width: 50px; height: 50px;" alt="QR-Code Instagram"></p>
+            </div>
+            {% else %}
+            <!-- Folgeabbuchung (Stripe-Abo): nur kurzer Hinweis, kein Zahlungslink, nur für Buchhaltung -->
+            <div style="text-align: center; margin: 4px 0; padding: 6px; background-color: #f8f9fa; border: 1px solid #dee2e6; border-radius: 4px;">
+                <p style="margin: 0; font-size: 11px; color: #333;">Rechnung im Rahmen Ihres Abos – Zahlung erfolgt automatisch per Abbuchung.</p>
             </div>
             {% endif %}
         {% endif %}
@@ -400,7 +412,8 @@
         </div>
     {% endif %}
     
-    <!-- ENJO Spruch und Instagram -->
+    <!-- ENJO Spruch und Instagram (nur bei normaler Rechnung; bei Abo oben im Block) -->
+    {% if not doc.subscription %}
     <div style="text-align: center; margin: 10px 0; padding: 8px;">
         <p style="margin: 0 0 5px 0; font-size: 12px; color: #333; font-style: italic;">Viel Spaß mit Ihren ENJO-Produkten wünscht Ihnen Ihr BE'motion Team loves ENJO</p>
         <div style="display: flex; align-items: center; justify-content: center; gap: 10px;">
@@ -409,6 +422,7 @@
             <img src="/files/enjo_insta.png" style="width: 90px; height: 90px;" alt="QR-Code Instagram">
         </div>
     </div>
+    {% endif %}
                 </table>
             </td>
         </tr>

@@ -152,6 +152,66 @@ def _get_partnerin_email(sales_partner_name):
     return None
 
 
+def send_subscription_invoice_informational_email(invoice_doc):
+    """
+    Sendet bei Folgeabbuchungen (Stripe-Abo existiert bereits) eine reine Informations-E-Mail
+    mit der Rechnung als PDF – ohne Zahlungslink. Nur für die Buchhaltung/Unterlagen des Kunden.
+    """
+    if was_email_already_sent_for_invoice(invoice_doc.name):
+        frappe.log_error(
+            f"Informations-E-Mail bereits versendet für Invoice {invoice_doc.name} – überspringe",
+            "DEBUG: subscription_informational_email",
+        )
+        return
+    email_to = get_invoice_email_address(invoice_doc)
+    if not email_to:
+        frappe.log_error(
+            f"Keine E-Mail-Adresse für Rechnung {invoice_doc.name} – Informations-Mail übersprungen",
+            "WARNING: subscription_informational_email",
+        )
+        return
+    subject = f"Ihre Rechnung {invoice_doc.name}"
+    message = (
+        "anbei erhalten Sie Ihre Rechnung für Ihr Abonnement. "
+        "Die Zahlung erfolgt automatisch per Abbuchung.\n\n"
+        "Viele Grüße\nIhr BE'motion Team"
+    )
+    print_format = getattr(invoice_doc.meta, "default_print_format", None) or "Standard"
+    attachments = [
+        frappe.attach_print(
+            "Sales Invoice",
+            invoice_doc.name,
+            file_name=invoice_doc.name,
+            doc=invoice_doc,
+            print_format=print_format,
+        )
+    ]
+    bcc_list = None
+    sales_partner = getattr(invoice_doc, "sales_partner", None)
+    if sales_partner:
+        partnerin_email = _get_partnerin_email(sales_partner)
+        if partnerin_email:
+            bcc_list = [partnerin_email]
+    from frappe.utils.background_jobs import enqueue
+    email_args = {
+        "recipients": email_to,
+        "sender": None,
+        "subject": subject,
+        "message": message,
+        "now": True,
+        "attachments": attachments,
+        "reference_doctype": "Sales Invoice",
+        "reference_name": invoice_doc.name,
+    }
+    if bcc_list:
+        email_args["bcc"] = bcc_list
+    enqueue(method=frappe.sendmail, queue="short", timeout=300, is_async=True, **email_args)
+    frappe.log_error(
+        f"Informations-E-Mail (ohne Zahlungslink) versendet für Rechnung {invoice_doc.name} an {email_to}",
+        "INFO: subscription_informational_email",
+    )
+
+
 def send_subscription_payment_request_email(payment_request, invoice, include_payment_link):
     """
     Sendet die E-Mail für Subscription-Payment-Requests kontrolliert aus.
@@ -583,9 +643,11 @@ def create_payment_request_for_subscription_invoice(doc, method):
         # Prüfe ob die Rechnung zu einem Abonnement gehört
         if doc.subscription and doc.docstatus == 1:
             # WICHTIG: Prüfe ob bereits eine Stripe Subscription existiert
-            # Wenn ja, wird Stripe automatisch abbuchen - keine Payment Request nötig
+            # Wenn ja, wird Stripe automatisch abbuchen - keine Payment Request nötig;
+            # Kunde erhält nur eine Informations-E-Mail mit Rechnung (ohne Zahlungslink)
             if has_stripe_subscription(doc.subscription):
-                frappe.log_error(f"SUBSCRIPTION HOOK: Stripe Subscription existiert bereits für {doc.subscription} - überspringe Payment Request Erstellung (Stripe bucht automatisch ab)", "DEBUG: subscription_payment_request")
+                frappe.log_error(f"SUBSCRIPTION HOOK: Stripe Subscription existiert bereits für {doc.subscription} - überspringe Payment Request, sende Informations-Mail", "DEBUG: subscription_payment_request")
+                send_subscription_invoice_informational_email(doc)
                 return  # Keine Payment Request erstellen, Stripe bucht automatisch ab
             
             # WICHTIG: Prüfe ob das Startdatum des Abos erreicht ist
