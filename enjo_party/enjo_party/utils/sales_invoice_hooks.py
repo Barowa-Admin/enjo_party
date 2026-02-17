@@ -448,6 +448,52 @@ def after_insert_sales_invoice(doc, method):
     """Hook für Sales Invoice after_insert - keine spezielle Logik mehr nötig"""
     pass
 
+
+def before_submit_netto_invoice_totals(doc, method):
+    """
+    Hook für Sales Invoice before_submit
+    Bei Netto-Rechnungen (custom_brutto_netto): Setzt grand_total = net_total und Steuern auf 0.
+    Damit exportiert die E-Rechnung den korrekten Zahlbetrag (net_total statt grand_total).
+    Die Buchhaltung bucht dann korrekt nur den Nettobetrag (typisch für Kleinunternehmer §19 UStG).
+    """
+    if doc.doctype != "Sales Invoice":
+        return
+    if not doc.get("custom_brutto_netto"):
+        return
+
+    old_grand_total = flt(doc.grand_total)
+    new_grand_total = flt(doc.net_total, doc.precision("grand_total"))
+
+    # Steuerbeträge auf 0 setzen
+    if doc.get("taxes"):
+        for tax in doc.taxes:
+            tax.tax_amount = 0
+            tax.base_tax_amount = 0
+            tax.tax_amount_after_discount_amount = 0
+            tax.base_tax_amount_after_discount_amount = 0
+            tax.total = flt(doc.net_total, tax.precision("total"))
+            tax.base_total = flt(doc.base_net_total, tax.precision("base_total"))
+
+    # Gesamtsummen auf Netto setzen
+    doc.total_taxes_and_charges = 0
+    doc.base_total_taxes_and_charges = 0
+    doc.grand_total = new_grand_total
+    doc.base_grand_total = flt(doc.base_net_total, doc.precision("base_grand_total"))
+
+    # Rounded Total: Wenn verwendet, auf gerundeten Nettobetrag setzen
+    if not doc.get("disable_rounded_total"):
+        doc.rounded_total = flt(doc.grand_total, 0)  # Auf ganze Einheit runden
+        doc.base_rounded_total = flt(doc.base_grand_total, 0)
+        doc.rounding_adjustment = flt(doc.rounded_total - doc.grand_total, doc.precision("rounding_adjustment"))
+        doc.base_rounding_adjustment = flt(doc.base_rounded_total - doc.base_grand_total, doc.precision("base_rounding_adjustment"))
+
+    # Payment Schedule: Beträge proportional anpassen (von Brutto auf Netto)
+    if doc.get("payment_schedule") and old_grand_total and old_grand_total != new_grand_total:
+        for row in doc.payment_schedule:
+            if row.payment_amount:
+                row.payment_amount = flt(row.payment_amount * new_grand_total / old_grand_total, doc.precision("grand_total"))
+
+
 def after_save_sales_invoice(doc, method):
     """
     Hook für Sales Invoice after_save

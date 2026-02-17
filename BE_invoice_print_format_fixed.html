@@ -109,6 +109,13 @@
                     <span style="color: #555;"> {{ doc.customer or "-" }}</span>
                 </div>
                 
+                {% if doc.customer %}
+                <div style="margin-bottom: 3px; font-size: 11px;">
+                    <span style="font-weight: bold; color: #666;">Steuernummer:</span>
+                    <span style="color: #555;"> {{ frappe.db.get_value("Customer", doc.customer, "tax_id") or "-" }}</span>
+                </div>
+                {% endif %}
+                
                 {% if doc.custom_party_reference %}
                     {% set party_ref = doc.custom_party_reference %}
                     {% set is_party = frappe.db.exists("Party", party_ref) %}
@@ -152,16 +159,21 @@
         </tr>
     </table>
     
+    {% if doc.custom_text %}
+    <div style="margin-bottom: 10px; font-size: 12px; color: #333;">{{ doc.custom_text }}</div>
+    {% endif %}
     <!-- Items Tabelle mit angepassten Spaltenbreiten -->
     <table style="width: 100%; border-collapse: collapse; margin-bottom: 10px;" border="1">
         <thead>
             <tr style="background-color: #f8f9fa;">
-                <th style="padding: 6px; text-align: center; width: 8%; font-size: 12px;">Pos</th>
-                <th style="padding: 6px; text-align: left; width: 20%; font-size: 12px;">Artikel</th>
-                <th style="padding: 6px; text-align: left; width: 35%; font-size: 12px;">Artikelname</th>
-                <th style="padding: 6px; text-align: center; width: 10%; font-size: 12px;">Menge</th>
-                <th style="padding: 6px; text-align: right; width: 12%; font-size: 12px;">Einzelpreis</th>
-                <th style="padding: 6px; text-align: right; width: 12%; font-size: 12px;">Betrag</th>
+                <th style="padding: 6px; text-align: center; width: 5%; font-size: 12px; font-weight: bold;">Pos</th>
+                <th style="padding: 6px; text-align: left; width: 12%; font-size: 12px; font-weight: bold;">Artikel</th>
+                <th style="padding: 6px; text-align: left; width: 22%; font-size: 12px; font-weight: bold;">Artikelname</th>
+                <th style="padding: 6px; text-align: center; width: 6%; font-size: 12px; font-weight: bold;">Menge</th>
+                <th style="padding: 6px; text-align: right; width: 11%; font-size: 12px; font-weight: bold;">Einzelpreis (Netto)</th>
+                <th style="padding: 6px; text-align: right; width: 11%; font-size: 12px; font-weight: bold;">Einzelpreis (Brutto)</th>
+                <th style="padding: 6px; text-align: right; width: 11%; font-size: 12px; font-weight: bold;">Betrag (Netto)</th>
+                <th style="padding: 6px; text-align: right; width: 11%; font-size: 12px; font-weight: bold;">Betrag (Brutto)</th>
             </tr>
         </thead>
         <tbody>
@@ -204,8 +216,10 @@
                     {% endif %}
                 </td>
                 <td style="padding: 6px; text-align: center; font-size: 12px;">{{ item.qty|int if item.qty|int == item.qty else item.qty }}</td>
+                <td style="padding: 6px; text-align: right; font-size: 12px;">{{ item.get_formatted("net_rate", doc) }}</td>
                 <td style="padding: 6px; text-align: right; font-size: 12px;">{{ item.get_formatted("rate", doc) }}</td>
-                <td style="padding: 6px; text-align: right; font-size: 12px;">{{ item.get_formatted("amount", doc) }}</td>
+                <td style="padding: 6px; text-align: right; font-size: 12px;{% if doc.get('custom_brutto_netto') %} font-weight: bold;{% endif %}">{{ item.get_formatted("net_amount", doc) }}</td>
+                <td style="padding: 6px; text-align: right; font-size: 12px;{% if not doc.get('custom_brutto_netto') %} font-weight: bold;{% endif %}">{{ item.get_formatted("amount", doc) }}</td>
             </tr>
                 {% endif %}
             {% endfor %}
@@ -229,19 +243,19 @@
             </td>
             <td style="width: 50%; vertical-align: top;">
                 {% set shipping_items = [] %}
-                {% set shipping_total = namespace(value=0) %}
+                {% set shipping_net = namespace(value=0) %}
                 {% for item in doc.items %}
                     {% if item.item_code and "shipping" in (item.item_code|string|lower) %}
                         {% set _ = shipping_items.append(item) %}
-                        {% set shipping_total.value = shipping_total.value + (item.amount or 0) %}
+                        {% set shipping_net.value = shipping_net.value + (item.net_amount or 0) %}
                     {% endif %}
                 {% endfor %}
                 <table style="width: 100%; border-collapse: collapse;">
                     <tr>
                         <td style="padding: 3px; text-align: right; font-size: 12px;">Nettosumme:</td>
-                        <td style="padding: 3px; text-align: right; width: 120px; font-size: 12px;">{% if doc.custom_brutto_netto and shipping_items %}{{ frappe.format((doc.net_total or 0) - shipping_total.value, {"fieldtype": "Currency", "options": doc.currency}) }}{% else %}{{ doc.get_formatted("net_total", doc) }}{% endif %}</td>
+                        <td style="padding: 3px; text-align: right; width: 120px; font-size: 12px;">{% if shipping_items %}{{ frappe.format((doc.net_total or 0) - shipping_net.value, {"fieldtype": "Currency", "options": doc.currency}) }}{% else %}{{ doc.get_formatted("net_total", doc) }}{% endif %}</td>
                     </tr>
-                    {% if not doc.custom_brutto_netto %}
+                    {% if not doc.get("custom_brutto_netto") %}
                     {% for tax in doc.taxes %}
                     <tr>
                         <td style="padding: 3px; text-align: right; font-size: 12px;">
@@ -284,7 +298,13 @@
     <div style="margin-top: 0px; font-size: 11px; color: #555;">
         <span style="font-weight: bold; color: #333; text-transform: uppercase; letter-spacing: 0.5px;">Zahlungsbedingungen:</span>
         {% set ns = namespace(first=true) %}
-        {% for row in doc.payment_schedule %}{% if row.description or row.payment_term %}{% if not ns.first %} {% endif %}{% set ns.first = false %}{{ row.description or row.payment_term }}{% endif %}{% endfor %}
+        {% for row in doc.payment_schedule %}
+        {% if row.description or row.payment_term %}
+        {% if not ns.first %} {% endif %}
+        {% set ns.first = false %}
+        {{ row.description or row.payment_term }}{% if row.discount_type == "Percentage" and row.discount and (row.discount|float) > 0 %}{% set skonto_abzug = (row.discounted_amount|float) if row.discounted_amount else (row.payment_amount|float) * (row.discount|float) / 100 %}{% set zahlbetrag = (row.payment_amount|float) - skonto_abzug %} – ergibt Zahlbetrag {{ frappe.format(zahlbetrag, {"fieldtype": "Currency", "options": doc.currency}) }}{% endif %}
+        {% endif %}
+        {% endfor %}
     </div>
     {% endif %}
 
