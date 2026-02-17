@@ -182,8 +182,10 @@ def redirect_to_stripe_checkout(payment_request_name):
                 indicator_color="red",
                 http_status_code=500,
             )
+    except frappe.Redirect:
+        raise  # frappe.redirect() wirft diese Exception für die Weiterleitung – nicht als Fehler behandeln
     except Exception as e:
-        frappe.log_error(f"redirect_to_stripe_checkout: {str(e)[:200]}", "stripe_checkout")
+        frappe.log_error(f"redirect_to_stripe_checkout: {type(e).__name__}: {str(e)}\n{frappe.get_traceback()}", "stripe_checkout")
         frappe.respond_as_web_page(
             _("Fehler"),
             _("Zahlungslink konnte nicht geladen werden."),

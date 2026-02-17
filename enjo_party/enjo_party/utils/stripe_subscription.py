@@ -79,10 +79,10 @@ def cancel_stripe_subscription_at_period_end(erpnext_subscription_name):
                     else:
                         frappe.log_error(f"Prüfe Subscription {sub.id}, Metadata: {sub_metadata}, suche nach: {erpnext_subscription_name}", "DEBUG: stripe_subscription_cancel")
                 
-                # Falls nicht gefunden, suche über Checkout Sessions
+                # Falls nicht gefunden, suche über Checkout Sessions (nur abgeschlossene)
                 if not stripe_subscription_id and customer_email:
                     frappe.log_error(f"Suche in Checkout Sessions für Email: {customer_email}", "DEBUG: stripe_subscription_cancel")
-                    sessions = stripe.checkout.Session.list(limit=50)
+                    sessions = stripe.checkout.Session.list(limit=100, status='complete')
                     for sess in sessions.data:
                         sess_metadata = sess.metadata or {}
                         if sess.get('customer_email') == customer_email and sess.get('subscription'):
@@ -93,7 +93,7 @@ def cancel_stripe_subscription_at_period_end(erpnext_subscription_name):
             except Exception as e:
                 frappe.log_error(f"Fehler bei Stripe-Suche: {str(e)}\n{frappe.get_traceback()}", "ERROR: stripe_subscription_cancel")
         
-        # Methode 3: Fallback - über Payment Entry → Session (nur wenn noch nicht gefunden)
+        # Methode 3: Fallback - über Payment Entry → Session oder Invoice (nur wenn noch nicht gefunden)
         if not stripe_subscription_id:
             invoices = frappe.get_all("Sales Invoice",
                 filters={
@@ -102,10 +102,11 @@ def cancel_stripe_subscription_at_period_end(erpnext_subscription_name):
                 },
                 fields=["name"],
                 order_by="creation desc",
-                limit=3
+                limit=5
             )
             
             for invoice in invoices:
+                # 3a: Payment Entry über Payment Request (Checkout Session - reference_no = cs_xxx)
                 payment_requests = frappe.get_all("Payment Request",
                     filters={
                         "reference_doctype": "Sales Invoice",
@@ -128,19 +129,59 @@ def cancel_stripe_subscription_at_period_end(erpnext_subscription_name):
                     )
                     
                     if payment_entries and payment_entries[0].reference_no:
-                        session_id = payment_entries[0].reference_no
+                        reference_no = payment_entries[0].reference_no
                         try:
-                            session = stripe.checkout.Session.retrieve(session_id)
-                            if session.get('subscription'):
-                                stripe_subscription_id = session['subscription']
-                                frappe.log_error(f"Stripe Subscription ID über Payment Entry gefunden: {stripe_subscription_id}", "DEBUG: stripe_subscription_cancel")
-                                break
+                            if reference_no.startswith("cs_"):
+                                # Checkout Session ID
+                                session = stripe.checkout.Session.retrieve(reference_no)
+                                if session.get('subscription'):
+                                    stripe_subscription_id = session['subscription']
+                                    frappe.log_error(f"Stripe Subscription ID über Payment Entry (Session) gefunden: {stripe_subscription_id}", "DEBUG: stripe_subscription_cancel")
+                                    break
+                            elif reference_no.startswith("in_"):
+                                # Stripe Invoice ID (wiederkehrende Zahlungen - invoice.payment_succeeded)
+                                stripe_invoice = stripe.Invoice.retrieve(reference_no)
+                                if stripe_invoice.get('subscription'):
+                                    stripe_subscription_id = stripe_invoice['subscription']
+                                    frappe.log_error(f"Stripe Subscription ID über Payment Entry (Invoice) gefunden: {stripe_subscription_id}", "DEBUG: stripe_subscription_cancel")
+                                    break
                         except Exception as e:
-                            frappe.log_error(f"Fehler beim Abrufen der Session {session_id}: {str(e)}", "DEBUG: stripe_subscription_cancel")
+                            frappe.log_error(f"Fehler beim Abrufen von Stripe (ref={reference_no}): {str(e)}", "DEBUG: stripe_subscription_cancel")
+                
+                # 3b: Payment Entry direkt auf Sales Invoice (reference_doctype=Sales Invoice)
+                if not stripe_subscription_id:
+                    payment_entries_direct = frappe.get_all("Payment Entry",
+                        filters={
+                            "reference_doctype": "Sales Invoice",
+                            "reference_name": invoice.name,
+                            "docstatus": 1
+                        },
+                        fields=["reference_no"],
+                        limit=1
+                    )
+                    if payment_entries_direct and payment_entries_direct[0].reference_no:
+                        reference_no = payment_entries_direct[0].reference_no
+                        if reference_no.startswith("in_"):
+                            try:
+                                stripe_invoice = stripe.Invoice.retrieve(reference_no)
+                                if stripe_invoice.get('subscription'):
+                                    stripe_subscription_id = stripe_invoice['subscription']
+                                    frappe.log_error(f"Stripe Subscription ID über Payment Entry (Invoice direkt) gefunden: {stripe_subscription_id}", "DEBUG: stripe_subscription_cancel")
+                                    break
+                            except Exception as e:
+                                frappe.log_error(f"Fehler beim Abrufen der Stripe Invoice {reference_no}: {str(e)}", "DEBUG: stripe_subscription_cancel")
         
         if not stripe_subscription_id:
             frappe.log_error(f"Keine Stripe Subscription ID gefunden für ERPNext Subscription {erpnext_subscription_name}", "WARNING: stripe_subscription_cancel")
             return False
+        
+        # Speichere gefundene ID im Custom Field für zukünftige Lookups (falls noch nicht gesetzt)
+        if frappe.db.has_column("Subscription", "custom_stripe_subscription_id"):
+            current_stored = frappe.db.get_value("Subscription", erpnext_subscription_name, "custom_stripe_subscription_id")
+            if not current_stored:
+                frappe.db.set_value("Subscription", erpnext_subscription_name, "custom_stripe_subscription_id", stripe_subscription_id, update_modified=False)
+                frappe.db.commit()
+                frappe.log_error(f"Stripe Subscription ID {stripe_subscription_id} im Custom Field gespeichert für {erpnext_subscription_name}", "DEBUG: stripe_subscription_cancel")
         
         # Prüfe zuerst den aktuellen Status der Stripe Subscription
         try:
