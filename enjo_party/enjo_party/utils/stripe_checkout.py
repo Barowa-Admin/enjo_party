@@ -164,9 +164,8 @@ def redirect_to_stripe_checkout(payment_request_name):
         frappe.set_user("Administrator")
         payment_request = frappe.get_doc("Payment Request", payment_request_name)
         if payment_request.status == "Paid":
-            redirect_url = frappe.utils.get_url()
-            frappe.redirect(redirect_url)
-            return
+            from werkzeug.utils import redirect as werkzeug_redirect
+            return werkzeug_redirect(frappe.utils.get_url(), code=302)
         # Stripe braucht oft customer_email – falls leer, aus Kunde nachladen
         if not payment_request.email_to and getattr(payment_request, "party_type", None) == "Customer" and payment_request.party:
             customer_email = frappe.db.get_value("Customer", payment_request.party, "email_id")
@@ -174,7 +173,8 @@ def redirect_to_stripe_checkout(payment_request_name):
                 payment_request.email_to = customer_email
         checkout_url = create_stripe_checkout_session(payment_request)
         if checkout_url:
-            frappe.redirect(checkout_url)
+            from werkzeug.utils import redirect as werkzeug_redirect
+            return werkzeug_redirect(checkout_url, code=302)
         else:
             frappe.respond_as_web_page(
                 _("Zahlungslink konnte nicht erstellt werden"),
@@ -182,8 +182,6 @@ def redirect_to_stripe_checkout(payment_request_name):
                 indicator_color="red",
                 http_status_code=500,
             )
-    except frappe.Redirect:
-        raise  # frappe.redirect() wirft diese Exception für die Weiterleitung – nicht als Fehler behandeln
     except Exception as e:
         frappe.log_error(f"redirect_to_stripe_checkout: {type(e).__name__}: {str(e)}\n{frappe.get_traceback()}", "stripe_checkout")
         frappe.respond_as_web_page(

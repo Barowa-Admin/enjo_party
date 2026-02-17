@@ -102,12 +102,17 @@
                 
                 <div style="margin-bottom: 3px; font-size: 11px;">
                     <span style="font-weight: bold; color: #666;">Vertriebspartner:</span>
-                    <span style="color: #555;"> {{ doc.sales_partner or "-" }}</span>
+                    <span style="color: #555;"> {{ doc.custom_sales_partner or "-" }}</span>
                 </div>
                 
                 <div style="margin-bottom: 3px; font-size: 11px;">
                     <span style="font-weight: bold; color: #666;">Kundennummer:</span>
                     <span style="color: #555;"> {{ doc.customer or doc.party_name or "-" }}</span>
+                </div>
+                
+                <div style="margin-bottom: 3px; font-size: 11px;">
+                    <span style="font-weight: bold; color: #666;">Steuernummer:</span>
+                    <span style="color: #555;"> {{ frappe.db.get_value("Customer", doc.customer or doc.party_name, "tax_id") or "-" }}</span>
                 </div>
                 
                 {% if doc.get("custom_party_reference") %}
@@ -241,7 +246,6 @@
                         <td style="padding: 3px; text-align: right; font-size: 12px;">Nettosumme:</td>
                         <td style="padding: 3px; text-align: right; width: 120px; font-size: 12px;">{% if shipping_items %}{{ frappe.format((doc.net_total or 0) - shipping_net.value, {"fieldtype": "Currency", "options": doc.currency}) }}{% else %}{{ doc.get_formatted("net_total", doc) }}{% endif %}</td>
                     </tr>
-                    {% if not doc.custom_brutto_netto %}
                     {% for tax in doc.taxes %}
                     <tr>
                         <td style="padding: 3px; text-align: right; font-size: 12px;">
@@ -254,6 +258,11 @@
                         <td style="padding: 3px; text-align: right; font-size: 12px;">{{ tax.get_formatted("tax_amount", doc) }}</td>
                     </tr>
                     {% endfor %}
+                    {% if doc.custom_brutto_netto and (not doc.taxes or doc.taxes|length == 0) %}
+                    <tr>
+                        <td style="padding: 3px; text-align: right; font-size: 12px;">MwSt.:</td>
+                        <td style="padding: 3px; text-align: right; font-size: 12px;">{{ frappe.format(0, {"fieldtype": "Currency", "options": doc.currency}) }}</td>
+                    </tr>
                     {% endif %}
                     {% if shipping_items %}
                     {% for item in shipping_items %}

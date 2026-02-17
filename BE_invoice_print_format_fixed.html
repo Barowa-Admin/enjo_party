@@ -255,7 +255,6 @@
                         <td style="padding: 3px; text-align: right; font-size: 12px;">Nettosumme:</td>
                         <td style="padding: 3px; text-align: right; width: 120px; font-size: 12px;">{% if shipping_items %}{{ frappe.format((doc.net_total or 0) - shipping_net.value, {"fieldtype": "Currency", "options": doc.currency}) }}{% else %}{{ doc.get_formatted("net_total", doc) }}{% endif %}</td>
                     </tr>
-                    {% if not doc.get("custom_brutto_netto") %}
                     {% for tax in doc.taxes %}
                     <tr>
                         <td style="padding: 3px; text-align: right; font-size: 12px;">
@@ -268,6 +267,11 @@
                         <td style="padding: 3px; text-align: right; font-size: 12px;">{{ tax.get_formatted("tax_amount", doc) }}</td>
                     </tr>
                     {% endfor %}
+                    {% if doc.get("custom_brutto_netto") and (not doc.taxes or doc.taxes|length == 0) %}
+                    <tr>
+                        <td style="padding: 3px; text-align: right; font-size: 12px;">MwSt.:</td>
+                        <td style="padding: 3px; text-align: right; font-size: 12px;">{{ frappe.format(0, {"fieldtype": "Currency", "options": doc.currency}) }}</td>
+                    </tr>
                     {% endif %}
                     {% if shipping_items %}
                     {% for item in shipping_items %}
