@@ -1144,6 +1144,9 @@ def find_existing_address(entity_name, preferred_type="Billing"):
     """
     Findet eine vorhandene Adresse für einen Kunden oder Sales Partner
     """
+    entity_name = (entity_name or "").strip()
+    if not entity_name:
+        return None
     frappe.log_error(f"=== find_existing_address START: Entity='{entity_name}', Type='{preferred_type}' ===", "DEBUG: find_address_start")
     
     try:
@@ -1213,6 +1216,11 @@ def find_existing_address(entity_name, preferred_type="Billing"):
         unique_addresses = list({link["parent"]: link for link in address_links if link.get("parent")}.values())
         frappe.log_error(f"Unique Adressen gefunden: {len(unique_addresses)} - {[link['parent'] for link in unique_addresses]}", "DEBUG: unique_addresses")
         
+        if not unique_addresses and entity_type == "Customer":
+            primary = getattr(entity_doc, "customer_primary_address", None) or frappe.db.get_value("Customer", entity_name, "customer_primary_address")
+            if primary and frappe.db.exists("Address", primary):
+                frappe.log_error(f"Fallback: Kunden-Standardadresse für '{display_name}': {primary}", "DEBUG: address_primary_fallback")
+                return primary
         if not unique_addresses:
             frappe.log_error(f"❌ Keine Adressen für {entity_type} '{display_name}' gefunden", "WARNING: no_addresses")
             return None
