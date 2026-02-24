@@ -828,7 +828,8 @@ def create_invoices(sammelbestellung, from_submit=False, from_button=False):
                 
                 if not billing_address:
                     frappe.log_error(f"KRITISCH: Keine Adresse für Kunde '{customer}' gefunden", "ERROR: no_billing")
-                    failed_addresses.append({"kunde": customer, "grund": "Rechnungsadresse nicht gefunden"})
+                    name_anzeige = frappe.db.get_value("Customer", customer, "customer_name") or customer
+                    failed_addresses.append({"kunde": customer, "grund": "Rechnungsadresse nicht gefunden", "name_anzeige": name_anzeige})
                     continue
                 
                 frappe.log_error(f"✅ Billing-Adresse für Kunde '{customer}': {billing_address}", "INFO: billing_found")
@@ -847,7 +848,9 @@ def create_invoices(sammelbestellung, from_submit=False, from_button=False):
                         frappe.log_error(f"✅ Versand-Fallback: Billing-Adresse von '{shipping_target}': {shipping_address}", "INFO: shipping_fallback")
                     else:
                         frappe.log_error(f"KRITISCH: Keine Adresse für Versandziel '{shipping_target}' gefunden", "ERROR: no_shipping")
-                        failed_addresses.append({"kunde": customer, "versand_an": shipping_target, "grund": "Lieferadresse für Versandziel nicht gefunden"})
+                        name_anzeige = (frappe.db.get_value("Customer", shipping_target, "customer_name")
+                            or frappe.db.get_value("Sales Partner", shipping_target, "partner_name")) or shipping_target
+                        failed_addresses.append({"kunde": customer, "versand_an": shipping_target, "grund": "Lieferadresse für Versandziel nicht gefunden", "name_anzeige": name_anzeige})
                         continue
                 else:
                     frappe.log_error(f"✅ Shipping-Adresse für Versandziel '{shipping_target}': {shipping_address}", "INFO: shipping_found")

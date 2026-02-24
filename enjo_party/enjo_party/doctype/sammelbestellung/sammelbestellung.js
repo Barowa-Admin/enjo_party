@@ -788,7 +788,7 @@ function erstelleAuftraegeDirectly(frm) {
 				
 				frm.doc.skip_total_calculation = 0;
 				
-				// Adress-Fehler: Backend liefert { error: "addresses", failed: [...] }
+				// Adress-Fehler: Backend liefert { error: "addresses", failed: [...] } mit name_anzeige
 				if (r.message && r.message.error === "addresses" && r.message.failed) {
 					console.warn("[Sammelbestellung] Keine Aufträge erstellt – Adressen fehlen oder konnten nicht zugeordnet werden:", r.message.failed);
 					r.message.failed.forEach(function(e) {
@@ -798,11 +798,16 @@ function erstelleAuftraegeDirectly(frm) {
 							console.warn("  – Kunde:", e.kunde, "| Grund:", e.grund);
 						}
 					});
-					frappe.msgprint({
-						title: __("Hinweis"),
-						message: __("Keine Aufträge erstellt. Rechnungs- oder Lieferadressen prüfen (Details in Browser-Konsole)."),
-						indicator: "orange"
+					var names = [];
+					r.message.failed.forEach(function(e) {
+						var n = e.name_anzeige || e.versand_an || e.kunde;
+						if (n && names.indexOf(n) === -1) names.push(n);
 					});
+					var nameList = names.length ? names.join(", ") : "";
+					var msg = nameList
+						? __("Keine Aufträge erstellt. Folgende haben keine Adresse oder eine fehlerhafte Adresse hinterlegt: ") + nameList
+						: __("Keine Aufträge erstellt. Bitte Rechnungs- und Lieferadressen prüfen.");
+					frappe.msgprint(msg, __("Hinweis"), "orange");
 					refreshButtons(frm);
 					return;
 				}
