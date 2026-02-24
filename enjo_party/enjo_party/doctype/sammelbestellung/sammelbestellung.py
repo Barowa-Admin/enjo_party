@@ -691,19 +691,7 @@ def create_invoices(sammelbestellung, from_submit=False, from_button=False):
     """
     Erstellt Sales Orders für eine Sammelbestellung
     """
-    # BACKEND-SICHERUNG: Setze skip_total_calculation Flag falls vom Button aufgerufen
-    if from_button:
-        try:
-            sammelbestellung_doc = frappe.get_doc("Sammelbestellung", sammelbestellung)
-            if not getattr(sammelbestellung_doc, 'skip_total_calculation', False):
-                frappe.log_error(f"Backend-Sicherung: Setze skip_total_calculation für {sammelbestellung}", "INFO: backend_flag_set")
-                sammelbestellung_doc.skip_total_calculation = 1
-                sammelbestellung_doc.flags.ignore_permissions = True
-                sammelbestellung_doc.save()
-                frappe.db.commit()
-        except Exception as e:
-            frappe.log_error(f"Backend-Sicherung Fehler: {str(e)}", "WARNING: backend_flag_failed")
-    
+    # Kein save() hier bei from_button – sonst könnte das geladene Doc die DB überschreiben (z. B. leere Tabellen).
     try:
         frappe.log_error(f"Starte Auftragserstellung für Sammelbestellung {sammelbestellung} (from_submit={from_submit}, from_button={from_button})", "DEBUG: create_orders Start")
         
@@ -815,6 +803,7 @@ def create_invoices(sammelbestellung, from_submit=False, from_button=False):
             frappe.log_error(f"Erste Bestellung: Customer={first_order.get('customer')}, Products={len(first_order.get('products', []))}", "DEBUG: first_order")
         
         created_orders = []
+        failed_addresses = []  # Für Frontend: Kunden/Versandziele ohne Adresse
         
         # Erstelle Aufträge basierend auf der Versandkostenberechnung
         for order_info in all_orders_with_shipping:
@@ -839,6 +828,7 @@ def create_invoices(sammelbestellung, from_submit=False, from_button=False):
                 
                 if not billing_address:
                     frappe.log_error(f"KRITISCH: Keine Adresse für Kunde '{customer}' gefunden", "ERROR: no_billing")
+                    failed_addresses.append({"kunde": customer, "grund": "Rechnungsadresse nicht gefunden"})
                     continue
                 
                 frappe.log_error(f"✅ Billing-Adresse für Kunde '{customer}': {billing_address}", "INFO: billing_found")
@@ -857,6 +847,7 @@ def create_invoices(sammelbestellung, from_submit=False, from_button=False):
                         frappe.log_error(f"✅ Versand-Fallback: Billing-Adresse von '{shipping_target}': {shipping_address}", "INFO: shipping_fallback")
                     else:
                         frappe.log_error(f"KRITISCH: Keine Adresse für Versandziel '{shipping_target}' gefunden", "ERROR: no_shipping")
+                        failed_addresses.append({"kunde": customer, "versand_an": shipping_target, "grund": "Lieferadresse für Versandziel nicht gefunden"})
                         continue
                 else:
                     frappe.log_error(f"✅ Shipping-Adresse für Versandziel '{shipping_target}': {shipping_address}", "INFO: shipping_found")
@@ -1048,6 +1039,10 @@ def create_invoices(sammelbestellung, from_submit=False, from_button=False):
             frappe.log_error(f"Keine Aufträge erstellt für Sammelbestellung {sammelbestellung}. Einträge: {len(all_orders_with_shipping)}", "ERROR: no_orders_created")
             if all_orders_with_shipping:
                 frappe.log_error(f"Fehlgeschlagene Kunden: {[order.get('customer', 'Unknown') for order in all_orders_with_shipping]}", "ERROR: failed_customers")
+                # Rückgabe mit Adress-Details für Browser-Konsole (kein Throw)
+                result = {"created": [], "error": "addresses", "failed": failed_addresses}
+                frappe.db.commit()
+                return result
         
         frappe.db.commit()
         

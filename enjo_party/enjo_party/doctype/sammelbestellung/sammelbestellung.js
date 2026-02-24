@@ -725,15 +725,7 @@ function erstelleAuftraegeDirectly(frm) {
 	
 	frm.doc.skip_total_calculation = 1;
 	
-	console.log("DEBUG: Vor dem Speichern - docstatus:", frm.doc.docstatus, "is_dirty:", frm.is_dirty());
-	
-	if (!frm.is_dirty()) {
-		console.log("Dokument unverändert - springe direkt zur Aufträge-Erstellung");
-		callCreateInvoicesAPI();
-		return;
-	}
-	
-	console.log("Speichere Änderungen vor Aufträge-Erstellung...");
+	console.log("Speichere vor Aufträge-Erstellung, damit das Backend die aktuellen Daten hat...");
 	
 	let saveTimeout = setTimeout(() => {
 		console.error("TIMEOUT: Speichern dauert zu lange!");
@@ -791,7 +783,25 @@ function erstelleAuftraegeDirectly(frm) {
 				
 				frm.doc.skip_total_calculation = 0;
 				
-				if (r.message && r.message.length > 0) {
+				// Adress-Fehler: Backend liefert { error: "addresses", failed: [...] }
+				if (r.message && r.message.error === "addresses" && r.message.failed) {
+					console.warn("[Sammelbestellung] Keine Aufträge erstellt – Adressen fehlen oder konnten nicht zugeordnet werden:", r.message.failed);
+					r.message.failed.forEach(function(e) {
+						if (e.versand_an) {
+							console.warn("  – Kunde:", e.kunde, "| Versand an:", e.versand_an, "| Grund:", e.grund);
+						} else {
+							console.warn("  – Kunde:", e.kunde, "| Grund:", e.grund);
+						}
+					});
+					frappe.msgprint({
+						title: __("Hinweis"),
+						message: __("Keine Aufträge erstellt. Rechnungs- oder Lieferadressen prüfen (Details in Browser-Konsole)."),
+						indicator: "orange"
+					});
+					refreshButtons(frm);
+					return;
+				}
+				if (r.message && Array.isArray(r.message) && r.message.length > 0) {
 					frappe.msgprint({
 						title: __("Erfolgreich gebuchte Sammelbestellung"),
 						message: __("{0} Aufträge wurden erfolgreich erstellt und eingereicht.<br><br>Das Fenster wird gleich automatisch neu geladen, um den aktuellen Status anzuzeigen.", [r.message.length]),
@@ -807,7 +817,6 @@ function erstelleAuftraegeDirectly(frm) {
 						message: __("Es wurden keine Aufträge erstellt. Bitte überprüfe, ob Produkte ausgewählt wurden."),
 						indicator: "orange"
 					});
-					console.log("Keine Aufträge erstellt - refreshButtons wird aufgerufen");
 					refreshButtons(frm);
 				}
 			},
