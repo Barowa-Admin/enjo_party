@@ -725,8 +725,13 @@ function erstelleAuftraegeDirectly(frm) {
 	
 	frm.doc.skip_total_calculation = 1;
 	
-	console.log("Speichere vor Aufträge-Erstellung, damit das Backend die aktuellen Daten hat...");
+	if (!frm.is_dirty()) {
+		console.log("Dokument unverändert – rufe Aufträge-API direkt auf.");
+		callCreateInvoicesAPI();
+		return;
+	}
 	
+	console.log("Speichere vor Aufträge-Erstellung...");
 	let saveTimeout = setTimeout(() => {
 		console.error("TIMEOUT: Speichern dauert zu lange!");
 		frappe.freeze_screen = false;
