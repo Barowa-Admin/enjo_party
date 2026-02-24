@@ -213,10 +213,12 @@ def before_validate_delivery_note(doc, method):
             for link in address_links:
                 if link.link_doctype == "Customer" and link.link_name != doc.customer:
                     is_foreign_shipping = True
-                    frappe.log_error(f"Fremde Lieferadresse erkannt: {doc.shipping_address_name} gehört zu Kunde {link.link_name}, aber Delivery Note ist für Kunde {doc.customer}", "INFO: foreign_shipping_detected")
+                    msg = f"Fremde Lieferadresse erkannt: {doc.shipping_address_name} gehört zu Kunde {link.link_name}, aber Delivery Note ist für Kunde {doc.customer}"
+                    frappe.log_error(msg[:140] if len(msg) > 140 else msg, "INFO: foreign_shipping_detected")
                     break
         except Exception as e:
-            frappe.log_error(f"Fehler beim Prüfen der Versandadresse: {str(e)}", "WARNING: address_check_error")
+            err_msg = f"Fehler beim Prüfen der Versandadresse: {str(e)}"
+            frappe.log_error(err_msg[:140] if len(err_msg) > 140 else err_msg, "WARNING: address_check_error")
     
     # Deaktiviere Validierungen für fremde Lieferadressen ODER für Gruppenversand
     if is_foreign_shipping or is_gruppenversand:
