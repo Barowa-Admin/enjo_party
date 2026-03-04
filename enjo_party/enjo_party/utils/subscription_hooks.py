@@ -375,7 +375,7 @@ def force_subscription_update(doc, method):
         start_date_reached = subscription.start_date and frappe.utils.getdate(subscription.start_date) <= frappe.utils.getdate()
         
         if start_date_reached:
-            frappe.log_error(f"SUBSCRIPTION HOOK: Startdatum {subscription.start_date} ist erreicht, führe process() aus", "DEBUG: subscription_hook")
+            frappe.log_error(f"SUBSCRIPTION HOOK: Startdatum {subscription.start_date} ist erreicht, prüfe Fälligkeit", "DEBUG: subscription_hook")
 
             processing_date = None
             if subscription.generate_invoice_at == "Beginning of the current subscription period":
@@ -385,6 +385,15 @@ def force_subscription_update(doc, method):
             elif subscription.generate_invoice_at == "Days before the current subscription period":
                 processing_date = add_days(subscription.current_invoice_start, -subscription.number_of_days)
 
+            # WICHTIG: Fälligkeitsprüfung - process() nur ausführen wenn der Termin heute oder in der Vergangenheit liegt
+            today_date = frappe.utils.getdate()
+            processing_date_obj = frappe.utils.getdate(processing_date) if processing_date else None
+            
+            if not processing_date_obj or processing_date_obj > today_date:
+                frappe.log_error(f"SUBSCRIPTION HOOK: Fälligkeit noch nicht erreicht für {doc.name} (processing_date={processing_date}, heute={today_date}) - überspringe process()", "DEBUG: subscription_hook")
+                return
+            
+            frappe.log_error(f"SUBSCRIPTION HOOK: Fälligkeit erreicht für {doc.name} (processing_date={processing_date}), führe process() aus", "DEBUG: subscription_hook")
             subscription.process(posting_date=processing_date)
             frappe.db.commit()
             

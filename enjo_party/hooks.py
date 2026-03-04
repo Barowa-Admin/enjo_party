@@ -226,7 +226,6 @@ doc_events = {
 	"Subscription": {
 		"before_validate": "enjo_party.enjo_party.utils.subscription_hooks.validate_subscription_end_date",
 		"after_insert": "enjo_party.enjo_party.utils.subscription_hooks.force_subscription_update",
-		"after_save": "enjo_party.enjo_party.utils.subscription_hooks.force_subscription_update",
 		"on_cancel": "enjo_party.enjo_party.utils.subscription_hooks.handle_subscription_cancel"
 	},
 	"Subscription Plan": {
