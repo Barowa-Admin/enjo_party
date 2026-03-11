@@ -559,8 +559,8 @@ def after_save_sales_invoice(doc, method):
             frappe.log_error(f"Keine E-Mail-Adresse für Invoice {doc.name} gefunden - Versand übersprungen", "WARNING: invoice_email_no_address")
             return
         
-        # Sende E-Mail mit Rechnung
-        # Verwende das E-Mail-Template "Rechnung"
+        # Sende E-Mail mit Rechnung via communication.email._make
+        # Damit erscheint die E-Mail in der Mail Queue und in der Aktivität der Rechnung
         try:
             # Lade das Dokument neu, um sicherzustellen, dass alle Daten aktuell sind
             invoice_doc = frappe.get_doc("Sales Invoice", doc.name)
@@ -569,37 +569,28 @@ def after_save_sales_invoice(doc, method):
             from frappe.email.doctype.email_template.email_template import get_email_template
             
             email_template_name = "Rechnung"
-            # Konvertiere das Dokument zu einem Dictionary für das Template
             email_template = get_email_template(email_template_name, doc=invoice_doc.as_dict())
-            
-            # Sende E-Mail mit Template (message/content muss gesetzt sein)
-            from frappe import attach_print, sendmail
-            
-            # get_email_template liefert {"subject", "message"}
             template_subject = email_template.get("subject") if email_template else None
             template_message = email_template.get("message") if email_template else None
             
             print_format = invoice_doc.meta.default_print_format or "Standard"
-            attachments = [
-                attach_print(
-                    "Sales Invoice",
-                    invoice_doc.name,
-                    file_name=invoice_doc.name,
-                    doc=invoice_doc,
-                    print_format=print_format,
-                )
-            ]
             
-            sendmail(
+            # communication.email._make erstellt eine Communication (Aktivität) und fügt die E-Mail der Mail Queue hinzu
+            from frappe.core.doctype.communication.email import _make
+            
+            _make(
+                doctype="Sales Invoice",
+                name=invoice_doc.name,
                 recipients=[email_to],
                 subject=template_subject,
-                message=template_message,
-                reference_doctype="Sales Invoice",
-                reference_name=invoice_doc.name,
-                attachments=attachments,
+                content=template_message,
+                send_email=True,
+                print_format=print_format,  # Rechnung-PDF wird automatisch angehängt
+                communication_type="Communication",
+                now=False,  # False = E-Mail kommt in die Mail Queue (sichtbar), True = sofort senden
             )
             
-            frappe.log_error(f"E-Mail erfolgreich versendet für Invoice {invoice_doc.name} an {email_to} (mit Template '{email_template_name}')", "INFO: invoice_email_sent")
+            frappe.log_error(f"E-Mail in Queue/Activity eingetragen für Invoice {invoice_doc.name} an {email_to} (Template '{email_template_name}')", "INFO: invoice_email_sent")
             
         except Exception as e:
             frappe.log_error(f"Fehler beim Versenden der E-Mail für Invoice {doc.name}: {str(e)}", "ERROR: invoice_email_send_failed")
