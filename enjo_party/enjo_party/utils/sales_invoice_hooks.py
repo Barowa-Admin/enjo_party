@@ -578,7 +578,7 @@ def after_save_sales_invoice(doc, method):
             # communication.email._make erstellt eine Communication (Aktivität) und fügt die E-Mail der Mail Queue hinzu
             from frappe.core.doctype.communication.email import _make
             
-            _make(
+            result = _make(
                 doctype="Sales Invoice",
                 name=invoice_doc.name,
                 recipients=[email_to],
@@ -589,6 +589,12 @@ def after_save_sales_invoice(doc, method):
                 communication_type="Communication",
                 now=False,  # False = E-Mail kommt in die Mail Queue (sichtbar), True = sofort senden
             )
+            
+            # Explizit Timeline-Link zur Rechnung hinzufügen, damit die E-Mail in der Aktivität erscheint
+            # (Manuell versendete E-Mails machen das automatisch über add_contact_links)
+            if result and result.get("name"):
+                comm = frappe.get_doc("Communication", result["name"])
+                comm.add_link("Sales Invoice", invoice_doc.name, autosave=True)
             
             frappe.log_error(f"E-Mail in Queue/Activity eingetragen für Invoice {invoice_doc.name} an {email_to} (Template '{email_template_name}')", "INFO: invoice_email_sent")
             
