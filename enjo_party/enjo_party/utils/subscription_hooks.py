@@ -152,6 +152,64 @@ def _get_partnerin_email(sales_partner_name):
     return None
 
 
+def _get_sales_partner_for_invoice(invoice):
+    """
+    Vertriebspartner für CC: zuerst Rechnung, sonst Kunde.default_sales_partner.
+    Abo-Rechnungen aus ERPNext haben oft kein sales_partner auf der SI.
+    """
+    sp = getattr(invoice, "sales_partner", None) or (
+        invoice.get("sales_partner") if isinstance(invoice, dict) else None
+    )
+    if sp:
+        return sp
+    customer = getattr(invoice, "customer", None) or (
+        invoice.get("customer") if isinstance(invoice, dict) else None
+    )
+    if customer:
+        return frappe.db.get_value("Customer", customer, "default_sales_partner")
+    return None
+
+
+def _log_abo_mail_partner_cc_audit(
+    kind,
+    invoice_name,
+    customer,
+    email_to,
+    sales_partner_resolved,
+    partnerin_email,
+    pr_name=None,
+):
+    """
+    Genau ein Fehlerprotokoll-Eintrag pro Abo-Mail-Versand.
+    Im Desk unter Fehlerprotokoll nach Titel „ABO-Mail Partner-CC“ filtern.
+    """
+    sp_db = frappe.db.get_value("Sales Invoice", invoice_name, "sales_partner")
+    dsp = frappe.db.get_value("Customer", customer, "default_sales_partner") if customer else None
+    extra_field = ""
+    if frappe.db.has_column("Sales Invoice", "custom_sales_partner"):
+        csp = frappe.db.get_value("Sales Invoice", invoice_name, "custom_sales_partner")
+        extra_field = f" SI.custom_sales_partner={csp!r}"
+    sp_user = None
+    if sales_partner_resolved:
+        sp_user = frappe.db.get_value("Sales Partner", sales_partner_resolved, "user")
+    cc_disp = partnerin_email if partnerin_email else "KEINE"
+    reason = ""
+    if not partnerin_email:
+        if not sales_partner_resolved:
+            reason = " | Kein CC: weder SI.sales_partner noch Kunde.default_sales_partner"
+        elif not sp_user:
+            reason = " | Kein CC: Sales Partner ohne User-Link"
+        else:
+            reason = " | Kein CC: User ohne E-Mail"
+    msg = (
+        f"{kind} SI={invoice_name} PR={pr_name or '-'} Empfänger={email_to} CC={cc_disp} | "
+        f"für_CC_gewählter_SP={sales_partner_resolved!r} | "
+        f"DB_Snapshot: SI.sales_partner={sp_db!r} Kunde.default_sales_partner={dsp!r}{extra_field} | "
+        f"SP.user={sp_user!r}{reason}"
+    )
+    frappe.log_error(msg, "ABO-Mail Partner-CC")
+
+
 def send_subscription_invoice_informational_email(invoice_doc):
     """
     Sendet bei Folgeabbuchungen (Stripe-Abo existiert bereits) eine reine Informations-E-Mail
@@ -186,12 +244,11 @@ def send_subscription_invoice_informational_email(invoice_doc):
             print_format=print_format,
         )
     ]
-    bcc_list = None
-    sales_partner = getattr(invoice_doc, "sales_partner", None)
-    if sales_partner:
-        partnerin_email = _get_partnerin_email(sales_partner)
-        if partnerin_email:
-            bcc_list = [partnerin_email]
+    cc_list = None
+    sales_partner = _get_sales_partner_for_invoice(invoice_doc)
+    partnerin_email = _get_partnerin_email(sales_partner) if sales_partner else None
+    if partnerin_email:
+        cc_list = [partnerin_email]
     from frappe.utils.background_jobs import enqueue
     email_args = {
         "recipients": email_to,
@@ -204,9 +261,17 @@ def send_subscription_invoice_informational_email(invoice_doc):
         "reference_doctype": "Sales Invoice",
         "reference_name": invoice_doc.name,
     }
-    if bcc_list:
-        email_args["bcc"] = bcc_list
+    if cc_list:
+        email_args["cc"] = cc_list
     enqueue(method=frappe.sendmail, queue="short", timeout=300, is_async=True, **email_args)
+    _log_abo_mail_partner_cc_audit(
+        "Informationsmail-Abo",
+        invoice_doc.name,
+        invoice_doc.customer,
+        email_to,
+        sales_partner,
+        partnerin_email,
+    )
     frappe.log_error(
         f"Informations-E-Mail (ohne Zahlungslink) versendet für Rechnung {invoice_doc.name} an {email_to}",
         "INFO: subscription_informational_email",
@@ -255,13 +320,12 @@ def send_subscription_payment_request_email(payment_request, invoice, include_pa
 
     payment_request.db_set("subject", f"Rechnung {invoice.name}", update_modified=False)
 
-    # BCC: Vertriebspartnerin aus der Rechnung (Sales Invoice.sales_partner)
-    bcc_list = None
-    sales_partner = getattr(invoice, "sales_partner", None) or (invoice.get("sales_partner") if isinstance(invoice, dict) else None)
-    if sales_partner:
-        partnerin_email = _get_partnerin_email(sales_partner)
-        if partnerin_email:
-            bcc_list = [partnerin_email]
+    # CC: Vertriebspartnerin (Rechnung oder Kunde.default_sales_partner)
+    cc_list = None
+    sales_partner = _get_sales_partner_for_invoice(invoice)
+    partnerin_email = _get_partnerin_email(sales_partner) if sales_partner else None
+    if partnerin_email:
+        cc_list = [partnerin_email]
 
     from frappe.utils.background_jobs import enqueue
     email_args = {
@@ -280,9 +344,21 @@ def send_subscription_payment_request_email(payment_request, invoice, include_pa
             )
         ],
     }
-    if bcc_list:
-        email_args["bcc"] = bcc_list
+    if cc_list:
+        email_args["cc"] = cc_list
     enqueue(method=frappe.sendmail, queue="short", timeout=300, is_async=True, **email_args)
+    inv_customer = getattr(invoice, "customer", None) or (
+        invoice.get("customer") if isinstance(invoice, dict) else None
+    )
+    _log_abo_mail_partner_cc_audit(
+        "PaymentRequest-Abo",
+        invoice.name,
+        inv_customer,
+        email_to,
+        sales_partner,
+        partnerin_email,
+        pr_name=payment_request.name,
+    )
     payment_request.make_communication_entry()
 
 def is_first_invoice_for_subscription(invoice_name, subscription_name):
