@@ -362,6 +362,7 @@ frappe.pages['meine-provision-page'].on_page_load = function(wrapper) {
 		html += '<thead><tr>';
 		html += '<th style="width: 80px;">Bezahlt am</th>';
 		html += '<th style="width: 150px;">Rechnung</th>';
+		html += '<th style="width: 88px;">Status</th>';
 		html += '<th style="width: 230px;">Kundenname</th>';
 		html += '<th style="width: 80px;">Umsatz</th>';
 		html += '<th style="width: 160px;">Provisionsfähiger Betrag</th>';
@@ -371,7 +372,8 @@ frappe.pages['meine-provision-page'].on_page_load = function(wrapper) {
 
 		var total = 0;
 		data.forEach(function(row) {
-			if (row[1] === 'GESAMT') {
+			var isTotalRow = row[1] === 'GESAMT';
+			if (isTotalRow) {
 				html += '<tr style="font-weight: bold; background-color: #f8f9fa;">';
 			} else {
 				html += '<tr>';
@@ -379,22 +381,27 @@ frappe.pages['meine-provision-page'].on_page_load = function(wrapper) {
 			
 			html += '<td>' + (row[0] || '') + '</td>';
 			
-			html += '<td>' + (row[1] || '') + '</td>';
+			html += '<td>' + (isTotalRow ? '' : (row[1] || '')) + '</td>';
+
+			// Status (row[2]) als Badge wie in Ausgangsrechnung
+			html += '<td>' + getStatusBadgeHtml(row[2], isTotalRow) + '</td>';
 			
-			// Kundenname mit Link (row[2] = customer_name, row[3] = customer_id)
-			if (row[3] && row[1] !== 'GESAMT') {
-				html += '<td><a href="/app/customer/' + row[3] + '" target="_blank">' + (row[2] || '') + '</a></td>';
+			// Kundenname mit Link (row[3] = customer_name, row[4] = customer_id)
+			if (isTotalRow) {
+				html += '<td style="text-align: right;">GESAMT</td>';
+			} else if (row[4]) {
+				html += '<td><a href="/app/customer/' + row[4] + '" target="_blank">' + (row[3] || '') + '</a></td>';
 			} else {
-				html += '<td>' + (row[2] || '') + '</td>';
+				html += '<td>' + (row[3] || '') + '</td>';
 			}
-			html += '<td style="text-align: right;">' + (row[4] ? format_currency(row[4]) : '') + '</td>';
 			html += '<td style="text-align: right;">' + (row[5] ? format_currency(row[5]) : '') + '</td>';
 			html += '<td style="text-align: right;">' + (row[6] ? format_currency(row[6]) : '') + '</td>';
-			html += '<td style="text-align: right;">' + (row[7] || '0') + '</td>';
+			html += '<td style="text-align: right;">' + (row[7] ? format_currency(row[7]) : '') + '</td>';
+			html += '<td style="text-align: right;">' + ((row[8] !== null && row[8] !== undefined) ? row[8] : '') + '</td>';
 			html += '</tr>';
 			
-			if (row[1] !== 'GESAMT') {
-				total += (row[6] || 0);  // Commission ist jetzt row[6]
+			if (!isTotalRow) {
+				total += (row[7] || 0);  // Commission ist jetzt row[7]
 			}
 		});
 		
@@ -422,6 +429,36 @@ frappe.pages['meine-provision-page'].on_page_load = function(wrapper) {
 
 function format_currency(amount) {
 	return '€ ' + parseFloat(amount).toFixed(2).replace('.', ',');
+}
+
+function getStatusBadgeHtml(status, isTotalRow) {
+	if (isTotalRow || !status) {
+		return '';
+	}
+
+	var statusColorMap = {
+		'Bezahlt': 'green',
+		'Paid': 'green',
+		'Unbezahlt': 'red',
+		'Unpaid': 'red',
+		'Überfällig': 'red',
+		'Overdue': 'red',
+		'Teilbezahlt': 'orange',
+		'Partly Paid': 'orange',
+		'Entwurf': 'blue',
+		'Draft': 'blue',
+		'Gebucht': 'blue',
+		'Submitted': 'blue',
+		'Gutschrift': 'orange',
+		'Return': 'orange',
+		'Gutschrift ausgelöst': 'orange',
+		'Credit Note Issued': 'orange',
+		'Storniert': 'gray',
+		'Cancelled': 'gray'
+	};
+
+	var colorClass = statusColorMap[status] || 'gray';
+	return '<span class="indicator-pill ' + colorClass + '">' + frappe.utils.escape_html(status) + '</span>';
 }
 
 function printProvision() {

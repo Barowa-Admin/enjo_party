@@ -53,8 +53,11 @@ def get_provision_data(month=None, year=None, date_from=None, date_to=None):
     # SQL Query mit eigener Sicherheitslogik - nur gültige Provisionsrechnungen
     sql_query = """
         SELECT
-            COALESCE(pe.posting_date, si.posting_date) as payment_date,
+            pe.posting_date as payment_entry_date,
+            si.posting_date as invoice_posting_date,
             si.name,
+            si.status as invoice_status,
+            si.docstatus as invoice_docstatus,
             c.customer_name,
             si.customer,
             COALESCE(per.allocated_amount, si.grand_total) as paid_amount,
@@ -104,7 +107,10 @@ def get_provision_data(month=None, year=None, date_from=None, date_to=None):
     # Zeitraumfilter
     if date_from and date_to:
         # Freier Zeitraum: date_from und date_to verwenden
-        sql_conditions.append("pe.posting_date IS NOT NULL AND pe.posting_date BETWEEN %(first_day)s AND %(last_day)s")
+        sql_conditions.append(
+            "((pe.posting_date IS NOT NULL AND pe.posting_date BETWEEN %(first_day)s AND %(last_day)s) "
+            "OR (si.posting_date BETWEEN %(first_day)s AND %(last_day)s))"
+        )
         sql_values["first_day"] = date_from
         sql_values["last_day"] = date_to
     elif month and year:
@@ -120,8 +126,11 @@ def get_provision_data(month=None, year=None, date_from=None, date_to=None):
             last_day_num = calendar.monthrange(int(year), month_num)[1]
             last_day = f"{year}-{month_num:02d}-{last_day_num:02d}"
             
-            # Nur bezahlte Rechnungen im Zeitraum (pe.posting_date muss existieren)
-            sql_conditions.append("pe.posting_date IS NOT NULL AND pe.posting_date BETWEEN %(first_day)s AND %(last_day)s")
+            # Zeige alle Rechnungen im Zeitraum; bezahlte Rechnungen bleiben über pe.posting_date enthalten
+            sql_conditions.append(
+                "((pe.posting_date IS NOT NULL AND pe.posting_date BETWEEN %(first_day)s AND %(last_day)s) "
+                "OR (si.posting_date BETWEEN %(first_day)s AND %(last_day)s))"
+            )
             sql_values["first_day"] = first_day
             sql_values["last_day"] = last_day
     
@@ -143,26 +152,48 @@ def get_provision_data(month=None, year=None, date_from=None, date_to=None):
     total_punkte = 0
     total_umsatz = 0
     total_amount_eligible = 0
+
+    def format_invoice_status(invoice_status, invoice_docstatus):
+        # docstatus: 0=Draft, 1=Submitted, 2=Cancelled
+        if invoice_docstatus == 0:
+            return "Entwurf"
+        if invoice_docstatus == 2:
+            return "Storniert"
+        status_map = {
+            "Paid": "Bezahlt",
+            "Unpaid": "Unbezahlt",
+            "Overdue": "Überfällig",
+            "Partly Paid": "Teilbezahlt",
+            "Return": "Gutschrift",
+            "Credit Note Issued": "Gutschrift ausgelöst",
+            "Cancelled": "Storniert",
+            "Draft": "Entwurf",
+            "Submitted": "Gebucht",
+        }
+        return status_map.get(invoice_status, invoice_status or "")
     
     for inv in invoices:
-        commission = flt(inv.total_commission) if inv.total_commission else 0
-        punkte = int(inv.punkte_gesamt) if inv.punkte_gesamt else 0
-        umsatz = flt(inv.umsatz) if inv.umsatz else 0
-        amount_eligible = flt(inv.amount_eligible_for_commission) if inv.amount_eligible_for_commission else 0
+        is_paid_invoice = bool(getattr(inv, "payment_entry_date", None))
+        commission = flt(inv.total_commission) if (is_paid_invoice and inv.total_commission) else 0
+        punkte = int(inv.punkte_gesamt) if (is_paid_invoice and inv.punkte_gesamt) else 0
+        umsatz = flt(inv.umsatz) if (is_paid_invoice and inv.umsatz) else 0
+        amount_eligible = flt(inv.amount_eligible_for_commission) if (is_paid_invoice and inv.amount_eligible_for_commission) else 0
+        invoice_status_label = format_invoice_status(getattr(inv, "invoice_status", None), getattr(inv, "invoice_docstatus", None))
         total_provision += commission
         total_punkte += punkte
         total_umsatz += umsatz
         total_amount_eligible += amount_eligible
         
         data.append([
-            inv.payment_date.strftime('%d.%m.%Y') if inv.payment_date else '',
+            inv.payment_entry_date.strftime('%d.%m.%Y') if inv.payment_entry_date else '',
             inv.name,
+            invoice_status_label,
             inv.customer_name,
             inv.customer if inv.customer else None,  # Customer-ID für Link
-            umsatz,
-            amount_eligible,
-            commission,
-            punkte,
+            umsatz if is_paid_invoice else None,
+            amount_eligible if is_paid_invoice else None,
+            commission if is_paid_invoice else None,
+            punkte if is_paid_invoice else None,
         ])
     
     # Gesamtsumme hinzufügen
@@ -182,6 +213,7 @@ def get_provision_data(month=None, year=None, date_from=None, date_to=None):
             "",
             "GESAMT",
             title,
+            "",
             None,  # Keine Customer-ID für GESAMT-Zeile
             total_umsatz,
             total_amount_eligible,
