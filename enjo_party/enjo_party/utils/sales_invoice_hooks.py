@@ -504,6 +504,18 @@ def after_save_sales_invoice(doc, method):
     
     if doc.doctype != "Sales Invoice":
         return
+
+    # Globaler Schalter (System Settings): Rechnungs-E-Mails temporär deaktivieren
+    try:
+        if frappe.db.get_single_value("System Settings", "custom_disable_invoice_emails"):
+            frappe.log_error(
+                f"Rechnungs-E-Mail Versand deaktiviert (System Settings) - Invoice {doc.name} wird übersprungen",
+                "INFO: invoice_email_disabled",
+            )
+            return
+    except Exception:
+        # Wenn Settings nicht verfügbar sind, Versand nicht blockieren
+        pass
     
     # Nur wenn die Rechnung gebucht wurde (docstatus == 1)
     if doc.docstatus != 1:

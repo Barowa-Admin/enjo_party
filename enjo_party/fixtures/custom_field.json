@@ -116,5 +116,27 @@
   "read_only": 1,
   "hidden": 0,
   "insert_after": "custom_party_reference"
+ },
+ {
+  "doctype": "Custom Field",
+  "name": "System Settings-custom_disable_invoice_emails",
+  "dt": "System Settings",
+  "fieldname": "custom_disable_invoice_emails",
+  "fieldtype": "Check",
+  "label": "Rechnungs-E-Mails deaktivieren",
+  "default": "0",
+  "description": "Wenn aktiviert, werden Rechnungs-E-Mails beim Buchen nicht automatisch versendet.",
+  "insert_after": "store_attached_pdf_document"
+ },
+ {
+  "doctype": "Custom Field",
+  "name": "System Settings-custom_disable_subscription_emails",
+  "dt": "System Settings",
+  "fieldname": "custom_disable_subscription_emails",
+  "fieldtype": "Check",
+  "label": "Abo-E-Mails deaktivieren",
+  "default": "0",
+  "description": "Wenn aktiviert, werden Abo-E-Mails nicht automatisch versendet.",
+  "insert_after": "custom_disable_invoice_emails"
  }
 ] 

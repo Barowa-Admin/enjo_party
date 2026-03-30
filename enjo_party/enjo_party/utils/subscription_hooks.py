@@ -263,6 +263,18 @@ def send_subscription_invoice_informational_email(invoice_doc):
     }
     if cc_list:
         email_args["cc"] = cc_list
+
+    # Globaler Schalter (System Settings): Abo-E-Mails temporär deaktivieren
+    try:
+        if frappe.db.get_single_value("System Settings", "custom_disable_subscription_emails"):
+            frappe.log_error(
+                f"Abo-E-Mail Versand deaktiviert (System Settings) - Invoice {invoice_doc.name} wird übersprungen",
+                "INFO: subscription_email_disabled",
+            )
+            return
+    except Exception:
+        # Wenn Settings nicht verfügbar sind, Versand nicht blockieren
+        pass
     enqueue(method=frappe.sendmail, queue="short", timeout=300, is_async=True, **email_args)
     _log_abo_mail_partner_cc_audit(
         "Informationsmail-Abo",
@@ -346,6 +358,18 @@ def send_subscription_payment_request_email(payment_request, invoice, include_pa
     }
     if cc_list:
         email_args["cc"] = cc_list
+
+    # Globaler Schalter (System Settings): Abo-E-Mails temporär deaktivieren
+    try:
+        if frappe.db.get_single_value("System Settings", "custom_disable_subscription_emails"):
+            frappe.log_error(
+                f"Abo-E-Mail Versand deaktiviert (System Settings) - Payment Request {payment_request.name} / Invoice {invoice.name} wird übersprungen",
+                "INFO: subscription_email_disabled",
+            )
+            return
+    except Exception:
+        # Wenn Settings nicht verfügbar sind, Versand nicht blockieren
+        pass
     enqueue(method=frappe.sendmail, queue="short", timeout=300, is_async=True, **email_args)
     inv_customer = getattr(invoice, "customer", None) or (
         invoice.get("customer") if isinstance(invoice, dict) else None
