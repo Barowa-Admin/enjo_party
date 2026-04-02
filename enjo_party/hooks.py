@@ -250,7 +250,9 @@ doc_events = {
 
 scheduler_events = {
 	"daily": [
-		"enjo_party.enjo_party.utils.status_scheduler.update_overdue_status"
+		"enjo_party.enjo_party.utils.status_scheduler.update_overdue_status",
+		# Verarbeitet fällige Subscriptions automatisiert (Rechnungserstellung)
+		"enjo_party.enjo_party.utils.subscription_scheduler.process_due_subscriptions"
 	]
 }
 
