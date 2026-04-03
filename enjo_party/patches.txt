@@ -4,3 +4,6 @@
 
 [post_model_sync]
 # Patches added in this section will be executed after doctypes are migrated
+enjo_party.enjo_party.patches.remove_subscription_settings_abo_email_fields
+enjo_party.enjo_party.patches.remove_pga_abo_followup_subject_field
+enjo_party.enjo_party.patches.ensure_remove_pga_abo_subject_field

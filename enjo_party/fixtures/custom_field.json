@@ -138,5 +138,24 @@
   "default": "0",
   "description": "Wenn aktiviert, werden Abo-E-Mails nicht automatisch versendet.",
   "insert_after": "custom_disable_invoice_emails"
+ },
+ {
+  "doctype": "Custom Field",
+  "name": "Payment Gateway Account-custom_abo_email_section",
+  "dt": "Payment Gateway Account",
+  "fieldname": "custom_abo_email_section",
+  "fieldtype": "Section Break",
+  "label": "",
+  "insert_after": "message"
+ },
+ {
+  "doctype": "Custom Field",
+  "name": "Payment Gateway Account-custom_abo_info_email_message",
+  "dt": "Payment Gateway Account",
+  "fieldname": "custom_abo_info_email_message",
+  "fieldtype": "Small Text",
+  "label": "Abo-Folge-Mail",
+  "description": "Jinja wie bei Abo-Mail, z. B. {{ doc.name }}. Leer = Standardtext. Betreff fest wie erste Mail: „Rechnung …“.",
+  "insert_after": "custom_abo_email_section"
  }
 ] 

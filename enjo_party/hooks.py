@@ -95,7 +95,7 @@ doctype_list_js = {
 # Fixtures
 # --------
 
-fixtures = ["Custom Field"]
+fixtures = ["Custom Field", "Property Setter"]
 
 # Installation
 # ------------

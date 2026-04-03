@@ -5,6 +5,9 @@ from enjo_party.enjo_party.utils.stripe_checkout import create_stripe_checkout_s
 from enjo_party.enjo_party.utils.stripe_subscription import cancel_stripe_subscription_at_period_end
 from enjo_party.enjo_party.utils.sales_invoice_hooks import ensure_inclusive_taxes
 
+# Stripe EUR Gateway: erste Abo-Mail (message-Feld) + Folge-Mail (Custom Fields) am selben Datensatz
+STRIPE_EUR_PAYMENT_GATEWAY_ACCOUNT = "Stripe-Stripe - EUR"
+
 
 def _log_err(title, message=None):
     """Frappe log_error(title, message) — Titel-Feld max. 140 Zeichen."""
@@ -216,6 +219,42 @@ def _log_abo_mail_partner_cc_audit(
     _log_err("ABO-Mail Partner-CC", msg)
 
 
+def _get_subscription_informational_email_subject_and_message(invoice_doc):
+    """
+    Informationsmail (Stripe-Abo, ohne Zahlungslink).
+    Betreff: fest wie erste Abo-Mail (Payment Request). Text: Payment Gateway Account → „Abo-Folge-Mail“.
+    """
+    subject = f"Rechnung {invoice_doc.name}"
+    default_message = (
+        "Guten Tag,\n\n"
+        "im Anhang finden Sie die Rechnung zu Ihrem BE'motion-Abonnement.\n\n"
+        "Der vereinbarte Betrag wird wie gewohnt automatisch per Abbuchung eingezogen; "
+        "eine separate Überweisung ist nicht nötig.\n\n"
+        "Bei Fragen helfen wir Ihnen gerne weiter.\n\n"
+        "Mit freundlichen Grüßen\n"
+        "Ihr BE'motion-Team"
+    )
+    ctx = {"doc": invoice_doc, "invoice": invoice_doc}
+    message = default_message
+    try:
+        from frappe.utils.jinja import render_template
+
+        msg_tpl = ""
+        if frappe.db.exists("Payment Gateway Account", STRIPE_EUR_PAYMENT_GATEWAY_ACCOUNT):
+            ga = frappe.get_doc("Payment Gateway Account", STRIPE_EUR_PAYMENT_GATEWAY_ACCOUNT)
+            msg_tpl = (getattr(ga, "custom_abo_info_email_message", None) or "").strip()
+
+        if msg_tpl:
+            try:
+                message = (render_template(msg_tpl, ctx) or "").strip() or default_message
+            except Exception:
+                message = default_message
+    except Exception:
+        message = default_message
+
+    return subject, message
+
+
 def send_subscription_invoice_informational_email(invoice_doc):
     """
     Sendet bei Folgeabbuchungen (Stripe-Abo existiert bereits) eine reine Informations-E-Mail
@@ -234,12 +273,7 @@ def send_subscription_invoice_informational_email(invoice_doc):
             f"Keine E-Mail-Adresse für Rechnung {invoice_doc.name} – Informations-Mail übersprungen",
         )
         return
-    subject = f"Ihre Rechnung {invoice_doc.name}"
-    message = (
-        "anbei erhalten Sie Ihre Rechnung für Ihr Abonnement. "
-        "Die Zahlung erfolgt automatisch per Abbuchung.\n\n"
-        "Viele Grüße\nIhr BE'motion Team"
-    )
+    subject, message = _get_subscription_informational_email_subject_and_message(invoice_doc)
     print_format = getattr(invoice_doc.meta, "default_print_format", None) or "Standard"
     attachments = [
         frappe.attach_print(
@@ -319,7 +353,9 @@ def send_subscription_payment_request_email(payment_request, invoice, include_pa
 
     if include_payment_link:
         from frappe.utils.jinja import render_template
-        gateway_account = frappe.get_doc("Payment Gateway Account", "Stripe-Stripe - EUR")
+        gateway_account = frappe.get_doc(
+            "Payment Gateway Account", STRIPE_EUR_PAYMENT_GATEWAY_ACCOUNT
+        )
         message_template = gateway_account.message or ""
         rendered_message = render_template(
             message_template,
@@ -603,7 +639,7 @@ def force_subscription_update(doc, method):
                     "party": invoice.customer,
                     "reference_doctype": "Sales Invoice",
                     "reference_name": invoice.name,
-                    "payment_gateway_account": "Stripe-Stripe - EUR",
+                    "payment_gateway_account": STRIPE_EUR_PAYMENT_GATEWAY_ACCOUNT,
                     "grand_total": invoice_grand_total,
                     "currency": invoice.currency,
                     "email_to": get_invoice_email_address(invoice),
@@ -689,7 +725,9 @@ def force_subscription_update(doc, method):
                     
                     # Rendere Message Template aus Payment Gateway Account (mit dauerhaftem payment_url)
                     from frappe.utils.jinja import render_template
-                    gateway_account = frappe.get_doc("Payment Gateway Account", "Stripe-Stripe - EUR")
+                    gateway_account = frappe.get_doc(
+                        "Payment Gateway Account", STRIPE_EUR_PAYMENT_GATEWAY_ACCOUNT
+                    )
                     message_template = gateway_account.message or ""
                     rendered_message = render_template(message_template, {
                         "doc": invoice,
@@ -806,7 +844,7 @@ def create_payment_request_for_subscription_invoice(doc, method):
                     "party": doc.customer,
                     "reference_doctype": "Sales Invoice",
                     "reference_name": doc.name,
-                    "payment_gateway_account": "Stripe-Stripe - EUR",
+                    "payment_gateway_account": STRIPE_EUR_PAYMENT_GATEWAY_ACCOUNT,
                     "grand_total": doc.grand_total,
                     "currency": doc.currency,
                     "email_to": get_invoice_email_address(doc),
@@ -890,7 +928,9 @@ def create_payment_request_for_subscription_invoice(doc, method):
                     
                     # Rendere Message Template aus Payment Gateway Account (mit dauerhaftem payment_url)
                     from frappe.utils.jinja import render_template
-                    gateway_account = frappe.get_doc("Payment Gateway Account", "Stripe-Stripe - EUR")
+                    gateway_account = frappe.get_doc(
+                        "Payment Gateway Account", STRIPE_EUR_PAYMENT_GATEWAY_ACCOUNT
+                    )
                     message_template = gateway_account.message or ""
                     rendered_message = render_template(message_template, {
                         "doc": doc,
@@ -947,17 +987,23 @@ def create_payment_request_for_subscription_invoice(doc, method):
 
 def set_default_payment_gateway(doc, method):
     """
-    Setzt automatisch Payment Gateway auf "Stripe-Stripe - EUR" wenn leer
+    Setzt automatisch Payment Gateway auf STRIPE_EUR_PAYMENT_GATEWAY_ACCOUNT wenn leer
     Wird bei Subscription Plan before_save/validate aufgerufen
     """
     try:
         if not doc.payment_gateway:
-            doc.payment_gateway = "Stripe-Stripe - EUR"
+            doc.payment_gateway = STRIPE_EUR_PAYMENT_GATEWAY_ACCOUNT
             # Prüfe ob Payment Gateway Account existiert
-            if not frappe.db.exists("Payment Gateway Account", "Stripe-Stripe - EUR"):
-                _log_err("WARNING: subscription_plan", "Payment Gateway Account 'Stripe-Stripe - EUR' existiert nicht")
+            if not frappe.db.exists("Payment Gateway Account", STRIPE_EUR_PAYMENT_GATEWAY_ACCOUNT):
+                _log_err(
+                    "WARNING: subscription_plan",
+                    f"Payment Gateway Account '{STRIPE_EUR_PAYMENT_GATEWAY_ACCOUNT}' existiert nicht",
+                )
             else:
-                _log_err("DEBUG: subscription_plan", f"Payment Gateway auf Stripe-Stripe - EUR gesetzt für Plan {doc.name}")
+                _log_err(
+                    "DEBUG: subscription_plan",
+                    f"Payment Gateway auf {STRIPE_EUR_PAYMENT_GATEWAY_ACCOUNT} gesetzt für Plan {doc.name}",
+                )
     except Exception as e:
         _log_err("ERROR: subscription_plan", f"Fehler beim Setzen des Payment Gateways für Plan {doc.name}: {str(e)}")
 

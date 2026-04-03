@@ -1,0 +1,14 @@
+[
+ {
+  "doctype": "Property Setter",
+  "name": "Payment Gateway Account-message-label",
+  "doctype_or_field": "DocField",
+  "doc_type": "Payment Gateway Account",
+  "field_name": "message",
+  "property": "label",
+  "property_type": "Data",
+  "value": "Abo-Mail",
+  "module": "Enjo Party",
+  "is_system_generated": 1
+ }
+]
