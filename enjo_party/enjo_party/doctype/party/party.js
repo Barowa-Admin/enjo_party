@@ -2636,37 +2636,39 @@ frappe.ui.form.on('Party Kunde', {
 frappe.ui.form.on('Sales Order Item', {
 	item_code: function(frm, cdt, cdn) {
 		let row = locals[cdt][cdn];
-		if (row.item_code && !row.qty) {
+		if (!row.item_code) {
+			setTimeout(() => updateAllSummenAnzeigen(frm), 300);
+			return;
+		}
+		// flt: auch String "0" / leere Menge zuverlässig erkennen (Race mit Preis-Callback vermeiden)
+		if (flt(row.qty) <= 0) {
 			frappe.model.set_value(cdt, cdn, 'qty', 1);
-			
-			// Holen der Item-Details und Setzen der UOM-Felder
-			frappe.db.get_doc("Item", row.item_code)
-				.then(item_doc => {
-					// UOM Felder setzen
-					frappe.model.set_value(cdt, cdn, 'uom', item_doc.stock_uom);
-					frappe.model.set_value(cdt, cdn, 'stock_uom', item_doc.stock_uom);
-					frappe.model.set_value(cdt, cdn, 'conversion_factor', 1.0);
-					frappe.model.set_value(cdt, cdn, 'uom_conversion_factor', 1.0);
-					
-					// Item Name setzen
-					if (!row.item_name) {
-						frappe.model.set_value(cdt, cdn, 'item_name', item_doc.item_name);
-					}
-					
-					// Weitere erforderliche Felder
-					if (!row.stock_qty) {
-						let stock_qty = parseFloat(row.qty || 0) * 1.0;
-						frappe.model.set_value(cdt, cdn, 'stock_qty', stock_qty);
-					}
-				});
 		}
-		
-		// Automatisch Preis laden (immer, auch wenn schon einer vorhanden ist)
-		if (row.item_code) {
-			get_item_price(frm, row);
-		}
-		
-		// Aktualisiere die Summen-Anzeigen nach Artikel-Auswahl
+		row = locals[cdt][cdn];
+
+		const requested_item_code = row.item_code;
+		frappe.db.get_doc("Item", requested_item_code)
+			.then(item_doc => {
+				const r = locals[cdt][cdn];
+				if (!r || r.item_code !== requested_item_code || item_doc.name !== requested_item_code) {
+					return;
+				}
+				frappe.model.set_value(cdt, cdn, 'uom', item_doc.stock_uom);
+				frappe.model.set_value(cdt, cdn, 'stock_uom', item_doc.stock_uom);
+				frappe.model.set_value(cdt, cdn, 'conversion_factor', 1.0);
+				frappe.model.set_value(cdt, cdn, 'uom_conversion_factor', 1.0);
+				if (!r.item_name) {
+					frappe.model.set_value(cdt, cdn, 'item_name', item_doc.item_name);
+				}
+				const r2 = locals[cdt][cdn];
+				if (!flt(r2.stock_qty)) {
+					frappe.model.set_value(cdt, cdn, 'stock_qty', flt(r2.qty) || 1);
+				}
+			})
+			.catch(() => {});
+
+		get_item_price(frm, locals[cdt][cdn]);
+
 		setTimeout(() => {
 			updateAllSummenAnzeigen(frm);
 		}, 500);
@@ -2723,8 +2725,13 @@ function refresh_item_prices(frm) {
 
 // Funktion, um den Preis eines Artikels abzurufen
 function get_item_price(frm, row) {
-	if (!row.item_code) return;
-	
+	if (!row || !row.item_code || !row.doctype || !row.name) {
+		return;
+	}
+	const cdt = row.doctype;
+	const cdn = row.name;
+	const item_code_requested = row.item_code;
+
 	frappe.call({
 		method: 'erpnext.stock.get_item_details.get_item_details',
 		args: {
@@ -2738,35 +2745,49 @@ function get_item_price(frm, row) {
 				doctype: 'Sales Order',
 				currency: frappe.defaults.get_global_default('currency'),
 				update_stock: 0,
-				conversion_factor: row.conversion_factor || 1.0,
-				qty: row.qty || 1.0,
-				price_list_uom_dependant: 1
+				conversion_factor: flt(row.conversion_factor) || 1.0,
+				qty: flt(row.qty) || 1.0,
+				price_list_uom_dependant: 1,
+				transaction_date: frappe.datetime.get_today()
 			}
 		},
 		callback: function(r) {
-			if (r.message) {
-				row.rate = r.message.price_list_rate || 0;
-				row.price_list_rate = r.message.price_list_rate || 0;
-				row.base_price_list_rate = r.message.price_list_rate || 0;
-				row.base_rate = r.message.price_list_rate || 0;
-				row.item_name = r.message.item_name || row.item_code;
-				row.price_list = r.message.price_list;
-				row.uom = r.message.uom;
-				row.conversion_factor = r.message.conversion_factor || 1.0;
-
-				if (r.message.stock_uom) {
-					row.stock_uom = r.message.stock_uom;
-				}
-
-				// Berechne den Betrag (amount = qty * rate)
-				if (row.qty && row.rate) {
-					row.amount = flt(row.qty) * flt(row.rate);
-					row.base_amount = row.amount;
-				}
-
-				frm.refresh_field(row.parentfield);
-				console.log(`Preis für ${row.item_code} auf ${row.rate} gesetzt, Betrag: ${row.amount}`);
+			const line = locals[cdt] && locals[cdt][cdn];
+			if (!line || line.item_code !== item_code_requested) {
+				return;
 			}
+			if (!r.message) {
+				return;
+			}
+			// Nach async-Response: Menge kann noch 0 gewesen sein → sonst kein Betrag
+			if (flt(line.qty) <= 0) {
+				frappe.model.set_value(cdt, cdn, 'qty', 1);
+			}
+			const fresh = locals[cdt][cdn];
+			const list_rate = flt(r.message.price_list_rate);
+			fresh.rate = list_rate;
+			fresh.price_list_rate = list_rate;
+			fresh.base_price_list_rate = list_rate;
+			fresh.base_rate = list_rate;
+			fresh.item_name = r.message.item_name || fresh.item_code;
+			fresh.price_list = r.message.price_list;
+			if (r.message.uom) {
+				fresh.uom = r.message.uom;
+			}
+			fresh.conversion_factor = flt(r.message.conversion_factor) || 1.0;
+			if (r.message.stock_uom) {
+				fresh.stock_uom = r.message.stock_uom;
+			}
+
+			const q = flt(fresh.qty) || 1;
+			fresh.amount = q * flt(fresh.rate);
+			fresh.base_amount = fresh.amount;
+
+			if (fresh.parentfield) {
+				frm.refresh_field(fresh.parentfield);
+			}
+			calculate_party_totals(frm);
+			updateAllSummenAnzeigen(frm);
 		}
 	});
 }
@@ -2805,6 +2826,16 @@ function update_all_empty_prices(frm) {
 			if (frm.doc.produktauswahl_für_gastgeberin && frm.doc.produktauswahl_für_gastgeberin.length > 0) {
 				frm.doc.produktauswahl_für_gastgeberin.forEach(function(item) {
 					// WICHTIG: Nicht überschreiben, wenn es ein Gutschein-reduzierter Artikel oder Aktionsartikel ist!
+					let istAktionsartikel = aktionsCodes.includes(item.item_code);
+					if (item.item_code && (!item.rate || item.rate == 0) && !item._gutschein_angewendet && !istAktionsartikel) {
+						get_item_price(frm, item);
+					}
+				});
+			}
+
+			// Gastgeber-Geschenke (gleiche Logik wie andere Produkttabellen)
+			if (frm.doc.gastgeber_geschenke && frm.doc.gastgeber_geschenke.length > 0) {
+				frm.doc.gastgeber_geschenke.forEach(function(item) {
 					let istAktionsartikel = aktionsCodes.includes(item.item_code);
 					if (item.item_code && (!item.rate || item.rate == 0) && !item._gutschein_angewendet && !istAktionsartikel) {
 						get_item_price(frm, item);
