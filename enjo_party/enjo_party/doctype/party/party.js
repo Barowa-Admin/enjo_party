@@ -1971,13 +1971,16 @@ frappe.ui.form.on('Party', {
 		frm.toggle_display("summe_gastgeberin", showGastgeberinSection);
 		frm.toggle_display("versand_gastgeberin", showGastgeberinSection);
 		
-		// Gastgebergeschenke-Tabelle: Anzeigen wenn Status "Gastgeber Geschenke" ODER wenn Party abgeschlossen ist und Produkte vorhanden sind
-		// WICHTIG: Standardmäßig immer ausgeblendet, nur wenn Status explizit "Gastgeber Geschenke" ist ODER wenn Party abgeschlossen ist und Produkte vorhanden sind, anzeigen
-		const hasGastgeberGeschenke = frm.doc.gastgeber_geschenke && frm.doc.gastgeber_geschenke.length > 0 && 
+		// Gastgebergeschenke-Tabelle: im Status "Geschenke" bearbeiten; nach Buchung in der Übersicht (Server setzt z. B. "Gebucht", nicht "Abgeschlossen")
+		const hasGastgeberGeschenke = frm.doc.gastgeber_geschenke && frm.doc.gastgeber_geschenke.length > 0 &&
 			frm.doc.gastgeber_geschenke.some(item => item.item_code && item.qty && item.qty > 0);
+		const statusMitGastgeberGeschenkeUebersicht = ["Gebucht", "Ausgeliefert", "Überfällig", "Retourniert", "Abgeschlossen"];
 		const showGastgeberGeschenke = !frm.is_new() && (
-			frm.doc.status === "Geschenke" || 
-			(frm.doc.status === "Abgeschlossen" && hasGastgeberGeschenke)
+			frm.doc.status === "Geschenke" ||
+			(hasGastgeberGeschenke && (
+				statusMitGastgeberGeschenkeUebersicht.includes(frm.doc.status) ||
+				frm.doc.docstatus === 1
+			))
 		);
 		frm.toggle_display("gastgeber_geschenke_section", showGastgeberGeschenke);
 		frm.toggle_display("gastgeber_geschenke", showGastgeberGeschenke);
@@ -3078,55 +3081,49 @@ function checkAktionsfaehigkeitForSumme(items, gesamtsumme, frm, sumFieldName) {
 // Funktion zum Berechnen und Anzeigen der Gastgeber-Geschenke Summe mit Gutschein-Verbrauch
 function updateGastgeberGeschenkeSumme(frm) {
 	let sum = 0;
-	let sumOriginal = 0; // Summe basierend auf Original-Preisen (für Gutschein-Berechnung)
-	
+	let sumReferenz = 0; // Referenz-Warenwert (Listenpreis / Backup) für Zuzahlen
+	let gutscheinAufGeschenke = 0;
+
 	if (frm.doc.gastgeber_geschenke && frm.doc.gastgeber_geschenke.length > 0) {
 		frm.doc.gastgeber_geschenke.forEach(function(item, index) {
-			if (item.qty && item.rate) {
-				// Aktuelle Summe (kann reduziert sein, wenn Gutschein bereits angewendet wurde)
-				sum += flt(item.qty) * flt(item.rate);
-				
-				// Original-Summe für Gutschein-Berechnung
-				// Wenn originalPricesBackup existiert, verwende Original-Preis, sonst aktuellen Preis
-				let backupKey = `gastgeber_geschenke_${index}`;
-				if (frm.originalPricesBackup && frm.originalPricesBackup[backupKey]) {
-					// Verwende Original-Preis für Gutschein-Berechnung (wenn noch nicht angewendet)
-					sumOriginal += frm.originalPricesBackup[backupKey].originalAmount;
-				} else {
-					// Verwende aktuellen Preis (entweder Original oder bereits reduziert)
-					sumOriginal += flt(item.qty) * flt(item.rate);
+			if (!item.item_code || flt(item.qty) <= 0) {
+				return;
+			}
+			const qty = flt(item.qty);
+			const rate = flt(item.rate);
+			const cur = flt(item.amount) || (qty * rate);
+			sum += cur;
+
+			const backupKey = `gastgeber_geschenke_${index}`;
+			let refTotal = cur;
+			if (frm.originalPricesBackup && frm.originalPricesBackup[backupKey]) {
+				refTotal = flt(frm.originalPricesBackup[backupKey].originalAmount);
+			} else {
+				const pls = flt(item.price_list_rate);
+				if (pls > rate + 0.001) {
+					refTotal = qty * pls;
 				}
 			}
+			sumReferenz += refTotal;
+			gutscheinAufGeschenke += Math.max(0, refTotal - cur);
 		});
 	}
-	
-	// Hole den verfügbaren Gutscheinwert
-	let gutscheinWert = frm.doc.gastgeber_gutschein_wert || 0;
-	
-	// WICHTIG: Berechne verbleibenden Gutschein basierend auf Original-Preisen
-	// (nur wenn Gutschein noch nicht angewendet wurde)
-	let verbleibenderGutschein = gutscheinWert - sumOriginal;
-	let zuzahlen = 0;
-	
-	if (verbleibenderGutschein < 0) {
-		zuzahlen = Math.abs(verbleibenderGutschein);
-		verbleibenderGutschein = 0;
-	}
-	
-	// Zeige die Summe mit Gutschein-Info im HTML-Feld an
+
+	let gutscheinWert = flt(frm.doc.gastgeber_gutschein_wert || 0);
+	gutscheinAufGeschenke = Math.min(gutscheinWert, gutscheinAufGeschenke);
+	let zuzahlen = Math.max(0, sumReferenz - gutscheinWert);
+
 	if (frm.fields_dict['summe_gastgeber_geschenke']) {
+		const zeigeGutscheinZeile = gutscheinWert > 0 || gutscheinAufGeschenke > 0;
 		let htmlContent = `
 			<div style="text-align: right; margin-top: 10px; margin-bottom: 10px;">
 				<div style="font-weight: bold; color: black; margin-bottom: 5px;">
 					Gesamt: ${format_currency(sum)}
 				</div>
-				<div style="color: #666; font-size: 0.9em; margin-bottom: 3px;">
-					Verfügbarer Gutschein: ${format_currency(gutscheinWert)}
-				</div>
-				<div style="color: ${verbleibenderGutschein > 0 ? '#10b981' : '#666'}; font-size: 0.9em; margin-bottom: 3px;">
-					Verbleibender Gutschein: ${format_currency(verbleibenderGutschein)}
-				</div>
-				${zuzahlen > 0 ? `<div style="color: #ef4444; font-weight: bold; font-size: 1em; margin-top: 5px;">Zuzahlen: ${format_currency(zuzahlen)}</div>` : ''}
+				${zeigeGutscheinZeile ? `<div style="color: #666; font-size: 0.9em; margin-bottom: 3px;">
+					Davon über Gutschein: ${format_currency(gutscheinAufGeschenke)}
+				</div>` : ''}
+				${zuzahlen > 0 ? `<div style="font-size: 0.9em; color: #666; margin-top: 3px;">Selbst gezahlt: ${format_currency(zuzahlen)}</div>` : ''}
 			</div>
 		`;
 		frm.fields_dict['summe_gastgeber_geschenke'].$wrapper.html(htmlContent);
@@ -3145,10 +3142,8 @@ function updateAllSummenAnzeigen(frm) {
 		updateSummeForTable(frm, tableName, sumFieldName);
 	}
 	
-	// Gastgeber-Geschenke Summe (nur wenn im richtigen Status)
-	if (frm.doc.status === "Geschenke") {
-		updateGastgeberGeschenkeSumme(frm);
-	}
+	// Gastgeber-Geschenke Summe (auch bei gebuchter Party / Übersicht)
+	updateGastgeberGeschenkeSumme(frm);
 }
 
 // === ENDE SUMMEN-ANZEIGE FUNKTIONEN ===
