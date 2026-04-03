@@ -176,15 +176,10 @@ frappe.ui.form.CustomerQuickEntryForm = class CustomerQuickEntryForm extends fra
 						if (exists) {
 							this.dialog.set_value('default_sales_partner', user_fullname);
 							this.dialog.doc.default_sales_partner = user_fullname;
-							// WICHTIG: Wert in Instanz-Variable speichern für after_insert
-							this._sales_partner_to_save = user_fullname;
 							console.log("Sales Partner gesetzt auf:", user_fullname);
 						}
 					});
 			}
-		} else {
-			// Wert bereits gesetzt - auch in Instanz-Variable speichern
-			this._sales_partner_to_save = current_value;
 		}
 	}
 
@@ -213,8 +208,8 @@ frappe.ui.form.CustomerQuickEntryForm = class CustomerQuickEntryForm extends fra
 			shipping_data.email_address = email_address;
 		}
 		
-		// Hole sales_partner Wert aus Instanz-Variable oder Dialog
-		const sales_partner_to_save = this._sales_partner_to_save || this.dialog.get_value('default_sales_partner');
+		// Immer Wert aus dem Dialog (manuelle Auswahl schlägt Auto-Vorauswahl)
+		const sales_partner_to_save = this.dialog.get_value('default_sales_partner');
 		
 		// Überschreibe die after_insert Callback für Lieferadresse
 		const original_after_insert = this.after_insert;
