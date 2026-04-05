@@ -803,6 +803,7 @@ def create_payment_request_for_subscription_invoice(doc, method):
             if has_stripe_subscription(doc.subscription):
                 _log_err("DEBUG: subscription_payment_request", f"SUBSCRIPTION HOOK: Stripe Subscription existiert bereits für {doc.subscription} - überspringe Payment Request, sende Informations-Mail")
                 send_subscription_invoice_informational_email(doc)
+                fulfill_subscription_invoice_with_sales_order(doc)
                 return  # Keine Payment Request erstellen, Stripe bucht automatisch ab
             
             # WICHTIG: Prüfe ob das Startdatum des Abos erreicht ist
@@ -963,23 +964,7 @@ def create_payment_request_for_subscription_invoice(doc, method):
                     f"Payment Request {payment_request.name} für Subscription Invoice {doc.name} erstellt",
                 )
                 
-                # Erstelle zusätzlich einen Sales Order und verknüpfe ihn mit der bestehenden Invoice
-                try:
-                    sales_order = create_sales_order_from_invoice(doc)
-                    if sales_order:
-                        _log_err("SUCCESS: subscription_hook", f"SUBSCRIPTION HOOK: Sales Order {sales_order.name} aus Invoice {doc.name} erstellt")
-                        # Verknüpfe Invoice mit Sales Order
-                        link_invoice_to_sales_order(doc, sales_order)
-                        frappe.db.commit()
-                        _log_err("SUCCESS: subscription_hook", f"SUBSCRIPTION HOOK: Invoice {doc.name} mit Sales Order {sales_order.name} verknüpft")
-                        
-                        # Submit Sales Order - das triggert automatisch Delivery Note und Packing List
-                        # Da die Invoice bereits verknüpft ist, wird keine neue Invoice erstellt
-                        sales_order.submit()
-                        frappe.db.commit()
-                        _log_err("SUCCESS: subscription_hook", f"SUBSCRIPTION HOOK: Sales Order {sales_order.name} submitted - Delivery Note und Packing List sollten erstellt werden")
-                except Exception as e:
-                    _log_err("ERROR: create_sales_order_from_invoice", f"Fehler beim Erstellen des Sales Order aus Invoice {doc.name}: {str(e)}\n{frappe.get_traceback()}")
+                fulfill_subscription_invoice_with_sales_order(doc)
             
     except Exception as e:
         _log_err("ERROR: subscription_payment_request", f"Fehler beim Erstellen der Payment Request für Subscription Invoice {doc.name}: {str(e)}")
@@ -1236,6 +1221,16 @@ def link_invoice_to_sales_order(invoice, sales_order):
                 """, (sales_order.name, so_item_name, invoice_item.name))
                 _log_err("DEBUG: link_invoice_to_sales_order", f"Invoice Item {invoice_item.name} verknüpft mit Sales Order Item {so_item_name}")
         
+        try:
+            frappe.db.set_value(
+                "Sales Invoice",
+                invoice.name,
+                "sales_order",
+                sales_order.name,
+                update_modified=False,
+            )
+        except Exception:
+            pass
         frappe.db.commit()
         _log_err("SUCCESS: invoice_linked_to_sales_order", f"Invoice {invoice.name} erfolgreich mit Sales Order {sales_order.name} verknüpft (über Items)")
         
@@ -1330,3 +1325,67 @@ def create_sales_order_from_invoice(invoice):
     except Exception as e:
         _log_err("ERROR: create_sales_order_from_invoice", f"Fehler beim Erstellen des Sales Order aus Invoice {invoice.name}: {str(e)}\n{frappe.get_traceback()}")
         return None
+
+
+def fulfill_subscription_invoice_with_sales_order(invoice_doc):
+    """
+    Idempotent: Sales Order aus Abo-Rechnung, Verknüpfung, Submit (Lieferschein/Packliste via Sales-Order-Hook).
+    Wird bei Stripe-Abo benötigt, weil dort kein Payment-Request-Zweig läuft.
+    """
+    try:
+        if not getattr(invoice_doc, "subscription", None):
+            return
+        invoice_doc.reload()
+        for row in invoice_doc.items:
+            if getattr(row, "sales_order", None):
+                _log_err(
+                    "DEBUG: subscription_fulfillment",
+                    f"Invoice {invoice_doc.name} hat bereits Sales Order auf Positionen ({row.sales_order}) – überspringe",
+                )
+                return
+        rows = frappe.db.sql(
+            """
+            select name from `tabSales Order`
+            where po_no like %s and docstatus != 2
+            limit 1
+            """,
+            (f"Subscription Invoice: {invoice_doc.name}%",),
+        )
+        if rows:
+            existing_so = rows[0][0]
+            so_doc = frappe.get_doc("Sales Order", existing_so)
+            _log_err(
+                "DEBUG: subscription_fulfillment",
+                f"Invoice {invoice_doc.name}: bestehender SO {existing_so} (po_no) – verknüpfen/submit",
+            )
+            link_invoice_to_sales_order(invoice_doc, so_doc)
+            frappe.db.commit()
+            if so_doc.docstatus == 0:
+                so_doc.reload()
+                so_doc.submit()
+                frappe.db.commit()
+            return
+        sales_order = create_sales_order_from_invoice(invoice_doc)
+        if not sales_order:
+            return
+        _log_err(
+            "SUCCESS: subscription_hook",
+            f"SUBSCRIPTION HOOK: Sales Order {sales_order.name} aus Invoice {invoice_doc.name} erstellt",
+        )
+        link_invoice_to_sales_order(invoice_doc, sales_order)
+        frappe.db.commit()
+        _log_err(
+            "SUCCESS: subscription_hook",
+            f"SUBSCRIPTION HOOK: Invoice {invoice_doc.name} mit Sales Order {sales_order.name} verknüpft",
+        )
+        sales_order.submit()
+        frappe.db.commit()
+        _log_err(
+            "SUCCESS: subscription_hook",
+            f"SUBSCRIPTION HOOK: Sales Order {sales_order.name} submitted – Delivery Note / Packliste",
+        )
+    except Exception as e:
+        _log_err(
+            "ERROR: subscription_fulfillment_so",
+            f"Fehler Fulfillment SO für Invoice {getattr(invoice_doc, 'name', '?')}: {str(e)}\n{frappe.get_traceback()}",
+        )
