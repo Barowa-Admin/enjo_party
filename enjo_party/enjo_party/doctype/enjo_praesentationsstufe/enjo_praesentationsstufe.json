@@ -1,0 +1,45 @@
+{
+ "actions": [],
+ "allow_rename": 1,
+ "creation": "2026-04-23 12:00:00.000000",
+ "doctype": "DocType",
+ "editable_grid": 1,
+ "engine": "InnoDB",
+ "field_order": [
+  "mindest_umsatz",
+  "gutschein_betrag"
+ ],
+ "fields": [
+  {
+   "fieldname": "mindest_umsatz",
+   "fieldtype": "Currency",
+   "in_list_view": 1,
+   "label": "Pr\u00e4sentations-Umsatz ab (EUR)",
+   "precision": "2",
+   "reqd": 1
+  },
+  {
+   "fieldname": "gutschein_betrag",
+   "fieldtype": "Currency",
+   "in_list_view": 1,
+   "label": "Gutscheinwert / Gratisprodukte (EUR)",
+   "precision": "2",
+   "reqd": 1
+  }
+ ],
+ "grid_page_length": 50,
+ "index_web_pages_for_search": 1,
+ "istable": 1,
+ "links": [],
+ "modified": "2026-04-23 12:00:00.000000",
+ "modified_by": "Administrator",
+ "module": "Enjo Party",
+ "name": "ENJO Praesentationsstufe",
+ "owner": "Administrator",
+ "permissions": [],
+ "row_format": "Dynamic",
+ "sort_field": "modified",
+ "sort_order": "DESC",
+ "states": [],
+ "track_changes": 1
+}

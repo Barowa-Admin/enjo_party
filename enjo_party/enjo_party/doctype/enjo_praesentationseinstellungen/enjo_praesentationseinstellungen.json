@@ -1,0 +1,58 @@
+{
+ "actions": [],
+ "allow_rename": 1,
+ "creation": "2026-04-23 12:00:00.000000",
+ "default_view": "List",
+ "doctype": "DocType",
+ "editable_grid": 1,
+ "engine": "InnoDB",
+ "field_order": [
+  "section_break_stufen",
+  "stufen"
+ ],
+ "fields": [
+  {
+   "fieldname": "section_break_stufen",
+   "fieldtype": "Section Break",
+   "label": "Stufen (Pr\u00e4sentationsumsatz \u2192 Gutscheinwert)"
+  },
+  {
+   "fieldname": "stufen",
+   "fieldtype": "Table",
+   "label": "Stufen",
+   "options": "ENJO Praesentationsstufe",
+   "reqd": 0
+  }
+ ],
+ "hasWebView": 0,
+ "hide_toolbar": 0,
+ "idx": 0,
+ "in_create": 0,
+ "is_submittable": 0,
+ "issingle": 1,
+ "istable": 0,
+ "max_attachments": 0,
+ "modified": "2026-04-23 12:00:00.000000",
+ "modified_by": "Administrator",
+ "module": "Enjo Party",
+ "name": "ENJO Praesentationseinstellungen",
+ "naming_rule": "",
+ "owner": "Administrator",
+ "permissions": [
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Sales Manager",
+   "share": 1,
+   "write": 1
+  }
+ ],
+ "sort_field": "modified",
+ "sort_order": "DESC",
+ "track_changes": 1
+}

@@ -2420,6 +2420,28 @@ frappe.ui.form.on('Party', {
 			// Keine Änderungen mehr möglich
 			frm.disable_save();
 		}
+
+		// Gutscheinstufen: erst nach dem üblichen Formular-Aufbau laden (nicht in onload)
+		if (!frm._enjo_praesentation_stufen_fetch) {
+			frm._enjo_praesentation_stufen_fetch = true;
+			frappe.call({
+				method:
+					"enjo_party.enjo_party.doctype.enjo_praesentationseinstellungen.enjo_praesentationseinstellungen.get_praesentationseinstellungen",
+				callback: function (r) {
+					if (r.message && r.message.stufen && r.message.stufen.length) {
+						frm._praesentation_stufen = r.message.stufen.map(function (s) {
+							return [flt(s.mindest_umsatz), flt(s.gutschein_betrag)];
+						});
+					} else {
+						frm._praesentation_stufen = null;
+					}
+					calculate_party_totals(frm);
+				},
+				error: function () {
+					frm._praesentation_stufen = null;
+				},
+			});
+		}
 	},
 	
 	// Füge einen Event-Handler für die Gastgeberin hinzu
@@ -2881,35 +2903,35 @@ function calculate_party_totals(frm) {
 		// Berechne Gutscheinwert basierend auf Präsentationsumsatz-Stufen
 		// NUR für Party-Dokumente (prüfe ob das Feld existiert)
 		if (frm.doc.gastgeberin && frm.fields_dict.gastgeber_gutschein_wert) {
-			const gutschein_wert = calculate_gutschein_value(total_amount);
+			const gutschein_wert = calculate_gutschein_value(total_amount, frm);
 			frm.set_value('gastgeber_gutschein_wert', gutschein_wert);
 		}
 	}
 }
 
-// Funktion zur Berechnung des Gutscheinwerts basierend auf Präsentationsumsatz-Stufen
-function calculate_gutschein_value(total_amount) {
-	// Präsentationsumsatz-Stufen für Gratisprodukte
-	// Format: [Mindest-Umsatz, Gutschein-Betrag]
-	const gutschein_stufen = [
-		[0, 0],      // Unter 350€: 0€ Gutschein
-		[350, 30],   // Ab 350€: 30€ Gutschein
-		[600, 60],   // Ab 600€: 60€ Gutschein
-		[850, 95],   // Ab 850€: 95€ Gutschein
-		[1100, 130], // Ab 1100€: 130€ Gutschein
+// Gutschein-Stufen: gleiche Default wie Server, bis get_praesentationseinstellungen geladen hat
+function calculate_gutschein_value(total_amount, frm) {
+	const fallback_stufen = [
+		[0, 0],
+		[350, 30],
+		[600, 60],
+		[850, 95],
+		[1100, 130],
 	];
-	
-	// Finde die passende Stufe
+	const stufen =
+		frm && frm._praesentation_stufen && frm._praesentation_stufen.length
+			? frm._praesentation_stufen
+			: fallback_stufen;
 	let gutschein_wert = 0;
-	for (let i = 0; i < gutschein_stufen.length; i++) {
-		const [mindest_umsatz, gutschein_betrag] = gutschein_stufen[i];
+	for (let i = 0; i < stufen.length; i++) {
+		const mindest_umsatz = stufen[i][0];
+		const gutschein_betrag = stufen[i][1];
 		if (total_amount >= mindest_umsatz) {
 			gutschein_wert = gutschein_betrag;
 		} else {
 			break;
 		}
 	}
-	
 	return gutschein_wert;
 }
 
@@ -3113,7 +3135,8 @@ function checkAktionsfaehigkeitForSumme(items, gesamtsumme, frm, sumFieldName) {
 function updateGastgeberGeschenkeSumme(frm) {
 	let sum = 0;
 	let sumReferenz = 0; // Referenz-Warenwert (Listenpreis / Backup) für Zuzahlen
-	let gutscheinAufGeschenke = 0;
+	let gutscheinAusPreisdelta = 0;
+	const rows = [];
 
 	if (frm.doc.gastgeber_geschenke && frm.doc.gastgeber_geschenke.length > 0) {
 		frm.doc.gastgeber_geschenke.forEach(function(item, index) {
@@ -3124,6 +3147,7 @@ function updateGastgeberGeschenkeSumme(frm) {
 			const rate = flt(item.rate);
 			const cur = flt(item.amount) || (qty * rate);
 			sum += cur;
+			rows.push({ item: item, index: index, cur: cur });
 
 			const backupKey = `gastgeber_geschenke_${index}`;
 			let refTotal = cur;
@@ -3136,29 +3160,89 @@ function updateGastgeberGeschenkeSumme(frm) {
 				}
 			}
 			sumReferenz += refTotal;
-			gutscheinAufGeschenke += Math.max(0, refTotal - cur);
+			gutscheinAusPreisdelta += Math.max(0, refTotal - cur);
 		});
 	}
 
 	let gutscheinWert = flt(frm.doc.gastgeber_gutschein_wert || 0);
-	gutscheinAufGeschenke = Math.min(gutscheinWert, gutscheinAufGeschenke);
-	let zuzahlen = Math.max(0, sumReferenz - gutscheinWert);
+	gutscheinAusPreisdelta = Math.min(gutscheinWert, gutscheinAusPreisdelta);
 
-	if (frm.fields_dict['summe_gastgeber_geschenke']) {
-		const zeigeGutscheinZeile = gutscheinWert > 0 || gutscheinAufGeschenke > 0;
+	function renderSummeGastgeberGeschenke(anzeigeGutschein) {
+		let zuzahlen = Math.max(0, sumReferenz - anzeigeGutschein);
+		if (!frm.fields_dict['summe_gastgeber_geschenke']) {
+			return;
+		}
+		const zeigeGutscheinZeile = gutscheinWert > 0 || anzeigeGutschein > 0;
 		let htmlContent = `
 			<div style="text-align: right; margin-top: 10px; margin-bottom: 10px;">
 				<div style="font-weight: bold; color: black; margin-bottom: 5px;">
 					Gesamt: ${format_currency(sum)}
 				</div>
 				${zeigeGutscheinZeile ? `<div style="color: #666; font-size: 0.9em; margin-bottom: 3px;">
-					Davon über Gutschein: ${format_currency(gutscheinAufGeschenke)}
+					Davon über Gutschein: ${format_currency(anzeigeGutschein)}
 				</div>` : ''}
 				${zuzahlen > 0 ? `<div style="font-size: 0.9em; color: #666; margin-top: 3px;">Selbst gezahlt: ${format_currency(zuzahlen)}</div>` : ''}
 			</div>
 		`;
 		frm.fields_dict['summe_gastgeber_geschenke'].$wrapper.html(htmlContent);
 	}
+
+	// Bereits im Betrag sichtbarer Gutschein (nach Anwendung / reduzierten Preisen)
+	if (gutscheinAusPreisdelta >= 0.01) {
+		renderSummeGastgeberGeschenke(gutscheinAusPreisdelta);
+		return;
+	}
+
+	if (gutscheinWert <= 0 || rows.length === 0) {
+		renderSummeGastgeberGeschenke(0);
+		return;
+	}
+
+	// Vorschau: wie berechneGutscheinVerbrauch – nur aktionsfähige Artikel, Reihenfolge der Tabelle
+	let checked = 0;
+	const eligibleByIndex = [];
+
+	function finishVorschauGutschein() {
+		eligibleByIndex.sort(function (a, b) {
+			return a.index - b.index;
+		});
+		let rest = gutscheinWert;
+		let verbraucht = 0;
+		for (let i = 0; i < eligibleByIndex.length && rest > 0; i++) {
+			const line = eligibleByIndex[i];
+			const take = Math.min(rest, line.amount);
+			verbraucht += take;
+			rest -= take;
+		}
+		renderSummeGastgeberGeschenke(Math.min(gutscheinWert, verbraucht));
+	}
+
+	function oneRowChecked() {
+		checked++;
+		if (checked === rows.length) {
+			finishVorschauGutschein();
+		}
+	}
+
+	rows.forEach(function (row) {
+		frappe.call({
+			method: "frappe.client.get_value",
+			args: {
+				doctype: "Item",
+				filters: { item_code: row.item.item_code },
+				fieldname: 'custom_considered_for_action',
+			},
+			callback: function (r) {
+				if (r && r.message && r.message.custom_considered_for_action) {
+					eligibleByIndex.push({ index: row.index, amount: row.cur });
+				}
+				oneRowChecked();
+			},
+			error: function () {
+				oneRowChecked();
+			},
+		});
+	});
 }
 
 // Funktion zum Aktualisieren aller Summen-Anzeigen

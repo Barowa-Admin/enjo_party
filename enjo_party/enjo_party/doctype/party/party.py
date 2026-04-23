@@ -392,28 +392,11 @@ class Party(Document):
 		self.gastgeber_gutschein_wert = self.calculate_gutschein_value(total_amount)
 	
 	def calculate_gutschein_value(self, total_amount):
-		"""
-		Berechnet den Gutscheinwert basierend auf Präsentationsumsatz-Stufen
-		"""
-		# Präsentationsumsatz-Stufen für Gratisprodukte
-		# Format: (Mindest-Umsatz, Gutschein-Betrag)
-		gutschein_stufen = [
-			(0, 0),      # Unter 350€: 0€ Gutschein
-			(350, 30),   # Ab 350€: 30€ Gutschein
-			(600, 60),   # Ab 600€: 60€ Gutschein
-			(850, 95),   # Ab 850€: 95€ Gutschein
-			(1100, 130), # Ab 1100€: 130€ Gutschein
-		]
-		
-		# Finde die passende Stufe
-		gutschein_wert = 0
-		for mindest_umsatz, gutschein_betrag in gutschein_stufen:
-			if total_amount >= mindest_umsatz:
-				gutschein_wert = gutschein_betrag
-			else:
-				break
-		
-		return gutschein_wert
+		from enjo_party.enjo_party.doctype.enjo_praesentationseinstellungen.enjo_praesentationseinstellungen import (
+			calculate_gutschein_value_from_stufen,
+		)
+
+		return calculate_gutschein_value_from_stufen(total_amount)
 	
 	def check_hostess_voucher_usage(self):
 		"""
