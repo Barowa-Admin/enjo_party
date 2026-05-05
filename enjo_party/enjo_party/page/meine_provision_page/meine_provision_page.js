@@ -5,9 +5,33 @@ frappe.pages['meine-provision-page'].on_page_load = function(wrapper) {
 		single_column: true
 	});
 
-	// Drucken Button direkt im Header hinzufügen
+	page._provision_allow_print = false;
+	page._provision_print_block_reason = '';
+
+	function syncProvisionPrintUI(freePeriod, canPrint, reason) {
+		var allow = !!canPrint && !freePeriod;
+		page._provision_allow_print = allow;
+		page._provision_print_block_reason = reason || '';
+		var text = (!allow && reason) ? reason : '';
+		var $hint = $('#provision-print-hint');
+		if ($hint.length) {
+			$hint.text(text);
+		}
+		var $btn = page.btn_primary;
+		if ($btn && $btn.length) {
+			$btn.prop('disabled', !allow);
+			$btn.toggleClass('disabled', !allow);
+		}
+	}
+
 	page.set_primary_action('Drucken', function() {
-		console.log('Drucken Button geklickt!');
+		if (!page._provision_allow_print) {
+			frappe.msgprint(
+				page._provision_print_block_reason ||
+					__('Druck ist für diesen Zeitraum nicht möglich.')
+			);
+			return;
+		}
 		window.printProvision();
 	});
 
@@ -141,8 +165,10 @@ frappe.pages['meine-provision-page'].on_page_load = function(wrapper) {
 		togglePeriodFields();
 	}, 150);
 
-	// Datatable Container
-	$(page.body).append('<div id="provision-table" style="margin-top: 20px;"></div>');
+	$(page.body).append(
+		'<p id="provision-print-hint" class="text-muted small" style="margin-bottom: 8px;"></p>' +
+			'<div id="provision-table" style="margin-top: 20px;"></div>'
+	);
 
 	function loadData() {
 		var freePeriod = page.fields_dict.free_period ? page.fields_dict.free_period.get_value() : 0;
@@ -202,17 +228,35 @@ frappe.pages['meine-provision-page'].on_page_load = function(wrapper) {
 			method: 'enjo_party.enjo_party.page.meine_provision_page.meine_provision_page.get_provision_data',
 			args: args,
 			callback: function(response) {
-				if (response.message) {
-					showTable(response.message);
+				var msg = response.message;
+				var rows = [];
+				var canPrint = false;
+				var reason = '';
+				if (msg && msg.rows) {
+					rows = msg.rows;
+					canPrint = msg.can_print === true;
+					reason = msg.print_block_reason || '';
+				} else if ($.isArray(msg)) {
+					rows = msg;
+					canPrint = false;
+					reason = '';
 				}
+				showTable(rows);
+				syncProvisionPrintUI(freePeriod, canPrint, reason);
 			}
 		});
 	}
 
 	// Button Funktion global verfügbar machen
 	window.printProvision = function() {
-		console.log('Print function called!');
-		
+		if (!page._provision_allow_print) {
+			frappe.msgprint(
+				page._provision_print_block_reason ||
+					__('Druck ist für diesen Zeitraum nicht möglich.')
+			);
+			return;
+		}
+
 		// Hole aktuelle Tabellendaten
 		var tableHtml = $('#provision-table').html();
 		
@@ -358,6 +402,9 @@ frappe.pages['meine-provision-page'].on_page_load = function(wrapper) {
 	};
 
 	function showTable(data) {
+		if (!data) {
+			data = [];
+		}
 		var html = '<table class="table table-bordered table-striped">';
 		html += '<thead><tr>';
 		html += '<th style="width: 80px;">Bezahlt am</th>';
@@ -459,108 +506,4 @@ function getStatusBadgeHtml(status, isTotalRow) {
 
 	var colorClass = statusColorMap[status] || 'gray';
 	return '<span class="indicator-pill ' + colorClass + '">' + frappe.utils.escape_html(status) + '</span>';
-}
-
-function printProvision() {
-	// Hole aktuelle Tabellendaten
-	var tableHtml = $('#provision-table').html();
-	
-	if (!tableHtml || tableHtml.trim() === '') {
-		frappe.msgprint('Keine Daten zum Drucken vorhanden!');
-		return;
-	}
-	
-	// Bestimme Zeitraum-Text je nach Checkbox-Status
-	var freePeriod = page.fields_dict.free_period ? page.fields_dict.free_period.get_value() : 0;
-	var periodText = '';
-	
-	if (freePeriod) {
-		// Freier Zeitraum: Von/Bis Datum verwenden
-		var dateFrom = page.fields_dict.date_from ? page.fields_dict.date_from.get_value() : null;
-		var dateTo = page.fields_dict.date_to ? page.fields_dict.date_to.get_value() : null;
-		
-		if (dateFrom && dateTo) {
-			// Datum formatieren (von YYYY-MM-DD zu DD.MM.YYYY)
-			var formatDate = function(dateStr) {
-				if (!dateStr) return '';
-				var parts = dateStr.split('-');
-				if (parts.length === 3) {
-					return parts[2] + '.' + parts[1] + '.' + parts[0];
-				}
-				return dateStr;
-			};
-			periodText = formatDate(dateFrom) + ' - ' + formatDate(dateTo);
-		} else {
-			periodText = 'Freier Zeitraum';
-		}
-	} else {
-		// Monat/Jahr Modus
-		var month = page.fields_dict.month ? page.fields_dict.month.get_value() : '';
-		var year = page.fields_dict.year ? page.fields_dict.year.get_value() : '';
-		periodText = month + ' ' + year;
-	}
-	
-	// Erstelle Druckfenster wie am Anfang
-	var printHtml = `
-		<!DOCTYPE html>
-		<html>
-		<head>
-			<title>Meine Provision - ${periodText}</title>
-			<meta charset="utf-8">
-			<style>
-				body { 
-					font-family: Arial, sans-serif; 
-					margin: 20px;
-					background: white;
-				}
-				h1 { 
-					color: #333; 
-					margin-bottom: 20px; 
-					text-align: center;
-				}
-				table { 
-					width: 100%; 
-					border-collapse: collapse; 
-					margin-top: 20px;
-					background: white;
-				}
-				th, td { 
-					border: 1px solid #333; 
-					padding: 8px; 
-					text-align: left; 
-				}
-				th { 
-					background-color: #f0f0f0; 
-					font-weight: bold; 
-				}
-				.header { 
-					margin-bottom: 30px; 
-					text-align: center;
-				}
-				@media print {
-					body { margin: 0; }
-				}
-			</style>
-		</head>
-		<body>
-			<div class="header">
-				<h1>Meine Provision</h1>
-				<h3>Zeitraum: ${periodText}</h3>
-			</div>
-			${tableHtml}
-			<br>
-			<p style="text-align: center;"><small>Erstellt am: ${new Date().toLocaleDateString('de-DE')}</small></p>
-		</body>
-		</html>
-	`;
-	
-	// Neues Fenster für Druck öffnen
-	var printWindow = window.open('', '_blank');
-	printWindow.document.write(printHtml);
-	printWindow.document.close();
-	
-	// Automatisch Druck-Dialog öffnen
-	setTimeout(function() {
-		printWindow.print();
-	}, 500);
 }
