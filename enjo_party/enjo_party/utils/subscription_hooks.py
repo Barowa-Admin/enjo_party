@@ -147,9 +147,48 @@ def get_invoice_email_address(invoice):
 
 
 def _get_partnerin_email(sales_partner_name):
-    """E-Mail der Vertriebspartnerin: Sales Partner hat User-Link -> User.email."""
+    """E-Mail der Vertriebspartnerin robust ermitteln (Kontakt primär, dann User-Fallback)."""
     if not sales_partner_name:
         return None
+
+    # 1) Primär über verknüpften Kontakt (wie in Eurer Pflege: Primäre E-Mail-Adresse)
+    try:
+        contact_links = frappe.get_all(
+            "Dynamic Link",
+            filters={
+                "parenttype": "Contact",
+                "link_doctype": "Sales Partner",
+                "link_name": sales_partner_name,
+            },
+            fields=["parent"],
+            order_by="creation asc",
+        )
+
+        for link in contact_links:
+            contact_name = link.get("parent")
+            if not contact_name:
+                continue
+
+            contact = frappe.get_doc("Contact", contact_name)
+
+            # Bevorzugt die als primär markierte E-Mail im Child-Table
+            for row in (getattr(contact, "email_ids", None) or []):
+                if getattr(row, "is_primary", 0) and getattr(row, "email_id", None):
+                    return row.email_id
+
+            # Fallback: Contact.email_id
+            contact_email = getattr(contact, "email_id", None)
+            if contact_email:
+                return contact_email
+
+            # Letzter Kontakt-Fallback: erste vorhandene E-Mail im Child-Table
+            for row in (getattr(contact, "email_ids", None) or []):
+                if getattr(row, "email_id", None):
+                    return row.email_id
+    except Exception:
+        pass
+
+    # 2) Fallback auf bisherigen Weg: Sales Partner.user -> User.email
     try:
         meta = frappe.get_meta("Sales Partner")
         if meta.has_field("user"):
@@ -163,17 +202,37 @@ def _get_partnerin_email(sales_partner_name):
 
 def _get_sales_partner_for_invoice(invoice):
     """
-    Vertriebspartner für CC: zuerst Rechnung, sonst Kunde.default_sales_partner.
-    Abo-Rechnungen aus ERPNext haben oft kein sales_partner auf der SI.
+    Vertriebspartner robust ermitteln:
+    1) Rechnung (custom_partnerin, sales_partner, custom_sales_partner)
+    2) Subscription (custom_partnerin, sales_partner, custom_sales_partner)
+    3) Kunde.default_sales_partner
     """
-    sp = getattr(invoice, "sales_partner", None) or (
-        invoice.get("sales_partner") if isinstance(invoice, dict) else None
-    )
-    if sp:
-        return sp
-    customer = getattr(invoice, "customer", None) or (
-        invoice.get("customer") if isinstance(invoice, dict) else None
-    )
+    def _read(obj, fieldname):
+        if not obj:
+            return None
+        if isinstance(obj, dict):
+            return obj.get(fieldname)
+        return getattr(obj, fieldname, None) or obj.get(fieldname)
+
+    # 1) Direkt von der Rechnung
+    for fieldname in ("custom_partnerin", "sales_partner", "custom_sales_partner"):
+        sp = _read(invoice, fieldname)
+        if sp:
+            return sp
+
+    # 2) Vom verknüpften Abo
+    subscription_name = _read(invoice, "subscription")
+    if subscription_name:
+        for fieldname in ("custom_partnerin", "sales_partner", "custom_sales_partner"):
+            try:
+                sp = frappe.db.get_value("Subscription", subscription_name, fieldname)
+            except Exception:
+                sp = None
+            if sp:
+                return sp
+
+    # 3) Fallback über Kunde
+    customer = _read(invoice, "customer")
     if customer:
         return frappe.db.get_value("Customer", customer, "default_sales_partner")
     return None
@@ -284,11 +343,11 @@ def send_subscription_invoice_informational_email(invoice_doc):
             print_format=print_format,
         )
     ]
-    cc_list = None
+    bcc_list = None
     sales_partner = _get_sales_partner_for_invoice(invoice_doc)
     partnerin_email = _get_partnerin_email(sales_partner) if sales_partner else None
     if partnerin_email:
-        cc_list = [partnerin_email]
+        bcc_list = [partnerin_email]
     from frappe.utils.background_jobs import enqueue
     email_args = {
         "recipients": email_to,
@@ -301,8 +360,8 @@ def send_subscription_invoice_informational_email(invoice_doc):
         "reference_doctype": "Sales Invoice",
         "reference_name": invoice_doc.name,
     }
-    if cc_list:
-        email_args["cc"] = cc_list
+    if bcc_list:
+        email_args["bcc"] = bcc_list
 
     # Globaler Schalter (System Settings): Abo-E-Mails temporär deaktivieren
     try:
@@ -374,12 +433,12 @@ def send_subscription_payment_request_email(payment_request, invoice, include_pa
 
     payment_request.db_set("subject", f"Rechnung {invoice.name}", update_modified=False)
 
-    # CC: Vertriebspartnerin (Rechnung oder Kunde.default_sales_partner)
-    cc_list = None
+    # BCC: Vertriebspartnerin (robust aus Rechnung/Abo/Fallback aufgelöst)
+    bcc_list = None
     sales_partner = _get_sales_partner_for_invoice(invoice)
     partnerin_email = _get_partnerin_email(sales_partner) if sales_partner else None
     if partnerin_email:
-        cc_list = [partnerin_email]
+        bcc_list = [partnerin_email]
 
     from frappe.utils.background_jobs import enqueue
     email_args = {
@@ -398,8 +457,8 @@ def send_subscription_payment_request_email(payment_request, invoice, include_pa
             )
         ],
     }
-    if cc_list:
-        email_args["cc"] = cc_list
+    if bcc_list:
+        email_args["bcc"] = bcc_list
 
     # Globaler Schalter (System Settings): Abo-E-Mails temporär deaktivieren
     try:
