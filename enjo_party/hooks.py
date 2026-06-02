@@ -159,7 +159,10 @@ doc_events = {
 			"enjo_party.enjo_party.utils.sales_invoice_hooks.before_validate_sales_invoice",
 			"enjo_party.enjo_party.utils.subscription_hooks.ensure_subscription_invoice_taxes_before_validate"
 		],
-		"before_save": "enjo_party.enjo_party.utils.sales_invoice_hooks.add_shipping_to_sales_invoice",
+		"before_save": [
+			"enjo_party.enjo_party.utils.sales_invoice_hooks.add_shipping_to_sales_invoice",
+			"enjo_party.enjo_party.utils.subscription_hooks.sync_subscription_partner_to_invoice",
+		],
 		"before_submit": [
 			"enjo_party.enjo_party.utils.subscription_hooks.ensure_subscription_invoice_taxes",
 			"enjo_party.enjo_party.utils.sales_invoice_hooks.before_submit_netto_invoice_totals"

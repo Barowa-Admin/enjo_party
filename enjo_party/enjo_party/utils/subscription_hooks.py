@@ -268,18 +268,69 @@ def get_invoice_email_address(invoice):
     return None
 
 
-def _get_partnerin_email(sales_partner_name):
-    """E-Mail der Vertriebspartnerin robust ermitteln (Kontakt primär, dann User-Fallback)."""
+def _partner_link_doctype():
+    """DocType des Subscription-Felds custom_partnerin (UI: Vertriebspartner)."""
+    try:
+        field = frappe.get_meta("Subscription").get_field("custom_partnerin")
+        if field and field.options:
+            return field.options
+    except Exception:
+        pass
+    return "Sales Partner"
+
+
+def sync_subscription_partner_to_invoice(doc, method):
+    """
+    Übernimmt Partnerin vom Abo auf die Rechnung (nur Entwurf), ohne manuelle Werte zu überschreiben.
+    """
+    if doc.doctype != "Sales Invoice" or doc.docstatus != 0 or not doc.subscription:
+        return
+
+    sub_values = frappe.db.get_value(
+        "Subscription",
+        doc.subscription,
+        ["custom_partnerin", "sales_partner"],
+        as_dict=True,
+    )
+    if not sub_values:
+        return
+
+    partnerin = sub_values.get("custom_partnerin")
+    sales_partner = sub_values.get("sales_partner") or partnerin
+    si_meta = frappe.get_meta("Sales Invoice")
+
+    if si_meta.has_field("custom_partnerin") and not doc.get("custom_partnerin") and partnerin:
+        doc.custom_partnerin = partnerin
+    if si_meta.has_field("sales_partner") and not doc.get("sales_partner") and sales_partner:
+        doc.sales_partner = sales_partner
+
+
+def _email_from_contact_doc(contact):
+    for row in (getattr(contact, "email_ids", None) or []):
+        if getattr(row, "is_primary", 0) and getattr(row, "email_id", None):
+            return row.email_id
+    contact_email = getattr(contact, "email_id", None)
+    if contact_email:
+        return contact_email
+    for row in (getattr(contact, "email_ids", None) or []):
+        if getattr(row, "email_id", None):
+            return row.email_id
+    return None
+
+
+def _get_partnerin_email(sales_partner_name, link_doctype=None):
+    """E-Mail der Vertriebspartnerin (Kontakt primär, Partner-Feld, dann User-Fallback)."""
     if not sales_partner_name:
         return None
 
-    # 1) Primär über verknüpften Kontakt (wie in Eurer Pflege: Primäre E-Mail-Adresse)
+    link_doctype = link_doctype or _partner_link_doctype()
+
     try:
         contact_links = frappe.get_all(
             "Dynamic Link",
             filters={
                 "parenttype": "Contact",
-                "link_doctype": "Sales Partner",
+                "link_doctype": link_doctype,
                 "link_name": sales_partner_name,
             },
             fields=["parent"],
@@ -290,36 +341,52 @@ def _get_partnerin_email(sales_partner_name):
             contact_name = link.get("parent")
             if not contact_name:
                 continue
-
             contact = frappe.get_doc("Contact", contact_name)
-
-            # Bevorzugt die als primär markierte E-Mail im Child-Table
-            for row in (getattr(contact, "email_ids", None) or []):
-                if getattr(row, "is_primary", 0) and getattr(row, "email_id", None):
-                    return row.email_id
-
-            # Fallback: Contact.email_id
-            contact_email = getattr(contact, "email_id", None)
-            if contact_email:
-                return contact_email
-
-            # Letzter Kontakt-Fallback: erste vorhandene E-Mail im Child-Table
-            for row in (getattr(contact, "email_ids", None) or []):
-                if getattr(row, "email_id", None):
-                    return row.email_id
+            email = _email_from_contact_doc(contact)
+            if email:
+                return email
     except Exception:
         pass
 
-    # 2) Fallback auf bisherigen Weg: Sales Partner.user -> User.email
     try:
-        meta = frappe.get_meta("Sales Partner")
-        if meta.has_field("user"):
-            user = frappe.db.get_value("Sales Partner", sales_partner_name, "user")
+        partner_meta = frappe.get_meta(link_doctype)
+        for fieldname in ("email_id", "custom_email", "primary_email"):
+            if partner_meta.has_field(fieldname):
+                val = frappe.db.get_value(link_doctype, sales_partner_name, fieldname)
+                if val:
+                    return val
+        if partner_meta.has_field("user"):
+            user = frappe.db.get_value(link_doctype, sales_partner_name, "user")
             if user:
                 return frappe.db.get_value("User", user, "email")
     except Exception:
         pass
     return None
+
+
+def _bcc_skip_reason(sales_partner_name, partnerin_email, link_doctype):
+    if not sales_partner_name:
+        return "kein_partner"
+    if partnerin_email:
+        return ""
+    link_doctype = link_doctype or _partner_link_doctype()
+    has_contact = frappe.get_all(
+        "Dynamic Link",
+        filters={
+            "parenttype": "Contact",
+            "link_doctype": link_doctype,
+            "link_name": sales_partner_name,
+        },
+        limit_page_length=1,
+    )
+    if not has_contact:
+        return "kein_kontakt"
+    partner_meta = frappe.get_meta(link_doctype)
+    if partner_meta.has_field("user"):
+        user = frappe.db.get_value(link_doctype, sales_partner_name, "user")
+        if user and not frappe.db.get_value("User", user, "email"):
+            return "user_fallback_ohne_email"
+    return "keine_email_am_kontakt"
 
 
 def _get_sales_partner_for_invoice(invoice):
@@ -360,7 +427,7 @@ def _get_sales_partner_for_invoice(invoice):
     return None
 
 
-def _log_abo_mail_partner_cc_audit(
+def _log_abo_mail_partner_bcc_audit(
     kind,
     invoice_name,
     customer,
@@ -368,36 +435,98 @@ def _log_abo_mail_partner_cc_audit(
     sales_partner_resolved,
     partnerin_email,
     pr_name=None,
+    subscription_name=None,
 ):
     """
-    Genau ein Fehlerprotokoll-Eintrag pro Abo-Mail-Versand.
-    Im Desk unter Fehlerprotokoll nach Titel „ABO-Mail Partner-CC“ filtern.
+    Ein Fehlerprotokoll-Eintrag pro Abo-Mail-Versand.
+    Im Desk nach Titel „ABO-Mail Partner-BCC“ filtern.
     """
+    link_doctype = _partner_link_doctype()
     sp_db = frappe.db.get_value("Sales Invoice", invoice_name, "sales_partner")
+    si_partnerin = None
+    if frappe.db.has_column("Sales Invoice", "custom_partnerin"):
+        si_partnerin = frappe.db.get_value("Sales Invoice", invoice_name, "custom_partnerin")
+    sub_partnerin = None
+    if subscription_name:
+        sub_partnerin = frappe.db.get_value("Subscription", subscription_name, "custom_partnerin")
     dsp = frappe.db.get_value("Customer", customer, "default_sales_partner") if customer else None
-    extra_field = ""
-    if frappe.db.has_column("Sales Invoice", "custom_sales_partner"):
-        csp = frappe.db.get_value("Sales Invoice", invoice_name, "custom_sales_partner")
-        extra_field = f" SI.custom_sales_partner={csp!r}"
-    sp_user = None
-    if sales_partner_resolved:
-        sp_user = frappe.db.get_value("Sales Partner", sales_partner_resolved, "user")
-    cc_disp = partnerin_email if partnerin_email else "KEINE"
-    reason = ""
-    if not partnerin_email:
-        if not sales_partner_resolved:
-            reason = " | Kein CC: weder SI.sales_partner noch Kunde.default_sales_partner"
-        elif not sp_user:
-            reason = " | Kein CC: Sales Partner ohne User-Link"
-        else:
-            reason = " | Kein CC: User ohne E-Mail"
+    bcc_disp = partnerin_email if partnerin_email else "KEINE"
+    skip = _bcc_skip_reason(sales_partner_resolved, partnerin_email, link_doctype)
+    reason = f" | Kein BCC: {skip}" if skip else ""
     msg = (
-        f"{kind} SI={invoice_name} PR={pr_name or '-'} Empfänger={email_to} CC={cc_disp} | "
-        f"für_CC_gewählter_SP={sales_partner_resolved!r} | "
-        f"DB_Snapshot: SI.sales_partner={sp_db!r} Kunde.default_sales_partner={dsp!r}{extra_field} | "
-        f"SP.user={sp_user!r}{reason}"
+        f"{kind} SI={invoice_name} PR={pr_name or '-'} Empfänger={email_to} BCC={bcc_disp} | "
+        f"SP_gewählt={sales_partner_resolved!r} link_doctype={link_doctype!r} | "
+        f"SUB.custom_partnerin={sub_partnerin!r} SI.custom_partnerin={si_partnerin!r} | "
+        f"SI.sales_partner={sp_db!r} Kunde.default_sales_partner={dsp!r}{reason}"
     )
-    _log_err("ABO-Mail Partner-CC", msg)
+    _log_err("ABO-Mail Partner-BCC", msg)
+
+
+def _subscription_emails_disabled():
+    try:
+        return bool(
+            frappe.db.get_single_value("System Settings", "custom_disable_subscription_emails")
+        )
+    except Exception:
+        return False
+
+
+def _send_subscription_customer_email(
+    invoice,
+    subject,
+    message,
+    attachments,
+    audit_kind,
+    payment_request_name=None,
+):
+    """
+    Zentraler Abo-Kundenversand inkl. BCC an die Vertriebspartnerin.
+    """
+    if _subscription_emails_disabled():
+        _log_err(
+            "INFO: subscription_email_disabled",
+            f"Abo-E-Mail Versand deaktiviert (System Settings) - Invoice {invoice.name} wird übersprungen",
+        )
+        return False
+
+    email_to = get_invoice_email_address(invoice)
+    if not email_to:
+        return False
+
+    link_doctype = _partner_link_doctype()
+    sales_partner = _get_sales_partner_for_invoice(invoice)
+    partnerin_email = _get_partnerin_email(sales_partner, link_doctype) if sales_partner else None
+
+    from frappe.utils.background_jobs import enqueue
+
+    email_args = {
+        "recipients": email_to,
+        "sender": None,
+        "reply_to": "enjo@bemotionme.com",
+        "subject": subject,
+        "message": message,
+        "now": True,
+        "attachments": attachments,
+        "reference_doctype": "Sales Invoice",
+        "reference_name": invoice.name,
+    }
+    if partnerin_email:
+        email_args["bcc"] = [partnerin_email]
+
+    enqueue(method=frappe.sendmail, queue="short", timeout=300, is_async=True, **email_args)
+
+    subscription_name = getattr(invoice, "subscription", None) or invoice.get("subscription")
+    _log_abo_mail_partner_bcc_audit(
+        audit_kind,
+        invoice.name,
+        getattr(invoice, "customer", None) or invoice.get("customer"),
+        email_to,
+        sales_partner,
+        partnerin_email,
+        pr_name=payment_request_name,
+        subscription_name=subscription_name,
+    )
+    return True
 
 
 def _get_subscription_informational_email_subject_and_message(invoice_doc):
@@ -465,46 +594,14 @@ def send_subscription_invoice_informational_email(invoice_doc):
             print_format=print_format,
         )
     ]
-    bcc_list = None
-    sales_partner = _get_sales_partner_for_invoice(invoice_doc)
-    partnerin_email = _get_partnerin_email(sales_partner) if sales_partner else None
-    if partnerin_email:
-        bcc_list = [partnerin_email]
-    from frappe.utils.background_jobs import enqueue
-    email_args = {
-        "recipients": email_to,
-        "sender": None,
-        "reply_to": "enjo@bemotionme.com",
-        "subject": subject,
-        "message": message,
-        "now": True,
-        "attachments": attachments,
-        "reference_doctype": "Sales Invoice",
-        "reference_name": invoice_doc.name,
-    }
-    if bcc_list:
-        email_args["bcc"] = bcc_list
-
-    # Globaler Schalter (System Settings): Abo-E-Mails temporär deaktivieren
-    try:
-        if frappe.db.get_single_value("System Settings", "custom_disable_subscription_emails"):
-            _log_err(
-                "INFO: subscription_email_disabled",
-                f"Abo-E-Mail Versand deaktiviert (System Settings) - Invoice {invoice_doc.name} wird übersprungen",
-            )
-            return
-    except Exception:
-        # Wenn Settings nicht verfügbar sind, Versand nicht blockieren
-        pass
-    enqueue(method=frappe.sendmail, queue="short", timeout=300, is_async=True, **email_args)
-    _log_abo_mail_partner_cc_audit(
-        "Informationsmail-Abo",
-        invoice_doc.name,
-        invoice_doc.customer,
-        email_to,
-        sales_partner,
-        partnerin_email,
-    )
+    if not _send_subscription_customer_email(
+        invoice_doc,
+        subject,
+        message,
+        attachments,
+        audit_kind="Informationsmail-Abo",
+    ):
+        return
     _log_err(
         "INFO: subscription_informational_email",
         f"Informations-E-Mail (ohne Zahlungslink) versendet für Rechnung {invoice_doc.name} an {email_to}",
@@ -555,57 +652,23 @@ def send_subscription_payment_request_email(payment_request, invoice, include_pa
 
     payment_request.db_set("subject", f"Rechnung {invoice.name}", update_modified=False)
 
-    # BCC: Vertriebspartnerin (robust aus Rechnung/Abo/Fallback aufgelöst)
-    bcc_list = None
-    sales_partner = _get_sales_partner_for_invoice(invoice)
-    partnerin_email = _get_partnerin_email(sales_partner) if sales_partner else None
-    if partnerin_email:
-        bcc_list = [partnerin_email]
-
-    from frappe.utils.background_jobs import enqueue
-    email_args = {
-        "recipients": email_to,
-        "sender": None,
-        "reply_to": "enjo@bemotionme.com",
-        "subject": payment_request.subject,
-        "message": payment_request.get_message(),
-        "now": True,
-        "attachments": [
-            frappe.attach_print(
-                payment_request.reference_doctype,
-                payment_request.reference_name,
-                file_name=payment_request.reference_name,
-                print_format=payment_request.print_format,
-            )
-        ],
-    }
-    if bcc_list:
-        email_args["bcc"] = bcc_list
-
-    # Globaler Schalter (System Settings): Abo-E-Mails temporär deaktivieren
-    try:
-        if frappe.db.get_single_value("System Settings", "custom_disable_subscription_emails"):
-            _log_err(
-                "INFO: subscription_email_disabled",
-                f"Abo-E-Mail Versand deaktiviert (System Settings) - Payment Request {payment_request.name} / Invoice {invoice.name} wird übersprungen",
-            )
-            return
-    except Exception:
-        # Wenn Settings nicht verfügbar sind, Versand nicht blockieren
-        pass
-    enqueue(method=frappe.sendmail, queue="short", timeout=300, is_async=True, **email_args)
-    inv_customer = getattr(invoice, "customer", None) or (
-        invoice.get("customer") if isinstance(invoice, dict) else None
-    )
-    _log_abo_mail_partner_cc_audit(
-        "PaymentRequest-Abo",
-        invoice.name,
-        inv_customer,
-        email_to,
-        sales_partner,
-        partnerin_email,
-        pr_name=payment_request.name,
-    )
+    attachments = [
+        frappe.attach_print(
+            payment_request.reference_doctype,
+            payment_request.reference_name,
+            file_name=payment_request.reference_name,
+            print_format=payment_request.print_format,
+        )
+    ]
+    if not _send_subscription_customer_email(
+        invoice,
+        payment_request.subject,
+        payment_request.get_message(),
+        attachments,
+        audit_kind="PaymentRequest-Abo",
+        payment_request_name=payment_request.name,
+    ):
+        return
     payment_request.make_communication_entry()
 
 def is_first_invoice_for_subscription(invoice_name, subscription_name):

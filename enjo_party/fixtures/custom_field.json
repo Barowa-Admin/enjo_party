@@ -119,6 +119,16 @@
  },
  {
   "doctype": "Custom Field",
+  "name": "Sales Invoice-custom_partnerin",
+  "dt": "Sales Invoice",
+  "fieldname": "custom_partnerin",
+  "fieldtype": "Link",
+  "options": "Sales Partner",
+  "label": "Partnerin",
+  "insert_after": "sales_partner"
+ },
+ {
+  "doctype": "Custom Field",
   "name": "System Settings-custom_disable_invoice_emails",
   "dt": "System Settings",
   "fieldname": "custom_disable_invoice_emails",
