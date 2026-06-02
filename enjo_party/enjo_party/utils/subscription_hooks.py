@@ -15,6 +15,128 @@ def _log_err(title, message=None):
     frappe.log_error(title=t, message=frappe.as_unicode(message or ""))
 
 
+def has_non_return_subscription_invoice_for_date(subscription_name, posting_date):
+    """Idempotenz-Hilfe: nicht-stornierte Abo-Rechnung am Buchungsdatum."""
+    pd = frappe.utils.getdate(posting_date)
+    return bool(
+        frappe.get_all(
+            "Sales Invoice",
+            filters={
+                "subscription": subscription_name,
+                "posting_date": pd,
+                "docstatus": ["in", [0, 1]],
+                "is_return": 0,
+            },
+            fields=["name"],
+            limit_page_length=1,
+        )
+    )
+
+
+def _get_existing_subscription_invoice_for_billing(
+    subscription_name, posting_date, period_start=None, period_end=None
+):
+    """
+    Liefert (invoice_name, reason) wenn für diese Abrechnung bereits eine Rechnung existiert.
+    """
+    pd = frappe.utils.getdate(posting_date)
+    existing = frappe.get_all(
+        "Sales Invoice",
+        filters={
+            "subscription": subscription_name,
+            "posting_date": pd,
+            "docstatus": ["in", [0, 1]],
+            "is_return": 0,
+        },
+        fields=["name"],
+        limit_page_length=1,
+    )
+    if existing:
+        return existing[0].name, "posting_date"
+
+    if period_start and period_end:
+        ps = frappe.utils.getdate(period_start)
+        pe = frappe.utils.getdate(period_end)
+        in_period = frappe.get_all(
+            "Sales Invoice",
+            filters={
+                "subscription": subscription_name,
+                "posting_date": ["between", [ps, pe]],
+                "docstatus": ["in", [0, 1]],
+                "is_return": 0,
+            },
+            fields=["name"],
+            limit_page_length=1,
+        )
+        if in_period:
+            return in_period[0].name, "billing_period"
+
+    return None, None
+
+
+def process_subscription_billing_safe(subscription_name, posting_date, source="scheduler"):
+    """
+    Ruft subscription.process() nur auf, wenn noch keine Rechnung für diese Periode existiert.
+    Serialisiert parallele Läufe per FOR UPDATE auf dem Abo-Datensatz.
+    """
+    pd = frappe.utils.getdate(posting_date)
+    try:
+        frappe.db.begin()
+        rows = frappe.db.sql(
+            """
+            SELECT name, current_invoice_start, current_invoice_end
+            FROM `tabSubscription`
+            WHERE name = %s
+            FOR UPDATE
+            """,
+            (subscription_name,),
+            as_dict=True,
+        )
+        if not rows:
+            frappe.db.rollback()
+            _log_err(
+                "INFO: subscription_billing_skipped",
+                f"{subscription_name} posting_date={pd} reason=not_found source={source}",
+            )
+            return False
+
+        sub_row = rows[0]
+        existing_name, skip_reason = _get_existing_subscription_invoice_for_billing(
+            subscription_name,
+            pd,
+            sub_row.get("current_invoice_start"),
+            sub_row.get("current_invoice_end"),
+        )
+        if existing_name:
+            frappe.db.rollback()
+            _log_err(
+                "INFO: subscription_billing_skipped",
+                f"{subscription_name} posting_date={pd} reason={skip_reason} "
+                f"invoice={existing_name} source={source}",
+            )
+            _log_err(
+                "WARNING: subscription_billing_duplicate_prevented",
+                f"{subscription_name} posting_date={pd} existing={existing_name} source={source}",
+            )
+            return False
+
+        subscription = frappe.get_doc("Subscription", subscription_name)
+        subscription.process(posting_date=str(pd))
+        frappe.db.commit()
+        _log_err(
+            "INFO: subscription_billing_processed",
+            f"{subscription_name} posting_date={pd} source={source}",
+        )
+        return True
+    except Exception as e:
+        frappe.db.rollback()
+        _log_err(
+            "ERROR: subscription_billing",
+            f"{subscription_name} posting_date={pd} source={source}: {str(e)}\n{frappe.get_traceback()}",
+        )
+        raise
+
+
 def has_stripe_subscription(erpnext_subscription_name):
     """
     Prüft ob bereits eine Stripe Subscription für diese ERPNext Subscription existiert
@@ -595,9 +717,10 @@ def force_subscription_update(doc, method):
                 return
             
             _log_err("DEBUG: subscription_hook", f"SUBSCRIPTION HOOK: Fälligkeit erreicht für {doc.name} (processing_date={processing_date}), führe process() aus")
-            subscription.process(posting_date=processing_date)
-            frappe.db.commit()
-            
+            process_subscription_billing_safe(
+                doc.name, processing_date, source="force_subscription_update"
+            )
+
             _log_err("DEBUG: subscription_hook", f"SUBSCRIPTION HOOK: process() abgeschlossen für {doc.name}")
             
             # Erstelle Payment Request für die generierte Rechnung

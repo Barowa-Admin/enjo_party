@@ -13,6 +13,72 @@ ENABLE_AUTO_DELIVERY_NOTE = True
 ENABLE_AUTO_PICKLIST = True
 
 
+def _is_subscription_fulfillment_sales_order(doc):
+    po_no = doc.po_no or ""
+    if po_no.startswith("Subscription Invoice:"):
+        return True
+    return bool(getattr(doc, "custom_subscription", None))
+
+
+def _get_existing_invoice_for_sales_order(doc):
+    """Bestehende SI zu diesem SO (Header, Positionen oder Abo-po_no)."""
+    existing_invoices = frappe.get_all(
+        "Sales Invoice",
+        filters={
+            "docstatus": ["!=", 2],
+            "sales_order": doc.name,
+        },
+        fields=["name"],
+        limit=1,
+    )
+    if existing_invoices:
+        return existing_invoices[0]["name"]
+
+    if not _is_subscription_fulfillment_sales_order(doc):
+        return None
+
+    item_parents = frappe.db.sql(
+        """
+        SELECT DISTINCT sii.parent
+        FROM `tabSales Invoice Item` sii
+        INNER JOIN `tabSales Invoice` si ON si.name = sii.parent
+        WHERE sii.sales_order = %s AND si.docstatus != 2
+        LIMIT 1
+        """,
+        (doc.name,),
+    )
+    if item_parents:
+        return item_parents[0][0]
+
+    po_no = doc.po_no or ""
+    if "Subscription Invoice:" in po_no:
+        marker = "Subscription Invoice:"
+        start = po_no.find(marker) + len(marker)
+        rest = po_no[start:].strip()
+        invoice_name = rest.split(" (Subscription:")[0].split()[0].strip()
+        if invoice_name and frappe.db.exists("Sales Invoice", invoice_name):
+            si_docstatus = frappe.db.get_value("Sales Invoice", invoice_name, "docstatus")
+            if si_docstatus != 2:
+                return invoice_name
+
+    subscription_name = getattr(doc, "custom_subscription", None)
+    if subscription_name:
+        sub_invoices = frappe.get_all(
+            "Sales Invoice",
+            filters={
+                "subscription": subscription_name,
+                "docstatus": ["!=", 2],
+            },
+            fields=["name"],
+            order_by="creation desc",
+            limit=1,
+        )
+        if sub_invoices:
+            return sub_invoices[0]["name"]
+
+    return None
+
+
 def auto_create_and_submit_sales_invoice(doc, method):
     """
     Hook für Sales Order on_submit
@@ -108,25 +174,25 @@ def auto_create_and_submit_sales_invoice(doc, method):
     try:
         frappe.log_error(f"Starting auto invoice creation for Sales Order: {doc.name}", "INFO: auto_invoice_start")
         
-        # KORRIGIERT: Prüfe nur nach Sales Invoices die direkt zu diesem Sales Order gehören
         frappe.log_error(f"DEBUG: Prüfe existierende Invoices für {doc.name}", "DEBUG: check_existing_invoices")
-        existing_invoices = frappe.get_all(
-            "Sales Invoice",
-            filters={
-                "docstatus": ["!=", 2],
-                "sales_order": doc.name  # Nur für diesen spezifischen Sales Order
-            },
-            fields=["name"],
-            limit=1
-        )
+        existing_invoice_name = _get_existing_invoice_for_sales_order(doc)
 
-        # Hole bestehende Invoice falls vorhanden
         existing_invoice = None
-        if existing_invoices:
-            frappe.log_error(f"Sales Invoice already exists for Sales Order {doc.name}: {existing_invoices[0]['name']}", "INFO: invoice_exists")
-            existing_invoice = frappe.get_doc("Sales Invoice", existing_invoices[0]['name'])
-            frappe.log_error(f"DEBUG: Verwende bestehende Invoice {existing_invoice.name} für Delivery Note und Packing List", "DEBUG: use_existing_invoice")
-            # Setze invoice Variable für später
+        if existing_invoice_name:
+            log_title = (
+                "INFO: subscription_so_invoice_exists"
+                if _is_subscription_fulfillment_sales_order(doc)
+                else "INFO: invoice_exists"
+            )
+            frappe.log_error(
+                f"Sales Invoice already exists for Sales Order {doc.name}: {existing_invoice_name}",
+                log_title,
+            )
+            existing_invoice = frappe.get_doc("Sales Invoice", existing_invoice_name)
+            frappe.log_error(
+                f"DEBUG: Verwende bestehende Invoice {existing_invoice.name} für Delivery Note und Packing List",
+                "DEBUG: use_existing_invoice",
+            )
             invoice = existing_invoice
         else:
             frappe.log_error(f"No existing invoice found - creating new one for Sales Order {doc.name}", "INFO: creating_new")

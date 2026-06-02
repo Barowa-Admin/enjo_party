@@ -521,7 +521,11 @@ def after_save_sales_invoice(doc, method):
     if doc.docstatus != 1:
         frappe.log_error(f"Rechnung {doc.name} ist nicht gebucht (docstatus={doc.docstatus}) - E-Mail wird nicht versendet", "DEBUG: after_save_sales_invoice")
         return
-    
+
+    # Abo-Rechnungen: Versand nur über subscription_hooks (Payment Request / Informationsmail)
+    if doc.subscription:
+        return
+
     # Prüfe ob bereits eine E-Mail für diese Rechnung gesendet wurde
     try:
         # Prüfe ob bereits eine Email Queue für diese Invoice existiert
