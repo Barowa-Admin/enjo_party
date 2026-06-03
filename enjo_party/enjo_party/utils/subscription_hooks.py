@@ -286,17 +286,29 @@ def sync_subscription_partner_to_invoice(doc, method):
     if doc.doctype != "Sales Invoice" or doc.docstatus != 0 or not doc.subscription:
         return
 
+    sub_meta = frappe.get_meta("Subscription")
+    sub_fields = [
+        f for f in ("custom_partnerin", "sales_partner", "custom_sales_partner")
+        if sub_meta.has_field(f)
+    ]
+    if not sub_fields:
+        return
+
     sub_values = frappe.db.get_value(
         "Subscription",
         doc.subscription,
-        ["custom_partnerin", "sales_partner"],
+        sub_fields,
         as_dict=True,
     )
     if not sub_values:
         return
 
     partnerin = sub_values.get("custom_partnerin")
-    sales_partner = sub_values.get("sales_partner") or partnerin
+    sales_partner = (
+        sub_values.get("sales_partner")
+        or sub_values.get("custom_sales_partner")
+        or partnerin
+    )
     si_meta = frappe.get_meta("Sales Invoice")
 
     if si_meta.has_field("custom_partnerin") and not doc.get("custom_partnerin") and partnerin:
