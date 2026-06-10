@@ -494,133 +494,25 @@ def before_submit_netto_invoice_totals(doc, method):
                 row.payment_amount = flt(row.payment_amount * new_grand_total / old_grand_total, doc.precision("grand_total"))
 
 
-def after_save_sales_invoice(doc, method):
+def send_invoice_email_on_submit(doc, method):
     """
-    Hook für Sales Invoice after_save
-    Sendet automatisch eine E-Mail mit der Rechnung an den Kunden, wenn die Rechnung gebucht wurde
+    Sendet beim Buchen automatisch die Rechnungsmail an den Kunden (Nicht-Abo).
     """
-    # Debug-Log um zu sehen, ob die Funktion aufgerufen wird
-    frappe.log_error(f"after_save_sales_invoice aufgerufen für {doc.name}, docstatus: {doc.docstatus}", "DEBUG: after_save_sales_invoice")
-    
-    if doc.doctype != "Sales Invoice":
+    if doc.doctype != "Sales Invoice" or doc.docstatus != 1:
         return
 
-    # Globaler Schalter (System Settings): Rechnungs-E-Mails temporär deaktivieren
-    try:
-        if frappe.db.get_single_value("System Settings", "custom_disable_invoice_emails"):
-            frappe.log_error(
-                f"Rechnungs-E-Mail Versand deaktiviert (System Settings) - Invoice {doc.name} wird übersprungen",
-                "INFO: invoice_email_disabled",
-            )
-            return
-    except Exception:
-        # Wenn Settings nicht verfügbar sind, Versand nicht blockieren
-        pass
-    
-    # Nur wenn die Rechnung gebucht wurde (docstatus == 1)
-    if doc.docstatus != 1:
-        frappe.log_error(f"Rechnung {doc.name} ist nicht gebucht (docstatus={doc.docstatus}) - E-Mail wird nicht versendet", "DEBUG: after_save_sales_invoice")
-        return
-
-    # Abo-Rechnungen: Versand nur über subscription_hooks (Payment Request / Informationsmail)
     if doc.subscription:
         return
 
-    # Prüfe ob bereits eine E-Mail für diese Rechnung gesendet wurde
     try:
-        # Prüfe ob bereits eine Email Queue für diese Invoice existiert
-        email_queues = frappe.get_all("Email Queue",
-            filters={
-                "reference_doctype": "Sales Invoice",
-                "reference_name": doc.name,
-                "status": ["!=", "Error"]
-            },
-            fields=["name"],
-            limit=1
-        )
-        
-        if email_queues:
-            frappe.log_error(f"E-Mail bereits gesendet für Invoice {doc.name} (Email Queue gefunden: {email_queues[0].name})", "DEBUG: invoice_email_already_sent")
-            return
-        
-        # Prüfe ob bereits eine Communication für diese Invoice existiert
-        communications = frappe.get_all("Communication",
-            filters={
-                "reference_doctype": "Sales Invoice",
-                "reference_name": doc.name,
-                "communication_type": "Communication",
-                "sent_or_received": "Sent"
-            },
-            fields=["name"],
-            limit=1
-        )
-        
-        if communications:
-            frappe.log_error(f"E-Mail bereits gesendet für Invoice {doc.name} (Communication gefunden: {communications[0].name})", "DEBUG: invoice_email_already_sent")
-            return
-        
-        # Hole E-Mail-Adresse des Kunden
-        email_to = None
-        
-        # Versuche zuerst contact_email aus der Rechnung
-        if getattr(doc, "contact_email", None):
-            email_to = doc.contact_email
-        
-        # Falls nicht vorhanden, hole E-Mail vom Customer
-        if not email_to:
-            email_to = frappe.db.get_value("Customer", doc.customer, "email_id")
-        
-        # Falls immer noch keine E-Mail-Adresse, überspringe Versand
-        if not email_to:
-            frappe.log_error(f"Keine E-Mail-Adresse für Invoice {doc.name} gefunden - Versand übersprungen", "WARNING: invoice_email_no_address")
-            return
-        
-        # Sende E-Mail mit Rechnung via communication.email._make
-        # Damit erscheint die E-Mail in der Mail Queue und in der Aktivität der Rechnung
-        try:
-            # Lade das Dokument neu, um sicherzustellen, dass alle Daten aktuell sind
-            invoice_doc = frappe.get_doc("Sales Invoice", doc.name)
-            
-            # Lade das E-Mail-Template "Rechnung" explizit
-            from frappe.email.doctype.email_template.email_template import get_email_template
-            
-            email_template_name = "Rechnung"
-            email_template = get_email_template(email_template_name, doc=invoice_doc.as_dict())
-            template_subject = email_template.get("subject") if email_template else None
-            template_message = email_template.get("message") if email_template else None
-            
-            print_format = invoice_doc.meta.default_print_format or "Standard"
-            
-            # communication.email._make erstellt eine Communication (Aktivität) und fügt die E-Mail der Mail Queue hinzu
-            from frappe.core.doctype.communication.email import _make
-            
-            result = _make(
-                doctype="Sales Invoice",
-                name=invoice_doc.name,
-                recipients=[email_to],
-                subject=template_subject,
-                content=template_message,
-                send_email=True,
-                print_format=print_format,  # Rechnung-PDF wird automatisch angehängt
-                communication_type="Communication",
-                now=False,  # False = E-Mail kommt in die Mail Queue (sichtbar), True = sofort senden
-            )
-            
-            # Explizit Timeline-Link zur Rechnung hinzufügen, damit die E-Mail in der Aktivität erscheint
-            # (Manuell versendete E-Mails machen das automatisch über add_contact_links)
-            if result and result.get("name"):
-                comm = frappe.get_doc("Communication", result["name"])
-                comm.add_link("Sales Invoice", invoice_doc.name, autosave=True)
-            
-            frappe.log_error(f"E-Mail in Queue/Activity eingetragen für Invoice {invoice_doc.name} an {email_to} (Template '{email_template_name}')", "INFO: invoice_email_sent")
-            
-        except Exception as e:
-            frappe.log_error(f"Fehler beim Versenden der E-Mail für Invoice {doc.name}: {str(e)}", "ERROR: invoice_email_send_failed")
-            import traceback
-            frappe.log_error(f"Traceback: {traceback.format_exc()}", "ERROR: invoice_email_send_failed_traceback")
-    
+        from enjo_party.enjo_party.utils.invoice_email import send_customer_invoice_email
+
+        send_customer_invoice_email(doc)
     except Exception as e:
-        frappe.log_error(f"Fehler in after_save_sales_invoice für {doc.name}: {str(e)}", "ERROR: after_save_sales_invoice")
+        frappe.log_error(
+            title="ERROR: invoice_email_send_failed",
+            message=f"Fehler beim Versenden der E-Mail für Invoice {doc.name}: {e}\n{frappe.get_traceback()}",
+        )
 
 def onload_sales_invoice(doc, method):
     """

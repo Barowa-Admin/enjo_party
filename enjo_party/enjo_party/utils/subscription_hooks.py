@@ -204,55 +204,12 @@ def has_stripe_subscription(erpnext_subscription_name):
 
 def was_email_already_sent_for_invoice(invoice_name):
     """
-    Prüft ob bereits eine E-Mail für diese Invoice gesendet wurde
-    Gibt True zurück wenn bereits eine E-Mail-Queue oder Communication existiert
+    Prüft ob bereits eine Kundenmail für diese Invoice gesendet wurde.
+    DATEV- und interne Empfänger werden ignoriert.
     """
-    try:
-        # Prüfe ob bereits eine E-Mail-Queue für diese Invoice existiert
-        email_queues = frappe.get_all("Email Queue",
-            filters={
-                "reference_doctype": "Sales Invoice",
-                "reference_name": invoice_name,
-                "status": ["in", ["Sent", "Sending", "Not Sent"]]
-            },
-            limit=1
-        )
-        
-        if email_queues:
-            _log_err("DEBUG: email_already_sent_check", f"E-Mail bereits gesendet für Invoice {invoice_name} (Email Queue gefunden: {email_queues[0].name})")
-            return True
-        
-        # Prüfe auch über Payment Request -> Communication
-        payment_requests = frappe.get_all("Payment Request",
-            filters={
-                "reference_doctype": "Sales Invoice",
-                "reference_name": invoice_name,
-                "docstatus": ["!=", 2]
-            },
-            fields=["name"],
-            limit=1
-        )
-        
-        if payment_requests:
-            # Prüfe ob für diese Payment Request bereits eine Communication existiert
-            communications = frappe.get_all("Communication",
-                filters={
-                    "reference_doctype": "Payment Request",
-                    "reference_name": payment_requests[0].name,
-                    "communication_type": "Communication"
-                },
-                limit=1
-            )
-            
-            if communications:
-                _log_err("DEBUG: email_already_sent_check", f"E-Mail bereits gesendet für Invoice {invoice_name} (Communication gefunden für Payment Request {payment_requests[0].name})")
-                return True
-        
-        return False
-    except Exception as e:
-        _log_err("ERROR: email_already_sent_check", f"Fehler beim Prüfen ob E-Mail bereits gesendet wurde für Invoice {invoice_name}: {str(e)}")
-        # Bei Fehler: Annahme dass keine E-Mail gesendet wurde (sicherer)
-        return False
+    from enjo_party.enjo_party.utils.invoice_email import has_customer_invoice_email_been_sent
+
+    return has_customer_invoice_email_been_sent(invoice_name)
 
 def get_invoice_email_address(invoice):
     """
@@ -505,9 +462,12 @@ def _send_subscription_customer_email(
     if not email_to:
         return False
 
+    from enjo_party.enjo_party.utils.invoice_email import filter_external_recipients
+
     link_doctype = _partner_link_doctype()
     sales_partner = _get_sales_partner_for_invoice(invoice)
     partnerin_email = _get_partnerin_email(sales_partner, link_doctype) if sales_partner else None
+    bcc_list = filter_external_recipients([partnerin_email] if partnerin_email else [])
 
     from frappe.utils.background_jobs import enqueue
 
@@ -522,8 +482,8 @@ def _send_subscription_customer_email(
         "reference_doctype": "Sales Invoice",
         "reference_name": invoice.name,
     }
-    if partnerin_email:
-        email_args["bcc"] = [partnerin_email]
+    if bcc_list:
+        email_args["bcc"] = bcc_list
 
     enqueue(method=frappe.sendmail, queue="short", timeout=300, is_async=True, **email_args)
 
@@ -534,7 +494,7 @@ def _send_subscription_customer_email(
         getattr(invoice, "customer", None) or invoice.get("customer"),
         email_to,
         sales_partner,
-        partnerin_email,
+        bcc_list[0] if bcc_list else None,
         pr_name=payment_request_name,
         subscription_name=subscription_name,
     )
@@ -583,9 +543,8 @@ def send_subscription_invoice_informational_email(invoice_doc):
     mit der Rechnung als PDF – ohne Zahlungslink. Nur für die Buchhaltung/Unterlagen des Kunden.
     """
     if was_email_already_sent_for_invoice(invoice_doc.name):
-        _log_err(
-            "DEBUG: subscription_informational_email",
-            f"Informations-E-Mail bereits versendet für Invoice {invoice_doc.name} – überspringe",
+        frappe.logger().info(
+            f"subscription_informational_email: bereits versendet für {invoice_doc.name}"
         )
         return
     email_to = get_invoice_email_address(invoice_doc)
@@ -597,15 +556,10 @@ def send_subscription_invoice_informational_email(invoice_doc):
         return
     subject, message = _get_subscription_informational_email_subject_and_message(invoice_doc)
     print_format = getattr(invoice_doc.meta, "default_print_format", None) or "Standard"
-    attachments = [
-        frappe.attach_print(
-            "Sales Invoice",
-            invoice_doc.name,
-            file_name=invoice_doc.name,
-            doc=invoice_doc,
-            print_format=print_format,
-        )
-    ]
+    from enjo_party.enjo_party.utils.invoice_email import build_invoice_pdf_attachment
+
+    attachment = build_invoice_pdf_attachment(invoice_doc, print_format=print_format)
+    attachments = [attachment] if attachment else []
     if not _send_subscription_customer_email(
         invoice_doc,
         subject,
@@ -625,9 +579,8 @@ def send_subscription_payment_request_email(payment_request, invoice, include_pa
     Sendet die E-Mail für Subscription-Payment-Requests kontrolliert aus.
     """
     if was_email_already_sent_for_invoice(invoice.name):
-        _log_err(
-            "DEBUG: subscription_email_send",
-            f"E-Mail bereits versendet für Invoice {invoice.name} - überspringe Versand",
+        frappe.logger().info(
+            f"subscription_email_send: bereits versendet für {invoice.name}"
         )
         return
 
@@ -664,14 +617,13 @@ def send_subscription_payment_request_email(payment_request, invoice, include_pa
 
     payment_request.db_set("subject", f"Rechnung {invoice.name}", update_modified=False)
 
-    attachments = [
-        frappe.attach_print(
-            payment_request.reference_doctype,
-            payment_request.reference_name,
-            file_name=payment_request.reference_name,
-            print_format=payment_request.print_format,
-        )
-    ]
+    from enjo_party.enjo_party.utils.invoice_email import build_invoice_pdf_attachment
+
+    attachment = build_invoice_pdf_attachment(
+        invoice,
+        print_format=payment_request.print_format,
+    )
+    attachments = [attachment] if attachment else []
     if not _send_subscription_customer_email(
         invoice,
         payment_request.subject,
@@ -816,7 +768,12 @@ def force_subscription_update(doc, method):
                 # WICHTIG: Prüfe ob bereits eine Stripe Subscription existiert
                 # Wenn ja, wird Stripe automatisch abbuchen - keine Payment Request nötig
                 if has_stripe_subscription(doc.name):
-                    _log_err("DEBUG: subscription_hook", f"SUBSCRIPTION HOOK: Stripe Subscription existiert bereits für {doc.name} - überspringe Payment Request Erstellung (Stripe bucht automatisch ab)")
+                    frappe.logger().info(
+                        f"subscription_hook: Stripe-Abo für {doc.name}, Informationsmail für {invoice_name}"
+                    )
+                    send_subscription_invoice_informational_email(
+                        frappe.get_doc("Sales Invoice", invoice_name)
+                    )
                     return
                 
                 # WICHTIG: Commit vor Prüfung, damit create_payment_request_for_subscription_invoice die Payment Request findet
@@ -832,7 +789,19 @@ def force_subscription_update(doc, method):
                 )
                 
                 if existing_requests:
-                    _log_err("DEBUG: subscription_hook", f"SUBSCRIPTION HOOK: Payment Request existiert bereits für Invoice {invoice_name}")
+                    if not was_email_already_sent_for_invoice(invoice_name):
+                        payment_request = frappe.get_doc(
+                            "Payment Request", existing_requests[0].name
+                        )
+                        invoice = frappe.get_doc("Sales Invoice", invoice_name)
+                        is_first_invoice = is_first_invoice_for_subscription(
+                            invoice_name, doc.name
+                        )
+                        send_subscription_payment_request_email(
+                            payment_request,
+                            invoice,
+                            include_payment_link=is_first_invoice,
+                        )
                     return
                 
                 # WICHTIG: Invoice neu aus DB laden, um sicherzustellen, dass alle Werte korrekt sind
@@ -1058,7 +1027,9 @@ def create_payment_request_for_subscription_invoice(doc, method):
             # Wenn ja, wird Stripe automatisch abbuchen - keine Payment Request nötig;
             # Kunde erhält nur eine Informations-E-Mail mit Rechnung (ohne Zahlungslink)
             if has_stripe_subscription(doc.subscription):
-                _log_err("DEBUG: subscription_payment_request", f"SUBSCRIPTION HOOK: Stripe Subscription existiert bereits für {doc.subscription} - überspringe Payment Request, sende Informations-Mail")
+                frappe.logger().info(
+                    f"subscription_payment_request: Stripe-Abo {doc.subscription}, Informationsmail"
+                )
                 send_subscription_invoice_informational_email(doc)
                 fulfill_subscription_invoice_with_sales_order(doc)
                 return  # Keine Payment Request erstellen, Stripe bucht automatisch ab
@@ -1085,8 +1056,17 @@ def create_payment_request_for_subscription_invoice(doc, method):
             )
             
             if existing_requests:
-                _log_err("DEBUG: subscription_payment_request", f"SUBSCRIPTION HOOK: Payment Request existiert bereits für Invoice {doc.name} - überspringe Erstellung und E-Mail")
-                return  # WICHTIG: Früher Return, um keine E-Mail zu versenden
+                if not was_email_already_sent_for_invoice(doc.name):
+                    payment_request = frappe.get_doc("Payment Request", existing_requests[0].name)
+                    is_first_invoice = is_first_invoice_for_subscription(
+                        doc.name, doc.subscription
+                    )
+                    send_subscription_payment_request_email(
+                        payment_request,
+                        doc,
+                        include_payment_link=is_first_invoice,
+                    )
+                return
             
             # Keine Payment Request gefunden - erstelle neue
             if not existing_requests:
