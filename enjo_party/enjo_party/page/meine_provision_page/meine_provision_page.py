@@ -12,31 +12,69 @@ MONTH_NAMES = [
 ]
 
 
+_NO_SALES_PARTNER_WARNING = (
+	"Ihr Benutzerkonto ist keinem Vertriebspartner zugeordnet. "
+	"Bitte wenden Sie sich an die Geschäftsstelle."
+)
+
+
+def _normalize_name(value: Optional[str]) -> str:
+	if not value:
+		return ""
+	return " ".join(value.split()).strip().casefold()
+
+
+def _find_sales_partner_by_partner_name(partner_name: Optional[str]) -> Optional[str]:
+	if not partner_name:
+		return None
+	exact = frappe.db.get_value("Sales Partner", {"partner_name": partner_name}, "name")
+	if exact:
+		return exact
+	normalized = _normalize_name(partner_name)
+	if not normalized:
+		return None
+	for row in frappe.get_all("Sales Partner", fields=["name", "partner_name"]):
+		if _normalize_name(row.partner_name) == normalized:
+			return row.name
+	return None
+
+
 def _get_sales_partner_for_user(user: str) -> Optional[str]:
-	sales_partner = None
 	try:
 		sales_partner_meta = frappe.get_meta("Sales Partner")
-		if sales_partner_meta.has_field("user"):
-			sales_partner = frappe.db.get_value("Sales Partner", {"user": user}, "name")
+		if sales_partner_meta.has_field("custom_user"):
+			sales_partner = frappe.db.get_value("Sales Partner", {"custom_user": user}, "name")
+			if sales_partner:
+				return sales_partner
 	except Exception:
 		pass
-	if sales_partner:
-		return sales_partner
+
 	try:
 		user_full_name = frappe.db.get_value("User", user, "full_name")
-		if user_full_name:
-			sales_partner = frappe.db.get_value("Sales Partner", {"partner_name": user_full_name}, "name")
-		if not sales_partner:
-			sales_partner = frappe.db.get_value("Sales Partner", {"partner_name": user}, "name")
+		sales_partner = _find_sales_partner_by_partner_name(user_full_name)
+		if sales_partner:
+			return sales_partner
+		return _find_sales_partner_by_partner_name(user)
 	except Exception:
 		pass
-	return sales_partner
+	return None
 
 
-def _si_base_conditions(sales_partner: Optional[str], user: str) -> tuple[str, dict]:
-	if sales_partner:
-		return "si.sales_partner = %(sales_partner)s", {"sales_partner": sales_partner}
-	return "si.owner = %(current_user)s", {"current_user": user}
+def _si_base_conditions(sales_partner: str) -> tuple[str, dict]:
+	return "si.sales_partner = %(sales_partner)s", {"sales_partner": sales_partner}
+
+
+def _no_sales_partner_response(user: str) -> dict[str, Any]:
+	user_full_name = frappe.db.get_value("User", user, "full_name")
+	frappe.log_error(
+		title="Meine Provision: Kein Sales Partner",
+		message=f"User: {user!r}, full_name: {user_full_name!r}",
+	)
+	return _empty_response(
+		can_print=False,
+		sales_partner_found=False,
+		warning=_NO_SALES_PARTNER_WARNING,
+	)
 
 
 def _storno_clause() -> str:
@@ -340,7 +378,7 @@ def _filter_free_range_names(
 def get_provision_data(month=None, year=None, date_from=None, date_to=None):
 	"""
 	Holt Provisionsdaten für den angemeldeten User.
-	Rückgabe: dict mit rows (Tabellenzeilen), can_print, print_block_reason.
+	Rückgabe: dict mit rows, can_print, print_block_reason, sales_partner_found, warning.
 	"""
 	user = frappe.session.user
 	free_period = bool(date_from and date_to)
@@ -356,7 +394,9 @@ def get_provision_data(month=None, year=None, date_from=None, date_to=None):
 			year = letzter_monat.year
 
 	sales_partner = _get_sales_partner_for_user(user)
-	base_sql, base_vals = _si_base_conditions(sales_partner, user)
+	if not sales_partner:
+		return _no_sales_partner_response(user)
+	base_sql, base_vals = _si_base_conditions(sales_partner)
 
 	today = date.today()
 	candidate_names: set[str] = set()
@@ -517,8 +557,20 @@ def get_provision_data(month=None, year=None, date_from=None, date_to=None):
 		"rows": data,
 		"can_print": can_print,
 		"print_block_reason": print_block_reason,
+		"sales_partner_found": True,
+		"warning": None,
 	}
 
 
-def _empty_response(can_print: bool) -> dict[str, Any]:
-	return {"rows": [], "can_print": can_print, "print_block_reason": None}
+def _empty_response(
+	can_print: bool,
+	sales_partner_found: bool = True,
+	warning: Optional[str] = None,
+) -> dict[str, Any]:
+	return {
+		"rows": [],
+		"can_print": can_print,
+		"print_block_reason": None,
+		"sales_partner_found": sales_partner_found,
+		"warning": warning,
+	}

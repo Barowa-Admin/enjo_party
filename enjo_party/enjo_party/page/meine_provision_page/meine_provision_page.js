@@ -24,6 +24,18 @@ frappe.pages['meine-provision-page'].on_page_load = function(wrapper) {
 		}
 	}
 
+	function syncProvisionPartnerWarning(salesPartnerFound, warning) {
+		var $warning = $('#provision-partner-warning');
+		if (!$warning.length) {
+			return;
+		}
+		if (salesPartnerFound === false && warning) {
+			$warning.text(warning).show();
+		} else {
+			$warning.text('').hide();
+		}
+	}
+
 	page.set_primary_action('Drucken', function() {
 		if (!page._provision_allow_print) {
 			frappe.msgprint(
@@ -166,7 +178,8 @@ frappe.pages['meine-provision-page'].on_page_load = function(wrapper) {
 	}, 150);
 
 	$(page.body).append(
-		'<p id="provision-print-hint" class="text-muted small" style="margin-bottom: 8px;"></p>' +
+		'<div id="provision-partner-warning" class="alert alert-danger" style="display: none; margin-bottom: 12px;"></div>' +
+			'<p id="provision-print-hint" class="text-muted small" style="margin-bottom: 8px;"></p>' +
 			'<div id="provision-table" style="margin-top: 20px;"></div>'
 	);
 
@@ -232,16 +245,21 @@ frappe.pages['meine-provision-page'].on_page_load = function(wrapper) {
 				var rows = [];
 				var canPrint = false;
 				var reason = '';
+				var salesPartnerFound = true;
+				var partnerWarning = '';
 				if (msg && msg.rows) {
 					rows = msg.rows;
 					canPrint = msg.can_print === true;
 					reason = msg.print_block_reason || '';
+					salesPartnerFound = msg.sales_partner_found !== false;
+					partnerWarning = msg.warning || '';
 				} else if ($.isArray(msg)) {
 					rows = msg;
 					canPrint = false;
 					reason = '';
 				}
 				showTable(rows);
+				syncProvisionPartnerWarning(salesPartnerFound, partnerWarning);
 				syncProvisionPrintUI(freePeriod, canPrint, reason);
 			}
 		});

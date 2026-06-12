@@ -148,6 +148,9 @@ fixtures = ["Custom Field", "Property Setter"]
 # Hook on document methods and events
 
 doc_events = {
+	"User": {
+		"before_save": "enjo_party.enjo_party.utils.user_hooks.normalize_user_full_name",
+	},
 	"Address": {
 		"before_insert": "enjo_party.enjo_party.utils.address_hooks.copy_email_from_customer",
 		"on_update": "enjo_party.enjo_party.utils.address_hooks.notify_draft_invoices_on_address_change",
