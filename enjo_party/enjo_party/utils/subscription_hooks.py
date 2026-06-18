@@ -78,50 +78,53 @@ def process_subscription_billing_safe(subscription_name, posting_date, source="s
     """
     Ruft subscription.process() nur auf, wenn noch keine Rechnung für diese Periode existiert.
     Serialisiert parallele Läufe per FOR UPDATE auf dem Abo-Datensatz.
+
+    Kein frappe.db.begin()/rollback() auf der äußeren Transaktion — sonst wird z. B. beim
+    after_insert-Hook das gerade angelegte Abo wieder verworfen (UI zeigt es, DB 404).
     """
     pd = frappe.utils.getdate(posting_date)
+    rows = frappe.db.sql(
+        """
+        SELECT name, current_invoice_start, current_invoice_end
+        FROM `tabSubscription`
+        WHERE name = %s
+        FOR UPDATE
+        """,
+        (subscription_name,),
+        as_dict=True,
+    )
+    if not rows:
+        _log_err(
+            "INFO: subscription_billing_skipped",
+            f"{subscription_name} posting_date={pd} reason=not_found source={source}",
+        )
+        return False
+
+    sub_row = rows[0]
+    existing_name, skip_reason = _get_existing_subscription_invoice_for_billing(
+        subscription_name,
+        pd,
+        sub_row.get("current_invoice_start"),
+        sub_row.get("current_invoice_end"),
+    )
+    if existing_name:
+        _log_err(
+            "INFO: subscription_billing_skipped",
+            f"{subscription_name} posting_date={pd} reason={skip_reason} "
+            f"invoice={existing_name} source={source}",
+        )
+        _log_err(
+            "WARNING: subscription_billing_duplicate_prevented",
+            f"{subscription_name} posting_date={pd} existing={existing_name} source={source}",
+        )
+        return False
+
+    savepoint = f"sub_bill_{frappe.generate_hash(length=10)}"
     try:
-        frappe.db.begin()
-        rows = frappe.db.sql(
-            """
-            SELECT name, current_invoice_start, current_invoice_end
-            FROM `tabSubscription`
-            WHERE name = %s
-            FOR UPDATE
-            """,
-            (subscription_name,),
-            as_dict=True,
-        )
-        if not rows:
-            frappe.db.rollback()
-            _log_err(
-                "INFO: subscription_billing_skipped",
-                f"{subscription_name} posting_date={pd} reason=not_found source={source}",
-            )
-            return False
-
-        sub_row = rows[0]
-        existing_name, skip_reason = _get_existing_subscription_invoice_for_billing(
-            subscription_name,
-            pd,
-            sub_row.get("current_invoice_start"),
-            sub_row.get("current_invoice_end"),
-        )
-        if existing_name:
-            frappe.db.rollback()
-            _log_err(
-                "INFO: subscription_billing_skipped",
-                f"{subscription_name} posting_date={pd} reason={skip_reason} "
-                f"invoice={existing_name} source={source}",
-            )
-            _log_err(
-                "WARNING: subscription_billing_duplicate_prevented",
-                f"{subscription_name} posting_date={pd} existing={existing_name} source={source}",
-            )
-            return False
-
+        frappe.db.savepoint(savepoint)
         subscription = frappe.get_doc("Subscription", subscription_name)
         subscription.process(posting_date=str(pd))
+        frappe.db.release_savepoint(savepoint)
         frappe.db.commit()
         _log_err(
             "INFO: subscription_billing_processed",
@@ -129,7 +132,7 @@ def process_subscription_billing_safe(subscription_name, posting_date, source="s
         )
         return True
     except Exception as e:
-        frappe.db.rollback()
+        frappe.db.rollback(save_point=savepoint)
         _log_err(
             "ERROR: subscription_billing",
             f"{subscription_name} posting_date={pd} source={source}: {str(e)}\n{frappe.get_traceback()}",
