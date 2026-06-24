@@ -1629,3 +1629,35 @@ def fulfill_subscription_invoice_with_sales_order(invoice_doc):
             "ERROR: subscription_fulfillment_so",
             f"Fehler Fulfillment SO für Invoice {getattr(invoice_doc, 'name', '?')}: {str(e)}\n{frappe.get_traceback()}",
         )
+
+
+@frappe.whitelist()
+def recalculate_subscription_period(subscription_name):
+    """
+    Berechnet current_invoice_start/end neu anhand des Abo-Starts und der verknüpften Pläne.
+    Für manuelle Plan-/Laufzeitänderungen ohne System Console.
+    """
+    frappe.has_permission("Subscription", "write", subscription_name, throw=True)
+
+    sub = frappe.get_doc("Subscription", subscription_name)
+    if not sub.start_date:
+        frappe.throw(_("Bitte zuerst ein Startdatum für das Abonnement setzen."))
+
+    old_start = sub.current_invoice_start
+    old_end = sub.current_invoice_end
+
+    sub.update_subscription_period(sub.start_date)
+    sub.save()
+
+    _log_err(
+        "INFO: subscription_period_recalc",
+        f"{subscription_name}: {old_start} -> {old_end} wurde "
+        f"{sub.current_invoice_start} -> {sub.current_invoice_end}",
+    )
+
+    return {
+        "success": True,
+        "old_period": f"{old_start} → {old_end}",
+        "new_period": f"{sub.current_invoice_start} → {sub.current_invoice_end}",
+        "message": _("Abo-Periode wurde neu berechnet. Bitte Stripe separat prüfen."),
+    }

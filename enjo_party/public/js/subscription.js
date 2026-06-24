@@ -5,6 +5,9 @@
 frappe.ui.form.on("Subscription", {
 	refresh(frm) {
 		if (frm.is_new()) return;
+
+		add_recalculate_period_button(frm);
+
 		if (frm.doc.status === "Cancelled") return;
 
 		const label = __("Cancel Subscription");
@@ -17,17 +20,71 @@ frappe.ui.form.on("Subscription", {
 			"default"
 		);
 
-		// Links neben der „Aktionen“-Dropdown-Gruppe (wie bisher gewünscht)
-		if ($btn && $btn.length && frm.page.inner_toolbar && frm.page.inner_toolbar.length) {
-			const $first_group = frm.page.inner_toolbar.children(".btn-group").first();
-			if ($first_group.length) {
-				$first_group.before($btn);
-			} else {
-				$btn.prependTo(frm.page.inner_toolbar);
-			}
-		}
+		prepend_inner_button(frm, $btn);
 	},
 });
+
+function add_recalculate_period_button(frm) {
+	const label = __("Periode neu berechnen");
+	frm.page.remove_inner_button(label);
+
+	const $btn = frm.page.add_inner_button(
+		label,
+		() => recalculate_subscription_period(frm),
+		null,
+		"default"
+	);
+
+	prepend_inner_button(frm, $btn);
+}
+
+function prepend_inner_button(frm, $btn) {
+	if ($btn && $btn.length && frm.page.inner_toolbar && frm.page.inner_toolbar.length) {
+		const $first_group = frm.page.inner_toolbar.children(".btn-group").first();
+		if ($first_group.length) {
+			$first_group.before($btn);
+		} else {
+			$btn.prependTo(frm.page.inner_toolbar);
+		}
+	}
+}
+
+function recalculate_subscription_period(frm) {
+	frappe.confirm(
+		__(
+			"Die Abo-Periode wird anhand des aktuellen Plans und des Abo-Starts neu berechnet. Stripe bitte separat anpassen. Fortfahren?"
+		),
+		() => {
+			frappe.call({
+				method: "enjo_party.enjo_party.utils.subscription_hooks.recalculate_subscription_period",
+				args: { subscription_name: frm.doc.name },
+				freeze: true,
+				freeze_message: __("Bitte warten …"),
+				callback(r) {
+					const msg = r.message;
+					if (!msg || !msg.success) {
+						frappe.msgprint({
+							message: (msg && msg.message) || __("Periode konnte nicht neu berechnet werden."),
+							indicator: "red",
+						});
+						return;
+					}
+					frappe.msgprint({
+						title: __("Periode aktualisiert"),
+						message:
+							msg.old_period +
+							"<br>→ " +
+							msg.new_period +
+							"<br><br>" +
+							msg.message,
+						indicator: "green",
+					});
+					frm.reload_doc();
+				},
+			});
+		}
+	);
+}
 
 function cancel_subscription_with_stripe(frm) {
 	frappe.confirm(
