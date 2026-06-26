@@ -52,7 +52,7 @@ function prepend_inner_button(frm, $btn) {
 function recalculate_subscription_period(frm) {
 	frappe.confirm(
 		__(
-			"Die Abo-Periode wird anhand des aktuellen Plans und des Abo-Starts neu berechnet. Stripe bitte separat anpassen. Fortfahren?"
+			"Die Abo-Periode wird anhand des aktuellen Plans neu berechnet: bei bestehenden Rechnungen ab der letzten Auslösung, sonst ab dem Abo-Start. Stripe bitte separat anpassen. Fortfahren?"
 		),
 		() => {
 			frappe.call({

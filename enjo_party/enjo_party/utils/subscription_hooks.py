@@ -1,6 +1,6 @@
 import frappe
 from frappe import _
-from frappe.utils import add_days, today
+from frappe.utils import add_days, add_months, add_to_date, get_last_day, getdate, today
 from enjo_party.enjo_party.utils.stripe_checkout import create_stripe_checkout_session, get_payment_link_url
 from enjo_party.enjo_party.utils.stripe_subscription import cancel_stripe_subscription_at_period_end
 from enjo_party.enjo_party.utils.sales_invoice_hooks import ensure_inclusive_taxes
@@ -968,6 +968,7 @@ def force_subscription_update(doc, method):
                     _log_err("ERROR: subscription_hook", f"SUBSCRIPTION HOOK: FEHLER - payment_url konnte nicht erstellt werden für Payment Request {payment_request.name}")
 
                 # Submit Payment Request (E-Mail wird manuell gesteuert)
+                payment_request.flags.mute_email = True
                 payment_request.submit()
                 
                 # WICHTIG: payment_url NACH Submit nochmal setzen, da ERPNext es möglicherweise überschreibt
@@ -1183,6 +1184,7 @@ def create_payment_request_for_subscription_invoice(doc, method):
                     _log_err("ERROR: subscription_hook", f"SUBSCRIPTION HOOK: FEHLER - payment_url konnte nicht erstellt werden für Payment Request {payment_request.name}")
 
                 # Submit Payment Request (E-Mail wird manuell gesteuert)
+                payment_request.flags.mute_email = True
                 payment_request.submit()
                 
                 # WICHTIG: payment_url NACH Submit nochmal setzen, da ERPNext es möglicherweise überschreibt
@@ -1631,11 +1633,63 @@ def fulfill_subscription_invoice_with_sales_order(invoice_doc):
         )
 
 
+def _get_subscription_period_anchor_date(sub):
+    """
+    Anker für die Neuberechnung: letzte Auslösung (Rechnung) oder Abo-Start.
+    """
+    last_invoices = frappe.get_all(
+        "Sales Invoice",
+        filters={
+            "subscription": sub.name,
+            "docstatus": ["!=", 2],
+            "is_return": 0,
+        },
+        fields=["posting_date", "from_date", "to_date"],
+        order_by="posting_date desc",
+        limit=1,
+    )
+    if not last_invoices:
+        return sub.start_date, _("Abo-Start")
+
+    inv = last_invoices[0]
+    generate_at = sub.generate_invoice_at or "Beginning of the current subscription period"
+
+    if generate_at == "Beginning of the current subscription period":
+        anchor = inv.posting_date
+    elif generate_at == "End of the current subscription period":
+        anchor = inv.from_date or inv.posting_date
+    else:
+        anchor = inv.from_date or inv.posting_date
+
+    return anchor, _("letzte Auslösung")
+
+
+def _compute_subscription_period_end(sub, period_start):
+    """Periodenende aus Startdatum und aktuellem Plan (ohne ERPNext-Rückfall auf Abo-Start)."""
+    billing_cycle_info = sub.get_billing_cycle_data()
+    if not billing_cycle_info:
+        frappe.throw(_("Kein Abrechnungsintervall im Abonnement-Plan gefunden."))
+
+    period_start = getdate(period_start)
+    period_end = add_to_date(period_start, **billing_cycle_info)
+
+    if sub.follow_calendar_months:
+        billing_info = sub.get_billing_cycle_and_interval()
+        if billing_info:
+            billing_interval_count = billing_info[0]["billing_interval_count"]
+            period_end = get_last_day(add_months(period_start, billing_interval_count - 1))
+
+    if sub.end_date and getdate(period_end) > getdate(sub.end_date):
+        period_end = sub.end_date
+
+    return period_end
+
+
 @frappe.whitelist()
 def recalculate_subscription_period(subscription_name):
     """
-    Berechnet current_invoice_start/end neu anhand des Abo-Starts und der verknüpften Pläne.
-    Für manuelle Plan-/Laufzeitänderungen ohne System Console.
+    Berechnet current_invoice_start/end neu anhand des aktuellen Plans.
+    Laufende Abos: ab letzter Auslösung. Neue Abos ohne Rechnung: ab Abo-Start.
     """
     frappe.has_permission("Subscription", "write", subscription_name, throw=True)
 
@@ -1646,18 +1700,40 @@ def recalculate_subscription_period(subscription_name):
     old_start = sub.current_invoice_start
     old_end = sub.current_invoice_end
 
-    sub.update_subscription_period(sub.start_date)
+    anchor, anchor_source = _get_subscription_period_anchor_date(sub)
+    if not anchor:
+        frappe.throw(_("Kein gültiges Ankerdatum für die Neuberechnung gefunden."))
+
+    period_start = getdate(anchor)
+    period_end = _compute_subscription_period_end(sub, period_start)
+
+    if getdate(period_end) < period_start:
+        frappe.throw(
+            _("Berechnetes Periodenende ({0}) liegt vor dem Periodenstart ({1}).").format(
+                period_end, period_start
+            )
+        )
+
+    sub.current_invoice_start = period_start
+    sub.current_invoice_end = period_end
     sub.save()
+
+    next_term = add_days(period_end, 1)
 
     _log_err(
         "INFO: subscription_period_recalc",
-        f"{subscription_name}: {old_start} -> {old_end} wurde "
-        f"{sub.current_invoice_start} -> {sub.current_invoice_end}",
+        f"{subscription_name} (Anker={anchor_source} {period_start}): "
+        f"{old_start} -> {old_end} wurde {period_start} -> {period_end}, "
+        f"nächster Termin {next_term}",
     )
 
     return {
         "success": True,
         "old_period": f"{old_start} → {old_end}",
-        "new_period": f"{sub.current_invoice_start} → {sub.current_invoice_end}",
-        "message": _("Abo-Periode wurde neu berechnet. Bitte Stripe separat prüfen."),
+        "new_period": f"{period_start} → {period_end}",
+        "next_term": str(next_term),
+        "anchor_source": str(anchor_source),
+        "message": _(
+            "Abo-Periode neu berechnet (Anker: {0}, {1}). Nächster Termin: {2}. Bitte Stripe separat prüfen."
+        ).format(anchor_source, period_start, next_term),
     }
