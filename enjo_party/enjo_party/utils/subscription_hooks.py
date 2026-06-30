@@ -1633,14 +1633,11 @@ def fulfill_subscription_invoice_with_sales_order(invoice_doc):
         )
 
 
-def _get_subscription_period_anchor_date(sub):
-    """
-    Anker für die Neuberechnung: letzte Auslösung (Rechnung) oder Abo-Start.
-    """
-    last_invoices = frappe.get_all(
+def _get_last_subscription_invoice(subscription_name):
+    rows = frappe.get_all(
         "Sales Invoice",
         filters={
-            "subscription": sub.name,
+            "subscription": subscription_name,
             "docstatus": ["!=", 2],
             "is_return": 0,
         },
@@ -1648,20 +1645,60 @@ def _get_subscription_period_anchor_date(sub):
         order_by="posting_date desc",
         limit=1,
     )
-    if not last_invoices:
+    return rows[0] if rows else None
+
+
+def _get_subscription_period_anchor_date(sub, last_invoice=None):
+    """
+    Anker für die Neuberechnung: letzte Auslösung (Rechnung) oder Abo-Start.
+    """
+    last_invoice = last_invoice or _get_last_subscription_invoice(sub.name)
+    if not last_invoice:
         return sub.start_date, _("Abo-Start")
 
-    inv = last_invoices[0]
     generate_at = sub.generate_invoice_at or "Beginning of the current subscription period"
 
     if generate_at == "Beginning of the current subscription period":
-        anchor = inv.posting_date
+        anchor = last_invoice.posting_date
     elif generate_at == "End of the current subscription period":
-        anchor = inv.from_date or inv.posting_date
+        anchor = last_invoice.from_date or last_invoice.posting_date
     else:
-        anchor = inv.from_date or inv.posting_date
+        anchor = last_invoice.from_date or last_invoice.posting_date
 
     return anchor, _("letzte Auslösung")
+
+
+def _resolve_recalculated_period(sub, anchor, last_invoice):
+    """
+    Leitet die neue Abo-Periode ab.
+
+    - Verkürzung (Peggy): bestehende Rechnung deckt länger ab als der neue Plan → Periode am Anker kürzen.
+    - Laufendes Abo (Marzinke): letzte Auslösung liegt zurück → nächste Periode eintragen, nicht erneut öffnen.
+    """
+    anchor = getdate(anchor)
+    period_end_from_anchor = getdate(_compute_subscription_period_end(sub, anchor))
+
+    if last_invoice:
+        inv_to = last_invoice.get("to_date")
+        inv_posting = getdate(last_invoice.get("posting_date"))
+
+        if inv_to and getdate(inv_to) >= period_end_from_anchor and inv_posting <= getdate(today()):
+            return anchor, period_end_from_anchor
+
+        if inv_posting <= getdate(today()):
+            next_start = add_days(period_end_from_anchor, 1)
+            return getdate(next_start), getdate(_compute_subscription_period_end(sub, next_start))
+
+    return anchor, period_end_from_anchor
+
+
+def _get_next_subscription_term(sub, period_start, period_end):
+    generate_at = sub.generate_invoice_at or "Beginning of the current subscription period"
+    if generate_at == "Beginning of the current subscription period":
+        return getdate(period_start)
+    if generate_at == "End of the current subscription period":
+        return getdate(period_end)
+    return getdate(add_days(period_start, -(sub.number_of_days or 0)))
 
 
 def _compute_subscription_period_end(sub, period_start):
@@ -1700,14 +1737,14 @@ def recalculate_subscription_period(subscription_name):
     old_start = sub.current_invoice_start
     old_end = sub.current_invoice_end
 
-    anchor, anchor_source = _get_subscription_period_anchor_date(sub)
+    last_invoice = _get_last_subscription_invoice(sub.name)
+    anchor, anchor_source = _get_subscription_period_anchor_date(sub, last_invoice)
     if not anchor:
         frappe.throw(_("Kein gültiges Ankerdatum für die Neuberechnung gefunden."))
 
-    period_start = getdate(anchor)
-    period_end = _compute_subscription_period_end(sub, period_start)
+    period_start, period_end = _resolve_recalculated_period(sub, anchor, last_invoice)
 
-    if getdate(period_end) < period_start:
+    if getdate(period_end) < getdate(period_start):
         frappe.throw(
             _("Berechnetes Periodenende ({0}) liegt vor dem Periodenstart ({1}).").format(
                 period_end, period_start
@@ -1718,7 +1755,7 @@ def recalculate_subscription_period(subscription_name):
     sub.current_invoice_end = period_end
     sub.save()
 
-    next_term = add_days(period_end, 1)
+    next_term = _get_next_subscription_term(sub, period_start, period_end)
 
     _log_err(
         "INFO: subscription_period_recalc",
