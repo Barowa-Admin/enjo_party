@@ -465,7 +465,10 @@ def _send_subscription_customer_email(
     if not email_to:
         return False
 
-    from enjo_party.enjo_party.utils.invoice_email import filter_external_recipients
+    from enjo_party.enjo_party.utils.invoice_email import (
+        create_invoice_outbound_communication,
+        filter_external_recipients,
+    )
 
     link_doctype = _partner_link_doctype()
     sales_partner = _get_sales_partner_for_invoice(invoice)
@@ -487,6 +490,14 @@ def _send_subscription_customer_email(
     }
     if bcc_list:
         email_args["bcc"] = bcc_list
+
+    email_args["communication"] = create_invoice_outbound_communication(
+        invoice.name,
+        subject,
+        message,
+        email_to,
+        bcc=bcc_list or None,
+    )
 
     enqueue(method=frappe.sendmail, queue="short", timeout=300, is_async=True, **email_args)
 
@@ -636,7 +647,6 @@ def send_subscription_payment_request_email(payment_request, invoice, include_pa
         payment_request_name=payment_request.name,
     ):
         return
-    payment_request.make_communication_entry()
 
 def is_first_invoice_for_subscription(invoice_name, subscription_name):
     """

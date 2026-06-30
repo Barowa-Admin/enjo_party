@@ -155,6 +155,32 @@ def invoice_emails_disabled():
         return False
 
 
+def create_invoice_outbound_communication(
+    invoice_name, subject, message, recipients, bcc=None, email_template=None
+):
+    """Legt einen Communication-Eintrag am Sales Invoice für den Desk-Verlauf an."""
+    if isinstance(bcc, (list, tuple)):
+        bcc = ", ".join(bcc) if bcc else None
+
+    comm = frappe.get_doc(
+        {
+            "doctype": "Communication",
+            "subject": subject,
+            "content": message or subject,
+            "recipients": recipients,
+            "bcc": bcc,
+            "communication_medium": "Email",
+            "communication_type": "Communication",
+            "sent_or_received": "Sent",
+            "reference_doctype": "Sales Invoice",
+            "reference_name": invoice_name,
+            "email_template": email_template,
+        }
+    )
+    comm.insert(ignore_permissions=True)
+    return comm.name
+
+
 def send_customer_invoice_email(invoice_doc):
     """
     Automatischer Kundenversand für Nicht-Abo-Rechnungen (TO Kunde, BCC VP, kein CC).
@@ -219,6 +245,15 @@ def send_customer_invoice_email(invoice_doc):
     }
     if bcc_list:
         email_args["bcc"] = bcc_list
+
+    email_args["communication"] = create_invoice_outbound_communication(
+        invoice_doc.name,
+        subject,
+        message,
+        email_to,
+        bcc=bcc_list or None,
+        email_template="Rechnung",
+    )
 
     enqueue(method=frappe.sendmail, queue="short", timeout=300, is_async=True, **email_args)
 
