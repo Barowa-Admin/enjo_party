@@ -99,6 +99,15 @@ def process_due_subscriptions(posting_date=None, limit=None, batch_log_every=Non
     candidates = []
     aborted = False
     abort_reason = None
+    result = {
+        "today": str(today_date),
+        "candidates": 0,
+        "processed": 0,
+        "skipped": 0,
+        "failed": 0,
+        "aborted": False,
+        "message": "",
+    }
 
     _log_scheduler(f"Subscription-Scheduler gestartet (today={today_date}, limit={candidate_limit})")
 
@@ -161,3 +170,24 @@ def process_due_subscriptions(posting_date=None, limit=None, batch_log_every=Non
         if aborted:
             summary += f", ABORTED={abort_reason}"
         _log_scheduler(summary)
+        result.update(
+            {
+                "candidates": len(candidates),
+                "processed": processed,
+                "skipped": skipped,
+                "failed": failed,
+                "aborted": aborted,
+                "message": summary,
+            }
+        )
+
+    return result
+
+
+@frappe.whitelist()
+def run_process_due_subscriptions_manually(posting_date=None):
+    """
+    Manueller Aufruf aus System Console / Desk (frappe.call).
+    """
+    frappe.only_for("System Manager")
+    return process_due_subscriptions(posting_date=posting_date)
