@@ -256,9 +256,11 @@ doc_events = {
 scheduler_events = {
 	"daily": [
 		"enjo_party.enjo_party.utils.status_scheduler.update_overdue_status",
-		# Verarbeitet fällige Subscriptions automatisiert (Rechnungserstellung)
-		"enjo_party.enjo_party.utils.subscription_scheduler.process_due_subscriptions"
-	]
+	],
+	# Längeres RQ-Timeout (long queue, 1500s) — verhindert Abbruch bei vielen Abos
+	"daily_long": [
+		"enjo_party.enjo_party.utils.subscription_scheduler.process_due_subscriptions",
+	],
 }
 
 # Testing
