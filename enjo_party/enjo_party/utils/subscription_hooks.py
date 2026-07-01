@@ -124,7 +124,11 @@ def process_subscription_billing_safe(subscription_name, posting_date, source="s
         frappe.db.savepoint(savepoint)
         subscription = frappe.get_doc("Subscription", subscription_name)
         subscription.process(posting_date=str(pd))
-        frappe.db.release_savepoint(savepoint)
+        # process()/Invoice-Hooks committen ggf. intern → Savepoint ist dann bereits weg
+        try:
+            frappe.db.release_savepoint(savepoint)
+        except Exception:
+            pass
         frappe.db.commit()
         _log_err(
             "INFO: subscription_billing_processed",
@@ -132,7 +136,10 @@ def process_subscription_billing_safe(subscription_name, posting_date, source="s
         )
         return True
     except Exception as e:
-        frappe.db.rollback(save_point=savepoint)
+        try:
+            frappe.db.rollback(save_point=savepoint)
+        except Exception:
+            frappe.db.rollback()
         _log_err(
             "ERROR: subscription_billing",
             f"{subscription_name} posting_date={pd} source={source}: {str(e)}\n{frappe.get_traceback()}",
