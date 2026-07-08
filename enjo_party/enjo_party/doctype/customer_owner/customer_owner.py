@@ -68,6 +68,9 @@ class CustomerOwner(Document):
 					frappe.throw(f"Kunde {customer_row.customer} existiert nicht.")
 		
 		elif mode == "Alle Kunden von Owner verschieben":
+			# Kunden-Tabelle wird im Bulk-Modus nicht genutzt
+			self.customers = []
+
 			# Validierung für Bulk-Modus
 			if not self.from_owner:
 				frappe.throw("Bitte wähle einen 'Von Owner' aus.")

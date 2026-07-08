@@ -32,9 +32,21 @@ frappe.ui.form.on('Customer Owner', {
 		}
 	},
 	
+	validate(frm) {
+		// Im Bulk-Modus wird die Kunden-Tabelle nicht genutzt – leere Zeilen würden sonst die Validierung blockieren
+		if (frm.doc.mode === 'Alle Kunden von Owner verschieben') {
+			frm.clear_table('customers');
+		}
+	},
+
 	mode(frm) {
 		// Wenn Modus geändert wird, aktualisiere Sichtbarkeit
 		update_field_visibility(frm);
+		
+		if (frm.doc.mode === 'Alle Kunden von Owner verschieben') {
+			frm.clear_table('customers');
+			frm.refresh_field('customers');
+		}
 		
 		// Wenn auf Einzel-Modus gewechselt wird und keine Zeilen vorhanden sind, füge eine leere Zeile hinzu
 		if (frm.doc.mode === 'Einzelne Kunden auswählen') {
