@@ -26,6 +26,48 @@ from frappe.utils import flt, add_days, getdate, today
 OVERDUE_DAYS = 5
 
 
+def _submitted_return_credit_for_invoice(invoice_name):
+    """Summe gebuchter Gutschriften gegen eine Rechnung."""
+    returns = frappe.get_all(
+        "Sales Invoice",
+        filters={
+            "return_against": invoice_name,
+            "docstatus": 1,
+            "is_return": 1,
+        },
+        fields=["grand_total"],
+    )
+    if not returns:
+        return 0
+    return sum(abs(flt(r.grand_total)) for r in returns)
+
+
+def _invoice_fully_credited(inv):
+    """True wenn eine gebuchte Gutschrift den Rechnungsbetrag vollständig ausgleicht."""
+    if inv.get("is_return") or inv.docstatus != 1:
+        return False
+    credited = _submitted_return_credit_for_invoice(inv.name)
+    original = abs(flt(inv.grand_total))
+    return credited >= original - 0.01
+
+
+def _invoice_effectively_unpaid(inv):
+    """Offener Betrag, Gutschriften werden berücksichtigt."""
+    if inv.get("is_return") or inv.docstatus != 1:
+        return False
+    if flt(inv.outstanding_amount) <= 0.01:
+        return False
+    if _invoice_fully_credited(inv):
+        return False
+    return True
+
+
+def refresh_subscription_payment_status_on_invoice_submit(doc, method):
+    """Aktualisiert custom_payment_status nach Rechnungsbuchung (auch Gutschriften)."""
+    if doc.subscription and doc.docstatus == 1:
+        update_subscription_payment_status(doc.subscription)
+
+
 def calculate_subscription_payment_status(subscription_name):
     """
     Berechnet den Zahlungsstatus für eine Subscription.
@@ -50,20 +92,22 @@ def calculate_subscription_payment_status(subscription_name):
             filters={
                 "subscription": subscription_name
             },
-            fields=["name", "docstatus", "outstanding_amount", "due_date", "grand_total"]
+            fields=["name", "docstatus", "outstanding_amount", "due_date", "grand_total", "is_return"]
         )
         
         if not invoices:
             # Keine Rechnungen - Subscription ist aktiv aber noch keine Abrechnung
             return "Bezahlt"  # Oder "Aktiv"?
         
-        # 2. Prüfe auf stornierte Rechnungen (Retourniert)
+        # 2. Prüfe auf stornierte Rechnungen oder vollständige Gutschrift (Retourniert)
         cancelled_invoices = [inv for inv in invoices if inv.docstatus == 2]
         if cancelled_invoices:
             return "Retourniert"
-        
-        # Filtere nur gebuchte Rechnungen für weitere Prüfungen
+
         submitted_invoices = [inv for inv in invoices if inv.docstatus == 1]
+        credited_invoices = [inv for inv in submitted_invoices if _invoice_fully_credited(inv)]
+        if credited_invoices:
+            return "Retourniert"
         
         if not submitted_invoices:
             # Keine gebuchten Rechnungen
@@ -75,7 +119,7 @@ def calculate_subscription_payment_status(subscription_name):
         has_unpaid = False
         
         for inv in submitted_invoices:
-            if flt(inv.outstanding_amount) > 0.01:
+            if _invoice_effectively_unpaid(inv):
                 has_unpaid = True
                 # Prüfe Fälligkeit
                 if inv.due_date:

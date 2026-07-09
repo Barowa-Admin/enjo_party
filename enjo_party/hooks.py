@@ -167,12 +167,14 @@ doc_events = {
 			"enjo_party.enjo_party.utils.subscription_hooks.sync_subscription_partner_to_invoice",
 		],
 		"before_submit": [
+			"enjo_party.enjo_party.utils.subscription_hooks.ensure_subscription_invoice_contact_email",
 			"enjo_party.enjo_party.utils.subscription_hooks.ensure_subscription_invoice_taxes",
 			"enjo_party.enjo_party.utils.sales_invoice_hooks.before_submit_netto_invoice_totals"
 		],
 		"on_submit": [
 			"enjo_party.enjo_party.server_scripts.enjo_punkte_vergabe.award_points_on_invoice_submit",
 			"enjo_party.enjo_party.utils.subscription_hooks.create_payment_request_for_subscription_invoice",
+			"enjo_party.enjo_party.utils.subscription_status_indicator.refresh_subscription_payment_status_on_invoice_submit",
 			"enjo_party.enjo_party.utils.sales_invoice_hooks.send_invoice_email_on_submit",
 			# "enjo_party.enjo_party.utils.sales_invoice_hooks.auto_create_picklist_from_invoice"  # DEAKTIVIERT - wird jetzt in Sammelbestellung gesteuert
 		],

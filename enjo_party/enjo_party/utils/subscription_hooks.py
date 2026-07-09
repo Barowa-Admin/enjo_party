@@ -221,18 +221,78 @@ def was_email_already_sent_for_invoice(invoice_name):
 
     return has_customer_invoice_email_been_sent(invoice_name)
 
+def _get_customer_contact_email(customer):
+    """Primäre Kontakt-E-Mail eines Kunden (Contact Dynamic Links)."""
+    if not customer:
+        return None
+
+    contact_links = frappe.get_all(
+        "Dynamic Link",
+        filters={
+            "link_doctype": "Customer",
+            "link_name": customer,
+            "parenttype": "Contact",
+        },
+        fields=["parent"],
+        order_by="creation asc",
+    )
+    for link in contact_links:
+        try:
+            contact = frappe.get_doc("Contact", link.parent)
+            email = _email_from_contact_doc(contact)
+            if email:
+                return str(email).strip()
+        except Exception:
+            continue
+    return None
+
+
 def get_invoice_email_address(invoice):
     """
     Ermittelt die beste E-Mail-Adresse für die Rechnungszustellung.
+    Reihenfolge: contact_email → Customer.email_id → Contact → Address.
     """
-    if getattr(invoice, "contact_email", None):
-        return invoice.contact_email
+    customer = getattr(invoice, "customer", None)
 
-    customer_email = frappe.db.get_value("Customer", invoice.customer, "email_id")
-    if customer_email:
-        return customer_email
+    contact_email = getattr(invoice, "contact_email", None)
+    if contact_email and str(contact_email).strip():
+        return str(contact_email).strip()
+
+    if customer:
+        customer_email = frappe.db.get_value("Customer", customer, "email_id")
+        if customer_email and str(customer_email).strip():
+            return str(customer_email).strip()
+
+        contact_email = _get_customer_contact_email(customer)
+        if contact_email:
+            return contact_email
+
+    for addr_field in ("customer_address", "shipping_address_name"):
+        addr_name = getattr(invoice, addr_field, None)
+        if addr_name:
+            addr_email = frappe.db.get_value("Address", addr_name, "email_id")
+            if addr_email and str(addr_email).strip():
+                return str(addr_email).strip()
 
     return None
+
+
+def ensure_subscription_invoice_contact_email(doc, method):
+    """Setzt contact_email auf Abo-Rechnungen vor dem Buchen, falls noch leer."""
+    if doc.doctype != "Sales Invoice" or not doc.subscription:
+        return
+
+    email = get_invoice_email_address(doc)
+    si_meta = frappe.get_meta("Sales Invoice")
+
+    if email and si_meta.has_field("contact_email") and not doc.get("contact_email"):
+        doc.contact_email = email
+    elif not email:
+        _log_err(
+            "WARNING: subscription_invoice_email_missing",
+            f"Abo-Rechnung {doc.name}: Kunde {doc.customer} hat keine E-Mail "
+            f"(contact_email, Customer, Contact, Address)",
+        )
 
 
 def _partner_link_doctype():
@@ -609,7 +669,8 @@ def send_subscription_payment_request_email(payment_request, invoice, include_pa
     if not email_to:
         _log_err(
             "WARNING: subscription_email_send",
-            f"Keine E-Mail-Adresse für Invoice {invoice.name} gefunden - Versand übersprungen",
+            f"Keine E-Mail-Adresse für Invoice {invoice.name} (Kunde {invoice.customer}) "
+            f"gefunden - Versand übersprungen. Bitte E-Mail am Kunden, Kontakt oder Adresse pflegen.",
         )
         return
 
@@ -665,7 +726,8 @@ def is_first_invoice_for_subscription(invoice_name, subscription_name):
         invoices = frappe.get_all("Sales Invoice",
             filters={
                 "subscription": subscription_name,
-                "docstatus": 1
+                "docstatus": 1,
+                "is_return": 0,
             },
             fields=["name", "creation"],
             order_by="creation asc"  # Älteste zuerst
@@ -1035,6 +1097,36 @@ def force_subscription_update(doc, method):
         _log_err("ERROR: subscription_hook", f"SUBSCRIPTION HOOK FEHLER für {doc.name}: {str(e)}")
 
 
+def _submit_draft_subscription_payment_request(payment_request, invoice):
+    """Bucht einen Entwurfs-Payment-Request nach, falls der Hook beim ersten Mal abgebrochen hat."""
+    if payment_request.docstatus != 0:
+        return
+
+    email_to = get_invoice_email_address(invoice)
+    if email_to and not payment_request.email_to:
+        payment_request.db_set("email_to", email_to, update_modified=False)
+
+    if not payment_request.payment_url:
+        stripe_url = create_stripe_checkout_session(payment_request)
+        if stripe_url:
+            payment_link_url = get_payment_link_url(payment_request.name)
+            payment_request.db_set("payment_url", payment_link_url, update_modified=False)
+            payment_request.db_set("payment_gateway", "", update_modified=False)
+            frappe.db.commit()
+
+    payment_request.flags.mute_email = True
+    try:
+        payment_request.reload()
+        payment_request.submit()
+        frappe.db.commit()
+    except Exception as e:
+        _log_err(
+            "ERROR: subscription_payment_request",
+            f"Draft Payment Request {payment_request.name} für Invoice {invoice.name} "
+            f"konnte nicht gebucht werden: {str(e)}",
+        )
+
+
 def create_payment_request_for_subscription_invoice(doc, method):
     """
     Erstellt automatisch Payment Request für alle Sales Invoices die zu einem Abonnement gehören
@@ -1044,6 +1136,8 @@ def create_payment_request_for_subscription_invoice(doc, method):
     try:
         # Prüfe ob die Rechnung zu einem Abonnement gehört
         if doc.subscription and doc.docstatus == 1:
+            if getattr(doc, "is_return", 0):
+                return
             # WICHTIG: Prüfe ob bereits eine Stripe Subscription existiert
             # Wenn ja, wird Stripe automatisch abbuchen - keine Payment Request nötig;
             # Kunde erhält nur eine Informations-E-Mail mit Rechnung (ohne Zahlungslink)
@@ -1077,8 +1171,10 @@ def create_payment_request_for_subscription_invoice(doc, method):
             )
             
             if existing_requests:
+                payment_request = frappe.get_doc("Payment Request", existing_requests[0].name)
+                _submit_draft_subscription_payment_request(payment_request, doc)
+                payment_request.reload()
                 if not was_email_already_sent_for_invoice(doc.name):
-                    payment_request = frappe.get_doc("Payment Request", existing_requests[0].name)
                     is_first_invoice = is_first_invoice_for_subscription(
                         doc.name, doc.subscription
                     )
