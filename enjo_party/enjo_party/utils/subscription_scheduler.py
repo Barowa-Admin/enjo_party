@@ -2,10 +2,7 @@
 # -*- coding: utf-8 -*-
 import frappe
 
-from enjo_party.enjo_party.utils.subscription_hooks import (
-    has_non_return_subscription_invoice_for_date,
-    process_subscription_billing_safe,
-)
+from enjo_party.enjo_party.utils.subscription_hooks import process_subscription_billing_safe
 
 # Nur wirklich fällige Abos laden (statt aller Active/Unpaid).
 DEFAULT_CANDIDATE_LIMIT = 500
@@ -94,6 +91,7 @@ def process_due_subscriptions(posting_date=None, limit=None, batch_log_every=Non
     progress_every = batch_log_every if batch_log_every is not None else BATCH_PROGRESS_EVERY
 
     processed = 0
+    advanced = 0
     skipped = 0
     failed = 0
     candidates = []
@@ -103,6 +101,7 @@ def process_due_subscriptions(posting_date=None, limit=None, batch_log_every=Non
         "today": str(today_date),
         "candidates": 0,
         "processed": 0,
+        "advanced": 0,
         "skipped": 0,
         "failed": 0,
         "aborted": False,
@@ -131,12 +130,13 @@ def process_due_subscriptions(posting_date=None, limit=None, batch_log_every=Non
                     skipped += 1
                     continue
 
-                if has_non_return_subscription_invoice_for_date(name, pd):
-                    skipped += 1
-                    continue
-
-                if process_subscription_billing_safe(name, pd, source="scheduler"):
+                # Kein Vorfilter auf existierende SI — process_subscription_billing_safe
+                # entscheidet: unpaid→skip, settled→advance, missing→process.
+                outcome = process_subscription_billing_safe(name, pd, source="scheduler")
+                if outcome == "processed":
                     processed += 1
+                elif outcome == "advanced":
+                    advanced += 1
                 else:
                     skipped += 1
 
@@ -151,7 +151,7 @@ def process_due_subscriptions(posting_date=None, limit=None, batch_log_every=Non
             if progress_every and idx % progress_every == 0:
                 _log_scheduler(
                     f"Subscription-Scheduler Fortschritt: {idx}/{len(candidates)} "
-                    f"processed={processed} skipped={skipped} failed={failed}"
+                    f"processed={processed} advanced={advanced} skipped={skipped} failed={failed}"
                 )
 
     except Exception as e:
@@ -164,8 +164,8 @@ def process_due_subscriptions(posting_date=None, limit=None, batch_log_every=Non
         raise
     finally:
         summary = (
-            f"Subscription-Scheduler fertig: processed={processed}, skipped={skipped}, "
-            f"failed={failed}, candidates={len(candidates)}"
+            f"Subscription-Scheduler fertig: processed={processed}, advanced={advanced}, "
+            f"skipped={skipped}, failed={failed}, candidates={len(candidates)}"
         )
         if aborted:
             summary += f", ABORTED={abort_reason}"
@@ -174,6 +174,7 @@ def process_due_subscriptions(posting_date=None, limit=None, batch_log_every=Non
             {
                 "candidates": len(candidates),
                 "processed": processed,
+                "advanced": advanced,
                 "skipped": skipped,
                 "failed": failed,
                 "aborted": aborted,

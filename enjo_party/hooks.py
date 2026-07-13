@@ -165,17 +165,20 @@ doc_events = {
 		"before_save": [
 			"enjo_party.enjo_party.utils.sales_invoice_hooks.add_shipping_to_sales_invoice",
 			"enjo_party.enjo_party.utils.subscription_hooks.sync_subscription_partner_to_invoice",
+			"enjo_party.enjo_party.utils.subscription_hooks.auto_link_subscription_on_sales_invoice",
 		],
 		"before_submit": [
 			"enjo_party.enjo_party.utils.subscription_hooks.ensure_subscription_invoice_contact_email",
 			"enjo_party.enjo_party.utils.subscription_hooks.ensure_subscription_invoice_taxes",
-			"enjo_party.enjo_party.utils.sales_invoice_hooks.before_submit_netto_invoice_totals"
+			"enjo_party.enjo_party.utils.sales_invoice_hooks.before_submit_netto_invoice_totals",
+			"enjo_party.enjo_party.utils.sales_invoice_return.ensure_return_clears_original_outstanding",
 		],
 		"on_submit": [
 			"enjo_party.enjo_party.server_scripts.enjo_punkte_vergabe.award_points_on_invoice_submit",
 			"enjo_party.enjo_party.utils.subscription_hooks.create_payment_request_for_subscription_invoice",
 			"enjo_party.enjo_party.utils.subscription_status_indicator.refresh_subscription_payment_status_on_invoice_submit",
 			"enjo_party.enjo_party.utils.sales_invoice_hooks.send_invoice_email_on_submit",
+			"enjo_party.enjo_party.utils.sales_invoice_return.allocate_return_against_original",
 			# "enjo_party.enjo_party.utils.sales_invoice_hooks.auto_create_picklist_from_invoice"  # DEAKTIVIERT - wird jetzt in Sammelbestellung gesteuert
 		],
 		"on_cancel": "enjo_party.enjo_party.server_scripts.enjo_punkte_vergabe.cancel_points_on_invoice_cancel",
@@ -231,7 +234,11 @@ doc_events = {
 		"before_submit": "enjo_party.enjo_party.utils.pick_list_hooks.before_submit_pick_list"
 	},
 	"Subscription": {
-		"before_validate": "enjo_party.enjo_party.utils.subscription_hooks.validate_subscription_end_date",
+		"before_validate": [
+			"enjo_party.enjo_party.utils.subscription_hooks.validate_subscription_end_date",
+			"enjo_party.enjo_party.utils.subscription_hooks.validate_single_active_subscription",
+		],
+		"before_save": "enjo_party.enjo_party.utils.subscription_hooks.clear_payment_status_on_cancelled_subscription",
 		"after_insert": "enjo_party.enjo_party.utils.subscription_hooks.force_subscription_update",
 		"on_cancel": "enjo_party.enjo_party.utils.subscription_hooks.handle_subscription_cancel"
 	},

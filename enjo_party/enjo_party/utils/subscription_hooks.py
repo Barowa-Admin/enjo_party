@@ -1,6 +1,6 @@
 import frappe
 from frappe import _
-from frappe.utils import add_days, add_months, add_to_date, get_last_day, getdate, today
+from frappe.utils import add_days, add_months, add_to_date, flt, get_last_day, getdate, today
 from enjo_party.enjo_party.utils.stripe_checkout import create_stripe_checkout_session, get_payment_link_url
 from enjo_party.enjo_party.utils.stripe_subscription import cancel_stripe_subscription_at_period_end
 from enjo_party.enjo_party.utils.sales_invoice_hooks import ensure_inclusive_taxes
@@ -74,57 +74,50 @@ def _get_existing_subscription_invoice_for_billing(
     return None, None
 
 
-def process_subscription_billing_safe(subscription_name, posting_date, source="scheduler"):
-    """
-    Ruft subscription.process() nur auf, wenn noch keine Rechnung für diese Periode existiert.
-    Serialisiert parallele Läufe per FOR UPDATE auf dem Abo-Datensatz.
-
-    Kein frappe.db.begin()/rollback() auf der äußeren Transaktion — sonst wird z. B. beim
-    after_insert-Hook das gerade angelegte Abo wieder verworfen (UI zeigt es, DB 404).
-    """
-    pd = frappe.utils.getdate(posting_date)
-    rows = frappe.db.sql(
-        """
-        SELECT name, current_invoice_start, current_invoice_end
-        FROM `tabSubscription`
-        WHERE name = %s
-        FOR UPDATE
-        """,
-        (subscription_name,),
+def _invoice_is_settled(invoice_name):
+    """True wenn gebuchte SI ausgeglichen ist (Paid / Outstanding≈0 / vollständige Gutschrift)."""
+    inv = frappe.db.get_value(
+        "Sales Invoice",
+        invoice_name,
+        ["name", "docstatus", "status", "outstanding_amount", "is_return", "grand_total"],
         as_dict=True,
     )
-    if not rows:
-        _log_err(
-            "INFO: subscription_billing_skipped",
-            f"{subscription_name} posting_date={pd} reason=not_found source={source}",
-        )
+    if not inv or inv.docstatus != 1 or inv.is_return:
         return False
+    if flt(inv.outstanding_amount) <= 0.01:
+        return True
+    if inv.status == "Paid":
+        return True
+    from enjo_party.enjo_party.utils.subscription_status_indicator import _invoice_fully_credited
 
-    sub_row = rows[0]
-    existing_name, skip_reason = _get_existing_subscription_invoice_for_billing(
-        subscription_name,
-        pd,
-        sub_row.get("current_invoice_start"),
-        sub_row.get("current_invoice_end"),
-    )
-    if existing_name:
-        _log_err(
-            "INFO: subscription_billing_skipped",
-            f"{subscription_name} posting_date={pd} reason={skip_reason} "
-            f"invoice={existing_name} source={source}",
-        )
-        _log_err(
-            "WARNING: subscription_billing_duplicate_prevented",
-            f"{subscription_name} posting_date={pd} existing={existing_name} source={source}",
-        )
-        return False
+    return _invoice_fully_credited(inv)
 
+
+def _get_processing_date_for_subscription(subscription, today_date=None):
+    """Fälligkeitsdatum analog Scheduler (Beginning / End / Days before)."""
+    _ = today_date  # API-Kompatibilität zum Scheduler
+    generate_invoice_at = subscription.get("generate_invoice_at")
+    if not generate_invoice_at or generate_invoice_at == "Beginning of the current subscription period":
+        return subscription.get("current_invoice_start")
+    if generate_invoice_at == "End of the current subscription period":
+        return subscription.get("current_invoice_end")
+    if generate_invoice_at == "Days before the current subscription period":
+        cis = subscription.get("current_invoice_start")
+        if not cis:
+            return None
+        nd = subscription.get("number_of_days") or 0
+        return add_days(cis, -nd)
+    return None
+
+
+def _run_subscription_process(subscription_name, posting_date, source):
+    """Ruft subscription.process() mit Savepoint auf. Liefert True bei Erfolg."""
+    pd = getdate(posting_date)
     savepoint = f"sub_bill_{frappe.generate_hash(length=10)}"
     try:
         frappe.db.savepoint(savepoint)
         subscription = frappe.get_doc("Subscription", subscription_name)
         subscription.process(posting_date=str(pd))
-        # process()/Invoice-Hooks committen ggf. intern → Savepoint ist dann bereits weg
         try:
             frappe.db.release_savepoint(savepoint)
         except Exception:
@@ -145,6 +138,116 @@ def process_subscription_billing_safe(subscription_name, posting_date, source="s
             f"{subscription_name} posting_date={pd} source={source}: {str(e)}\n{frappe.get_traceback()}",
         )
         raise
+
+
+def process_subscription_billing_safe(subscription_name, posting_date, source="scheduler"):
+    """
+    Sichere Abo-Abrechnung (FOR UPDATE):
+    - Draft-SI für Periode → skip
+    - Unbezahlte SI → skip
+    - Bezahlte/ausgleichene SI und Periode abgelaufen → Periode vorrücken, ggf. nächste SI
+    - Keine SI und fällig → subscription.process()
+
+    Rückgabe: "processed" | "advanced" | "skipped"
+    """
+    today_date = getdate(today())
+    pd = getdate(posting_date)
+    rows = frappe.db.sql(
+        """
+        SELECT name, current_invoice_start, current_invoice_end
+        FROM `tabSubscription`
+        WHERE name = %s
+        FOR UPDATE
+        """,
+        (subscription_name,),
+        as_dict=True,
+    )
+    if not rows:
+        _log_err(
+            "INFO: subscription_billing_skipped",
+            f"{subscription_name} posting_date={pd} reason=not_found source={source}",
+        )
+        return "skipped"
+
+    sub_row = rows[0]
+    cis = sub_row.get("current_invoice_start")
+    cie = sub_row.get("current_invoice_end")
+    existing_name, skip_reason = _get_existing_subscription_invoice_for_billing(
+        subscription_name,
+        pd,
+        cis,
+        cie,
+    )
+
+    if existing_name:
+        inv_docstatus = frappe.db.get_value("Sales Invoice", existing_name, "docstatus")
+        if inv_docstatus == 0:
+            _log_err(
+                "INFO: subscription_billing_skipped",
+                f"{subscription_name} posting_date={pd} reason=draft_invoice "
+                f"invoice={existing_name} source={source}",
+            )
+            return "skipped"
+
+        if not _invoice_is_settled(existing_name):
+            _log_err(
+                "INFO: subscription_billing_skipped",
+                f"{subscription_name} posting_date={pd} reason=unpaid_invoice "
+                f"invoice={existing_name} skip_match={skip_reason} source={source}",
+            )
+            return "skipped"
+
+        cie_date = getdate(cie) if cie else None
+        if not cie_date or today_date < cie_date:
+            _log_err(
+                "INFO: subscription_billing_skipped",
+                f"{subscription_name} posting_date={pd} reason=settled_period_open "
+                f"invoice={existing_name} source={source}",
+            )
+            return "skipped"
+
+        # Bezahlte Periode abgelaufen → vorrücken (wie ERPNext nach generate_invoice)
+        subscription = frappe.get_doc("Subscription", subscription_name)
+        next_start = add_days(cie_date, 1)
+        subscription.update_subscription_period(next_start)
+        subscription.set_subscription_status(posting_date=str(pd))
+        subscription.save()
+        frappe.db.commit()
+        _log_err(
+            "INFO: subscription_billing_advanced",
+            f"{subscription_name} next_start={next_start} settled_invoice={existing_name} source={source}",
+        )
+
+        subscription.reload()
+        cis = subscription.current_invoice_start
+        cie = subscription.current_invoice_end
+        processing_date = _get_processing_date_for_subscription(subscription, today_date)
+        if not processing_date:
+            return "advanced"
+        pd = getdate(processing_date)
+        if pd > today_date:
+            return "advanced"
+
+        existing_name, skip_reason = _get_existing_subscription_invoice_for_billing(
+            subscription_name, pd, cis, cie
+        )
+        if existing_name:
+            _log_err(
+                "INFO: subscription_billing_skipped",
+                f"{subscription_name} posting_date={pd} reason=period_already_invoiced_after_advance "
+                f"invoice={existing_name} source={source}",
+            )
+            return "advanced"
+
+    elif pd > today_date:
+        _log_err(
+            "INFO: subscription_billing_skipped",
+            f"{subscription_name} posting_date={pd} reason=not_due source={source}",
+        )
+        return "skipped"
+
+    _run_subscription_process(subscription_name, pd, source)
+    return "processed"
 
 
 def has_stripe_subscription(erpnext_subscription_name):
@@ -758,7 +861,16 @@ def handle_subscription_cancel(doc, method):
     """
     try:
         _log_err("DEBUG: subscription_hook", f"HOOK AUFGERUFEN: handle_subscription_cancel für {doc.name}, Status: {doc.status}, Method: {method}")
-        
+
+        if frappe.db.has_column("Subscription", "custom_payment_status"):
+            frappe.db.set_value(
+                "Subscription",
+                doc.name,
+                "custom_payment_status",
+                "Beendet",
+                update_modified=False,
+            )
+
         # Prüfe ob das Abo aktiv war (nicht bereits storniert)
         if doc.status == "Cancelled":
             _log_err("DEBUG: subscription_hook", f"ABO STORNIERT {doc.name}: starte Stripe Kündigung")
@@ -775,6 +887,95 @@ def handle_subscription_cancel(doc, method):
             _log_err("DEBUG: subscription_hook", f"ABO STORNIERT {doc.name}: Status ist nicht 'Cancelled' ({doc.status}), überspringe Stripe Kündigung")
     except Exception as e:
         _log_err("ERROR: subscription_hook", f"Fehler in handle_subscription_cancel für {doc.name}: {str(e)}\n{frappe.get_traceback()}")
+
+
+def validate_single_active_subscription(doc, method):
+    """
+    Verhindert ein zweites Active-Abo für denselben Kunden.
+    Bestehende Active-Abos (Altlast) dürfen weiter gespeichert werden;
+    blockiert nur neue Active-Abos bzw. Reaktivierung.
+    Override: frappe.flags.ignore_multiple_active_subscriptions = True
+    """
+    if getattr(frappe.flags, "ignore_multiple_active_subscriptions", False):
+        return
+    if doc.status != "Active" or not doc.party:
+        return
+
+    # Altlast: bereits Active in DB → Speichern erlauben (z. B. Janina)
+    if doc.name and not doc.is_new():
+        db_status = frappe.db.get_value("Subscription", doc.name, "status")
+        if db_status == "Active":
+            return
+
+    filters = {
+        "party": doc.party,
+        "status": "Active",
+        "docstatus": ["!=", 2],
+    }
+    if doc.name:
+        filters["name"] = ["!=", doc.name]
+
+    other = frappe.get_all(
+        "Subscription",
+        filters=filters,
+        fields=["name"],
+        limit_page_length=1,
+    )
+    if other:
+        frappe.throw(
+            _(
+                "Kunde {0} hat bereits ein aktives Abo ({1}). "
+                "Bitte zuerst das bestehende Abo beenden oder kündigen, "
+                "bevor ein weiteres Active-Abo angelegt wird."
+            ).format(doc.party, other[0].name)
+        )
+
+
+def clear_payment_status_on_cancelled_subscription(doc, method):
+    """Setzt custom_payment_status auf Beendet, wenn Status Cancelled ist."""
+    if doc.status != "Cancelled":
+        return
+    if frappe.db.has_column("Subscription", "custom_payment_status"):
+        doc.custom_payment_status = "Beendet"
+
+
+def auto_link_subscription_on_sales_invoice(doc, method):
+    """
+    before_save SI: Wenn subscription leer und Kunde genau ein Active-Abo hat → automatisch setzen.
+    Bei mehreren Active-Abos nur Warnung.
+    """
+    if getattr(doc, "subscription", None) or not getattr(doc, "customer", None):
+        return
+    if getattr(doc, "is_return", 0):
+        return
+
+    active = frappe.get_all(
+        "Subscription",
+        filters={
+            "party": doc.customer,
+            "status": "Active",
+            "docstatus": ["!=", 2],
+        },
+        fields=["name"],
+        limit_page_length=5,
+    )
+    if len(active) == 1:
+        doc.subscription = active[0].name
+        frappe.msgprint(
+            _("Abo {0} automatisch mit dieser Rechnung verknüpft.").format(active[0].name),
+            indicator="blue",
+            alert=True,
+        )
+    elif len(active) > 1:
+        names = ", ".join(a.name for a in active)
+        frappe.msgprint(
+            _(
+                "Kunde hat mehrere Active-Abos ({0}). Bitte Feld „Subscription“ manuell setzen."
+            ).format(names),
+            indicator="orange",
+            alert=True,
+        )
+
 
 def force_subscription_update(doc, method):
     """
