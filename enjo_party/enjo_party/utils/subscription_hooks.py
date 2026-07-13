@@ -145,7 +145,7 @@ def process_subscription_billing_safe(subscription_name, posting_date, source="s
     Sichere Abo-Abrechnung (FOR UPDATE):
     - Draft-SI für Periode → skip
     - Unbezahlte SI → skip
-    - Bezahlte/ausgleichene SI und Periode abgelaufen → Periode vorrücken, ggf. nächste SI
+    - Bezahlte/ausgleichene SI für die Periode → Periode vorrücken, ggf. nächste SI
     - Keine SI und fällig → subscription.process()
 
     Rückgabe: "processed" | "advanced" | "skipped"
@@ -197,18 +197,10 @@ def process_subscription_billing_safe(subscription_name, posting_date, source="s
             )
             return "skipped"
 
-        cie_date = getdate(cie) if cie else None
-        if not cie_date or today_date < cie_date:
-            _log_err(
-                "INFO: subscription_billing_skipped",
-                f"{subscription_name} posting_date={pd} reason=settled_period_open "
-                f"invoice={existing_name} source={source}",
-            )
-            return "skipped"
-
-        # Bezahlte Periode abgelaufen → vorrücken (wie ERPNext nach generate_invoice)
+        # Bezahlte Abrechnung für diese Periode → vorrücken (wie ERPNext direkt nach generate_invoice)
         subscription = frappe.get_doc("Subscription", subscription_name)
-        next_start = add_days(cie_date, 1)
+        cie_date = getdate(cie) if cie else None
+        next_start = add_days(cie_date, 1) if cie_date else add_days(pd, 1)
         subscription.update_subscription_period(next_start)
         subscription.set_subscription_status(posting_date=str(pd))
         subscription.save()
