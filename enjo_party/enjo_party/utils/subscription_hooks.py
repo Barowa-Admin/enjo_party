@@ -889,48 +889,6 @@ def handle_subscription_cancel(doc, method):
         _log_err("ERROR: subscription_hook", f"Fehler in handle_subscription_cancel für {doc.name}: {str(e)}\n{frappe.get_traceback()}")
 
 
-def validate_single_active_subscription(doc, method):
-    """
-    Verhindert ein zweites Active-Abo für denselben Kunden.
-    Bestehende Active-Abos (Altlast) dürfen weiter gespeichert werden;
-    blockiert nur neue Active-Abos bzw. Reaktivierung.
-    Override: frappe.flags.ignore_multiple_active_subscriptions = True
-    """
-    if getattr(frappe.flags, "ignore_multiple_active_subscriptions", False):
-        return
-    if doc.status != "Active" or not doc.party:
-        return
-
-    # Altlast: bereits Active in DB → Speichern erlauben (z. B. Janina)
-    if doc.name and not doc.is_new():
-        db_status = frappe.db.get_value("Subscription", doc.name, "status")
-        if db_status == "Active":
-            return
-
-    filters = {
-        "party": doc.party,
-        "status": "Active",
-        "docstatus": ["!=", 2],
-    }
-    if doc.name:
-        filters["name"] = ["!=", doc.name]
-
-    other = frappe.get_all(
-        "Subscription",
-        filters=filters,
-        fields=["name"],
-        limit_page_length=1,
-    )
-    if other:
-        frappe.throw(
-            _(
-                "Kunde {0} hat bereits ein aktives Abo ({1}). "
-                "Bitte zuerst das bestehende Abo beenden oder kündigen, "
-                "bevor ein weiteres Active-Abo angelegt wird."
-            ).format(doc.party, other[0].name)
-        )
-
-
 def clear_payment_status_on_cancelled_subscription(doc, method):
     """Setzt custom_payment_status auf Beendet, wenn Status Cancelled ist."""
     if doc.status != "Cancelled":

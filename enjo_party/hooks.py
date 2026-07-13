@@ -234,10 +234,7 @@ doc_events = {
 		"before_submit": "enjo_party.enjo_party.utils.pick_list_hooks.before_submit_pick_list"
 	},
 	"Subscription": {
-		"before_validate": [
-			"enjo_party.enjo_party.utils.subscription_hooks.validate_subscription_end_date",
-			"enjo_party.enjo_party.utils.subscription_hooks.validate_single_active_subscription",
-		],
+		"before_validate": "enjo_party.enjo_party.utils.subscription_hooks.validate_subscription_end_date",
 		"before_save": "enjo_party.enjo_party.utils.subscription_hooks.clear_payment_status_on_cancelled_subscription",
 		"after_insert": "enjo_party.enjo_party.utils.subscription_hooks.force_subscription_update",
 		"on_cancel": "enjo_party.enjo_party.utils.subscription_hooks.handle_subscription_cancel"

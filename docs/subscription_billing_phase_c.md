@@ -4,7 +4,7 @@
 
 1. **Perioden-Deadlock:** Bezahlte Perioden-SI blockierte den Scheduler dauerhaft. Jetzt: settled → Periode vorrücken (`current_invoice_end + 1`), fehlende fällige SI → `process()`, unbezahlte SI → warten.
 2. **Retoure / Overdue:** Neue Retouren setzen `update_outstanding_for_self=0` wenn möglich und verrechnen per `reconcile_dr_cr_note`, falls Original-Outstanding bleibt.
-3. **Betriebs-Klarheit:** Zweites Active-Abo pro Kunde wird blockiert; SI ohne `subscription` wird bei genau einem Active-Abo verknüpft; Cancelled setzt `custom_payment_status=Beendet`.
+3. **Betriebs-Klarheit:** SI ohne `subscription` wird bei genau einem Active-Abo automatisch verknüpft (bei mehreren nur Hinweis); Cancelled setzt `custom_payment_status=Beendet`. Mehrere Active-Abos pro Kunde bleiben erlaubt.
 
 ## Technik
 
@@ -44,19 +44,7 @@ frappe.call("enjo_party.enjo_party.utils.sales_invoice_return.repair_unallocated
    - Ildiko `ACC-SUB-2026-00027`: neue SI für aktuelle Periode bzw. Periode korrekt
    - Marie `ACC-SINV-2026-00531`: Feld `subscription` = `ACC-SUB-2026-00014`
    - Ein Overdue+Return-Paar: Original `outstanding_amount` ≈ 0
-   - Janina: zwei Active-Abos bleiben (Büro entscheidet); neue zweiten Active-Abos werden blockiert
-
-## Override Mehrfach-Abo
-
-Bestehende doppelte Active-Abos (Altlast) können weiter gespeichert werden. Blockiert werden nur **neue** Active-Abos bzw. Reaktivierung, solange bereits ein Active-Abo existiert.
-
-Nur für Migration / Catch-up:
-
-```python
-frappe.flags.ignore_multiple_active_subscriptions = True
-# … Speichern …
-frappe.flags.ignore_multiple_active_subscriptions = False
-```
+   - Janina: zwei Active-Abos bleiben – Büro klärt, welches aktiv bleiben soll
 
 ## Mail-Entwurf an Esther (Büro)
 
@@ -68,7 +56,7 @@ wir haben die von Dir gemeldeten Abo-Probleme strukturell behoben:
 
 1. **Bezahlt, aber keine neue Abo-Rechnung:** Nach Zahlung blieb die Abrechnungsperiode hängen – der Automat hat deshalb keine Folgerechnung erzeugt. Das ist korrigiert; bestehende hängende Abos werden nachgezogen.
 2. **Retoure, aber Rechnung weiter „überfällig“:** Gutschriften werden künftig gegen die Originalrechnung verrechnet, sodass der offene Betrag verschwindet. Alte Fälle bereinigen wir einmalig.
-3. **Mehrere Abos / manuelle Rechnungen:** Es kann pro Kundin nur noch ein aktives Abo geben. Manuelle Rechnungen werden bei genau einem aktiven Abo automatisch verknüpft. Beendete Abos zeigen nicht mehr irreführende Zahlungsstatus.
+3. **Mehrere Abos / manuelle Rechnungen:** Mehrere Abos pro Kundin bleiben möglich. Manuelle Rechnungen werden bei genau einem aktiven Abo automatisch verknüpft; bei mehreren erscheint ein Hinweis. Beendete Abos zeigen nicht mehr irreführende Zahlungsstatus.
 
 Bitte prüft kurz:
 - Kundin Janina Frömmigen: aktuell noch zwei aktive Abos – welches soll aktiv bleiben?
