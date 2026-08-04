@@ -3,6 +3,10 @@
 import frappe
 
 from enjo_party.enjo_party.utils.subscription_hooks import process_subscription_billing_safe
+from enjo_party.enjo_party.utils.subscription_settings_helper import (
+    is_subscription_automation_paused,
+    log_subscription_automation_paused,
+)
 
 # Nur wirklich fällige Abos laden (statt aller Active/Unpaid).
 DEFAULT_CANDIDATE_LIMIT = 500
@@ -109,6 +113,14 @@ def process_due_subscriptions(posting_date=None, limit=None, batch_log_every=Non
     }
 
     _log_scheduler(f"Subscription-Scheduler gestartet (today={today_date}, limit={candidate_limit})")
+
+    if is_subscription_automation_paused():
+        log_subscription_automation_paused(
+            f"Subscription-Scheduler übersprungen (today={today_date}, limit={candidate_limit})"
+        )
+        result["message"] = "paused"
+        _log_scheduler("Subscription-Scheduler pausiert (Abonnementeinstellungen)")
+        return result
 
     try:
         candidates = _get_due_subscription_candidates(today_date, candidate_limit)

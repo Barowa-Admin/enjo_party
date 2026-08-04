@@ -4,6 +4,11 @@ from frappe.utils import add_days, add_months, add_to_date, flt, get_last_day, g
 from enjo_party.enjo_party.utils.stripe_checkout import create_stripe_checkout_session, get_payment_link_url
 from enjo_party.enjo_party.utils.stripe_subscription import cancel_stripe_subscription_at_period_end
 from enjo_party.enjo_party.utils.sales_invoice_hooks import ensure_inclusive_taxes
+from enjo_party.enjo_party.utils.subscription_settings_helper import (
+    AUTOMATED_BILLING_SOURCES,
+    is_subscription_automation_paused,
+    log_subscription_automation_paused,
+)
 
 # Stripe EUR Gateway: erste Abo-Mail (message-Feld) + Folge-Mail (Custom Fields) am selben Datensatz
 STRIPE_EUR_PAYMENT_GATEWAY_ACCOUNT = "Stripe-Stripe - EUR"
@@ -150,6 +155,16 @@ def process_subscription_billing_safe(subscription_name, posting_date, source="s
 
     Rückgabe: "processed" | "advanced" | "skipped"
     """
+    if source in AUTOMATED_BILLING_SOURCES and is_subscription_automation_paused():
+        log_subscription_automation_paused(
+            f"{subscription_name} posting_date={posting_date} source={source}"
+        )
+        _log_err(
+            "INFO: subscription_billing_skipped",
+            f"{subscription_name} posting_date={posting_date} reason=automation_paused source={source}",
+        )
+        return "skipped"
+
     today_date = getdate(today())
     pd = getdate(posting_date)
     rows = frappe.db.sql(
@@ -598,11 +613,24 @@ def _log_abo_mail_partner_bcc_audit(
 
 def _subscription_emails_disabled():
     try:
+        if is_subscription_automation_paused():
+            return True
         return bool(
             frappe.db.get_single_value("System Settings", "custom_disable_subscription_emails")
         )
     except Exception:
         return False
+
+
+def _subscription_email_disabled_reason():
+    try:
+        if is_subscription_automation_paused():
+            return "Subscription Settings Pause"
+        if frappe.db.get_single_value("System Settings", "custom_disable_subscription_emails"):
+            return "System Settings"
+    except Exception:
+        pass
+    return None
 
 
 def _send_subscription_customer_email(
@@ -617,9 +645,10 @@ def _send_subscription_customer_email(
     Zentraler Abo-Kundenversand inkl. BCC an die Vertriebspartnerin.
     """
     if _subscription_emails_disabled():
+        reason = _subscription_email_disabled_reason() or "deaktiviert"
         _log_err(
             "INFO: subscription_email_disabled",
-            f"Abo-E-Mail Versand deaktiviert (System Settings) - Invoice {invoice.name} wird übersprungen",
+            f"Abo-E-Mail Versand deaktiviert ({reason}) - Invoice {invoice.name} wird übersprungen",
         )
         return False
 

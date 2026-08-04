@@ -8,6 +8,10 @@ Einmalige Catch-up-Hilfen für Abo Phase C (System Manager / System Console).
 import frappe
 from frappe.utils import getdate, today
 
+from enjo_party.enjo_party.utils.subscription_settings_helper import (
+    ensure_subscription_automation_not_paused,
+)
+
 
 def _log_catchup(title, message=None):
     t = (title or "Error")[:140]
@@ -21,6 +25,7 @@ def advance_settled_subscription_periods(limit=200):
     und erzeugt ggf. die nächste fällige Rechnung (max. eine SI pro Abo und Lauf).
     """
     frappe.only_for("System Manager")
+    ensure_subscription_automation_not_paused("advance_settled_subscription_periods")
     from enjo_party.enjo_party.utils.subscription_scheduler import process_due_subscriptions
 
     limit = int(limit or 200)
@@ -36,6 +41,10 @@ def force_process_subscription(subscription_name, posting_date=None):
     frappe.only_for("System Manager")
     if not subscription_name:
         frappe.throw("subscription_name erforderlich")
+
+    ensure_subscription_automation_not_paused(
+        f"force_process_subscription subscription={subscription_name}"
+    )
 
     from enjo_party.enjo_party.utils.subscription_hooks import (
         _get_processing_date_for_subscription,

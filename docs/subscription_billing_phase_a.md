@@ -27,6 +27,7 @@
 1. **Scheduled Job Type:** Nur ein aktiver Job für `process_due_subscriptions` (kein zweiter ERPNext-Subscription-Job parallel).
 2. **Scheduler:** Nur ein `bench schedule`-Prozess / kein doppelter Cron auf zwei Servern.
 3. **System Settings:** `custom_disable_invoice_emails` betrifft nur Nicht-Abo-Rechnungen; Abo-Mails laufen über Payment Request / Informationsmail.
+4. **Abonnementeinstellungen:** Pause-Schalter — siehe [subscription_billing_pause.md](subscription_billing_pause.md).
 
 ## Nächster Monatslauf
 

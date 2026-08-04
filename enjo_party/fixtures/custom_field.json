@@ -151,6 +151,17 @@
  },
  {
   "doctype": "Custom Field",
+  "name": "Subscription Settings-custom_pause_automatic_subscription_billing",
+  "dt": "Subscription Settings",
+  "fieldname": "custom_pause_automatic_subscription_billing",
+  "fieldtype": "Check",
+  "label": "Automatische Abo-Abrechnung pausieren",
+  "default": "0",
+  "description": "Keine automatischen Abo-Rechnungen, kein Scheduler-Lauf, keine Abo-Kundenmails. Manuelle Rechnungen weiter möglich.",
+  "insert_after": "prorate"
+ },
+ {
+  "doctype": "Custom Field",
   "name": "Payment Gateway Account-custom_abo_email_section",
   "dt": "Payment Gateway Account",
   "fieldname": "custom_abo_email_section",
